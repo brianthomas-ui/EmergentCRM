@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import client from "@/api";
 import { useAuth } from "@/context/AuthContext";
-import { money, Badge, fmtDateTime, stageClass } from "@/components/helpers";
+import { money, Badge, fmtDateTime } from "@/components/helpers";
 import {
   TrendingUp,
   CalendarCheck,
@@ -72,7 +72,9 @@ export default function Dashboard() {
   const [data, setData] = useState(null);
 
   useEffect(() => {
+    // mount-only: fetch dashboard once
     client.get("/dashboard").then((r) => setData(r.data));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (!data) return <div className="text-slate-400 text-sm">Loading dashboard…</div>;

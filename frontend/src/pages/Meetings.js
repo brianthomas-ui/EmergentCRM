@@ -25,7 +25,10 @@ export default function Meetings() {
     if (driverFilter) params.driver = driverFilter;
     client.get("/meetings", { params }).then((r) => setMeetings(r.data));
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [todayOnly, driverFilter]);
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [todayOnly, driverFilter]);
 
   const saveOutcome = async () => {
     try {

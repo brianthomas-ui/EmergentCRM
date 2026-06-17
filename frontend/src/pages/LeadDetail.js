@@ -260,7 +260,7 @@ export default function LeadDetail() {
               <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3">Ownership History</h3>
               <div className="space-y-2">
                 {lead.ownership_history.map((h, i) => (
-                  <div key={i} className="text-xs text-slate-600">
+                  <div key={`${h.at}-${i}`} className="text-xs text-slate-600">
                     <span className="text-slate-400">{h.from || "Unassigned"}</span> → <span className="font-semibold">{h.to}</span>
                     <span className="text-slate-400"> · {h.by} · {timeAgo(h.at)}</span>
                   </div>

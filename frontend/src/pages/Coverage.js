@@ -23,6 +23,15 @@ const SEG_COLORS = {
   Uncovered: "#E2E8F0",
 };
 
+// Stable chart style objects (defined once, not re-created per render)
+const CHART_MARGIN = { top: 4, right: 8, left: -16, bottom: 4 };
+const TOOLTIP_STYLE = { borderRadius: 12, border: "1px solid #E2E8F0", fontSize: 12 };
+const LEGEND_STYLE = { fontSize: 11 };
+const AXIS_TICK = { fontSize: 11, fill: "#94A3B8" };
+const XAXIS_TICK_SM = { fontSize: 10, fill: "#64748B" };
+const XAXIS_TICK_DATE = { fontSize: 10, fill: "#94A3B8" };
+const STACK_ORDER = ["Uncovered", "Assigned", "Met", "Advanced", "Won"];
+
 function toSegments(g) {
   const uncovered = Math.max(0, g.total - g.assigned);
   const assignedOnly = Math.max(0, g.assigned - g.met);
@@ -59,13 +68,13 @@ function CoverageBars({ title, data }) {
     <div className="bg-white border border-slate-200 rounded-xl p-5">
       <h3 className="font-heading text-base font-bold tracking-tight text-slate-900 mb-4">{title}</h3>
       <ResponsiveContainer width="100%" height={300}>
-        <BarChart data={rows} margin={{ top: 4, right: 8, left: -16, bottom: 4 }}>
+        <BarChart data={rows} margin={CHART_MARGIN}>
           <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
-          <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#64748B" }} interval={0} angle={-20} textAnchor="end" height={50} />
-          <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94A3B8" }} />
-          <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #E2E8F0", fontSize: 12 }} />
-          <Legend wrapperStyle={{ fontSize: 11 }} />
-          {["Uncovered", "Assigned", "Met", "Advanced", "Won"].map((k) => (
+          <XAxis dataKey="label" tick={XAXIS_TICK_SM} interval={0} angle={-20} textAnchor="end" height={50} />
+          <YAxis allowDecimals={false} tick={AXIS_TICK} />
+          <Tooltip contentStyle={TOOLTIP_STYLE} />
+          <Legend wrapperStyle={LEGEND_STYLE} />
+          {STACK_ORDER.map((k) => (
             <Bar key={k} dataKey={k} stackId="a" fill={SEG_COLORS[k]} radius={k === "Won" ? [4, 4, 0, 0] : 0} />
           ))}
         </BarChart>
@@ -79,7 +88,9 @@ export default function Coverage() {
   const [tierMetric, setTierMetric] = useState("spend"); // spend | ltv
 
   useEffect(() => {
+    // mount-only: fetch coverage once
     client.get("/coverage").then((r) => setData(r.data));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (!data) return <div className="text-slate-400 text-sm">Loading coverage…</div>;
@@ -132,12 +143,12 @@ export default function Coverage() {
           <h3 className="font-heading text-base font-bold tracking-tight text-slate-900 mb-1">Burn-up — Progress vs Scope</h3>
           <p className="text-xs text-slate-400 mb-4">Cumulative accounts covered and won against the total book over time.</p>
           <ResponsiveContainer width="100%" height={260}>
-            <LineChart data={data.burnup} margin={{ top: 4, right: 8, left: -16, bottom: 4 }}>
+            <LineChart data={data.burnup} margin={CHART_MARGIN}>
               <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
-              <XAxis dataKey="week" tick={{ fontSize: 10, fill: "#94A3B8" }} />
-              <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94A3B8" }} />
-              <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #E2E8F0", fontSize: 12 }} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <XAxis dataKey="week" tick={XAXIS_TICK_DATE} />
+              <YAxis allowDecimals={false} tick={AXIS_TICK} />
+              <Tooltip contentStyle={TOOLTIP_STYLE} />
+              <Legend wrapperStyle={LEGEND_STYLE} />
               <Line type="monotone" dataKey="total" name="Total (scope)" stroke="#94A3B8" strokeWidth={2} strokeDasharray="5 4" dot={false} />
               <Line type="monotone" dataKey="covered" name="Covered" stroke="#0284C7" strokeWidth={2.5} dot={{ r: 3 }} />
               <Line type="monotone" dataKey="won" name="Won" stroke="#059669" strokeWidth={2.5} dot={{ r: 3 }} />
