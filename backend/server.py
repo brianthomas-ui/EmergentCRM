@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.errors import DuplicateKeyError
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, ConfigDict
 from typing import List, Optional, Dict, Any
 import uuid
 import logging
@@ -268,6 +268,210 @@ class SettingsIn(BaseModel):
     inr_per_usd: float
 
 # ----------------------------------------------------------------------------
+# Response models (documented API shapes; extra="allow" keeps any extra fields
+# so adding a response_model can never silently drop or break a payload)
+# ----------------------------------------------------------------------------
+class _OutBase(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+class UserOut(_OutBase):
+    id: Optional[str] = None
+    name: Optional[str] = None
+    email: Optional[str] = None
+    role: Optional[str] = None
+    avatar_url: Optional[str] = None
+    monthly_target: Optional[float] = None
+    weekly_target: Optional[float] = None
+    active: Optional[bool] = None
+    created_at: Optional[str] = None
+
+class LoginOut(_OutBase):
+    token: Optional[str] = None
+    user: Optional[UserOut] = None
+
+class NoteOut(_OutBase):
+    id: Optional[str] = None
+    text: Optional[str] = None
+    type: Optional[str] = None
+    author: Optional[str] = None
+    created_at: Optional[str] = None
+
+class LeadOut(_OutBase):
+    id: Optional[str] = None
+    name: Optional[str] = None
+    email: Optional[str] = None
+    company: Optional[str] = None
+    phone: Optional[str] = None
+    plan: Optional[str] = None
+    monthly_spend: Optional[float] = None
+    lifetime_value: Optional[float] = None
+    usage_trend: Optional[str] = None
+    product_history: Optional[List[str]] = None
+    source: Optional[str] = None
+    region: Optional[str] = None
+    priority: Optional[str] = None
+    stage: Optional[str] = None
+    owner_id: Optional[str] = None
+    owner_name: Optional[str] = None
+    owner_locked: Optional[bool] = None
+    total_revenue_usd: Optional[float] = None
+    deals_won: Optional[int] = None
+    upsell_cycles: Optional[int] = None
+    payment_status: Optional[str] = None
+    last_meeting_at: Optional[str] = None
+    next_meeting_at: Optional[str] = None
+    won_at: Optional[str] = None
+    notes: Optional[List[NoteOut]] = None
+    ownership_history: Optional[List[Dict[str, Any]]] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+class MeetingOut(_OutBase):
+    id: Optional[str] = None
+    lead_id: Optional[str] = None
+    lead_name: Optional[str] = None
+    agent_id: Optional[str] = None
+    agent_name: Optional[str] = None
+    scheduled_at: Optional[str] = None
+    duration: Optional[int] = None
+    status: Optional[str] = None
+    source: Optional[str] = None
+    booking_driver: Optional[str] = None
+    no_show_reason: Optional[str] = None
+    reschedule_status: Optional[str] = None
+    outcome_notes: Optional[str] = None
+    completed_at: Optional[str] = None
+    created_at: Optional[str] = None
+
+class PaymentOut(_OutBase):
+    id: Optional[str] = None
+    lead_id: Optional[str] = None
+    lead_name: Optional[str] = None
+    agent_id: Optional[str] = None
+    agent_name: Optional[str] = None
+    provider: Optional[str] = None
+    amount: Optional[float] = None
+    currency: Optional[str] = None
+    amount_usd: Optional[float] = None
+    fx_rate: Optional[float] = None
+    description: Optional[str] = None
+    status: Optional[str] = None
+    payment_status: Optional[str] = None
+    session_id: Optional[str] = None
+    payment_link: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+class ActivityOut(_OutBase):
+    id: Optional[str] = None
+    lead_id: Optional[str] = None
+    type: Optional[str] = None
+    description: Optional[str] = None
+    actor: Optional[str] = None
+    created_at: Optional[str] = None
+
+class LeadDetailOut(_OutBase):
+    lead: Optional[LeadOut] = None
+    activities: Optional[List[ActivityOut]] = None
+    meetings: Optional[List[MeetingOut]] = None
+    payments: Optional[List[PaymentOut]] = None
+
+class CampaignOut(_OutBase):
+    id: Optional[str] = None
+    name: Optional[str] = None
+    segment_label: Optional[str] = None
+    min_spend: Optional[float] = None
+    template_subject: Optional[str] = None
+    template_body: Optional[str] = None
+    recipient_count: Optional[int] = None
+    sent_count: Optional[int] = None
+    opened_count: Optional[int] = None
+    replied_count: Optional[int] = None
+    booked_count: Optional[int] = None
+    status: Optional[str] = None
+    created_by: Optional[str] = None
+    created_at: Optional[str] = None
+    sent_at: Optional[str] = None
+
+class SettingsOut(_OutBase):
+    inr_per_usd: Optional[float] = None
+
+class AuditLogOut(_OutBase):
+    id: Optional[str] = None
+    action: Optional[str] = None
+    actor: Optional[str] = None
+    target: Optional[str] = None
+    details: Optional[str] = None
+    created_at: Optional[str] = None
+
+class MetaOut(_OutBase):
+    stages: Optional[List[str]] = None
+    priorities: Optional[List[str]] = None
+    booking_drivers: Optional[List[str]] = None
+
+class CoverageGroupOut(_OutBase):
+    label: Optional[str] = None
+    total: Optional[int] = None
+    assigned: Optional[int] = None
+    met: Optional[int] = None
+    advanced: Optional[int] = None
+    won: Optional[int] = None
+    revenue_usd: Optional[float] = None
+
+class BurnupPointOut(_OutBase):
+    week: Optional[str] = None
+    date: Optional[str] = None
+    total: Optional[int] = None
+    covered: Optional[int] = None
+    won: Optional[int] = None
+
+class CoverageOut(_OutBase):
+    tiers: Optional[List[str]] = None
+    regions: Optional[List[str]] = None
+    by_tier_spend: Optional[List[CoverageGroupOut]] = None
+    by_tier_ltv: Optional[List[CoverageGroupOut]] = None
+    by_region: Optional[List[CoverageGroupOut]] = None
+    burnup: Optional[List[BurnupPointOut]] = None
+    totals: Optional[CoverageGroupOut] = None
+
+class BookingDriverStatOut(_OutBase):
+    driver: Optional[str] = None
+    meetings: Optional[int] = None
+    completed: Optional[int] = None
+    won: Optional[int] = None
+
+class AgentStatOut(_OutBase):
+    id: Optional[str] = None
+    name: Optional[str] = None
+    avatar_url: Optional[str] = None
+    leads: Optional[int] = None
+    won: Optional[int] = None
+    meetings: Optional[int] = None
+    revenue: Optional[float] = None
+    target: Optional[float] = None
+
+class DashboardOut(_OutBase):
+    is_admin: Optional[bool] = None
+    total_leads: Optional[int] = None
+    stage_counts: Optional[Dict[str, int]] = None
+    meetings_today: Optional[int] = None
+    meetings_today_list: Optional[List[MeetingOut]] = None
+    completed_today: Optional[int] = None
+    noshow_today: Optional[int] = None
+    revenue_won: Optional[float] = None
+    pipeline_value: Optional[float] = None
+    payment_pending: Optional[int] = None
+    follow_up: Optional[int] = None
+    hot: Optional[int] = None
+    target: Optional[float] = None
+    weekly_target: Optional[float] = None
+    won_count: Optional[int] = None
+    booking_drivers: Optional[List[BookingDriverStatOut]] = None
+    team_target: Optional[float] = None
+    per_agent: Optional[List[AgentStatOut]] = None
+
+
+# ----------------------------------------------------------------------------
 # Auth routes
 # ----------------------------------------------------------------------------
 @api.post("/auth/login")
@@ -290,7 +494,7 @@ async def login(body: LoginIn, response: Response):
     # token is also returned for API clients/tests; the browser app relies on the cookie.
     return {"token": token, "user": clean(user)}
 
-@api.get("/auth/me")
+@api.get("/auth/me", response_model=UserOut)
 async def me(user: dict = Depends(get_current_user)):
     return user
 
@@ -302,12 +506,12 @@ async def logout(response: Response):
 # ----------------------------------------------------------------------------
 # Team / Users
 # ----------------------------------------------------------------------------
-@api.get("/team")
+@api.get("/team", response_model=List[UserOut])
 async def list_team(user: dict = Depends(get_current_user)):
     members = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(1000)
     return [clean(m) for m in members]
 
-@api.post("/team")
+@api.post("/team", response_model=UserOut)
 async def create_agent(body: AgentIn, admin: dict = Depends(require_admin)):
     exists = await db.users.find_one({"email": body.email.lower()})
     if exists:
@@ -326,7 +530,7 @@ async def create_agent(body: AgentIn, admin: dict = Depends(require_admin)):
 # ----------------------------------------------------------------------------
 # Leads
 # ----------------------------------------------------------------------------
-@api.get("/leads")
+@api.get("/leads", response_model=List[LeadOut])
 async def list_leads(request: Request, user: dict = Depends(get_current_user)):
     q = {}
     stage = request.query_params.get("stage")
@@ -351,7 +555,7 @@ async def list_leads(request: Request, user: dict = Depends(get_current_user)):
     leads = await db.leads.find(q, {"_id": 0, "notes": 0, "ownership_history": 0}).sort("updated_at", -1).to_list(2000)
     return [clean(l) for l in leads]
 
-@api.post("/leads")
+@api.post("/leads", response_model=LeadOut)
 async def create_lead(body: LeadIn, user: dict = Depends(get_current_user)):
     existing = await db.leads.find_one({"email": body.email.lower()})
     if existing:
@@ -398,7 +602,7 @@ async def update_lead(lead_id: str, body: LeadUpdate, user: dict = Depends(get_c
     lead = await db.leads.find_one({"id": lead_id})
     return clean(lead)
 
-@api.put("/leads/{lead_id}/stage")
+@api.put("/leads/{lead_id}/stage", response_model=LeadOut)
 async def update_stage(lead_id: str, body: StageIn, user: dict = Depends(get_current_user)):
     if body.stage not in PIPELINE_STAGES:
         raise HTTPException(status_code=400, detail="Invalid stage")
@@ -425,7 +629,7 @@ async def _assign_lead(lead: dict, agent: dict, by: str):
     }})
     await log_activity(lead["id"], "assignment", f"Assigned to {agent['name']} (by {by})", by)
 
-@api.put("/leads/{lead_id}/assign")
+@api.put("/leads/{lead_id}/assign", response_model=LeadOut)
 async def assign_lead(lead_id: str, body: AssignIn, admin: dict = Depends(require_admin)):
     lead = await db.leads.find_one({"id": lead_id})
     if not lead:
@@ -449,7 +653,7 @@ async def _round_robin_agent() -> Optional[dict]:
     idx = (counter.get("value", 0)) % len(agents)
     return agents[idx]
 
-@api.post("/leads/{lead_id}/round-robin")
+@api.post("/leads/{lead_id}/round-robin", response_model=LeadOut)
 async def round_robin_assign(lead_id: str, admin: dict = Depends(require_admin)):
     lead = await db.leads.find_one({"id": lead_id})
     if not lead:
@@ -464,7 +668,7 @@ async def round_robin_assign(lead_id: str, admin: dict = Depends(require_admin))
     lead = await db.leads.find_one({"id": lead_id})
     return clean(lead)
 
-@api.post("/leads/{lead_id}/reopen")
+@api.post("/leads/{lead_id}/reopen", response_model=LeadOut)
 async def reopen_lead(lead_id: str, body: ReopenIn, user: dict = Depends(get_current_user)):
     lead = await db.leads.find_one({"id": lead_id})
     if not lead:
@@ -598,7 +802,7 @@ async def create_meeting(body: MeetingIn, user: dict = Depends(get_current_user)
                        f"Meeting booked ({body.source}) with {agent['name']}{driver_txt}", user["name"])
     return clean(meeting)
 
-@api.put("/meetings/{meeting_id}/outcome")
+@api.put("/meetings/{meeting_id}/outcome", response_model=MeetingOut)
 async def meeting_outcome(meeting_id: str, body: MeetingOutcome, user: dict = Depends(get_current_user)):
     meeting = await db.meetings.find_one({"id": meeting_id})
     if not meeting:
@@ -627,7 +831,7 @@ async def list_campaigns(admin: dict = Depends(require_admin)):
     campaigns = await db.campaigns.find({}).sort("created_at", -1).to_list(500)
     return [clean(c) for c in campaigns]
 
-@api.post("/campaigns")
+@api.post("/campaigns", response_model=CampaignOut)
 async def create_campaign(body: CampaignIn, admin: dict = Depends(require_admin)):
     recipients = await db.leads.find({"monthly_spend": {"$gte": body.min_spend}}).to_list(2000)
     doc = {
@@ -640,7 +844,7 @@ async def create_campaign(body: CampaignIn, admin: dict = Depends(require_admin)
     await db.campaigns.insert_one(doc)
     return clean(doc)
 
-@api.post("/campaigns/{campaign_id}/send")
+@api.post("/campaigns/{campaign_id}/send", response_model=CampaignOut)
 async def send_campaign(campaign_id: str, admin: dict = Depends(require_admin)):
     campaign = await db.campaigns.find_one({"id": campaign_id})
     if not campaign:
@@ -667,7 +871,7 @@ async def send_campaign(campaign_id: str, admin: dict = Depends(require_admin)):
 async def get_packages(user: dict = Depends(get_current_user)):
     return PRESET_PACKAGES
 
-@api.get("/payments")
+@api.get("/payments", response_model=List[PaymentOut])
 async def list_payments(request: Request, user: dict = Depends(get_current_user)):
     q = {}
     if user["role"] == "agent":
@@ -734,7 +938,7 @@ async def create_payment_link(body: PaymentIn, user: dict = Depends(get_current_
     await log_activity(body.lead_id, "payment", f"{body.provider.title()} payment link sent: {currency.upper()} {amount:.0f} (~${amount_usd:.0f})", user["name"])
     return clean(record)
 
-@api.get("/payments/status/{session_id}")
+@api.get("/payments/status/{session_id}", response_model=PaymentOut)
 async def payment_status(session_id: str, user: dict = Depends(get_current_user)):
     record = await db.payments.find_one({"session_id": session_id})
     if not record:
@@ -751,7 +955,7 @@ async def payment_status(session_id: str, user: dict = Depends(get_current_user)
     record = await db.payments.find_one({"session_id": session_id})
     return clean(record)
 
-@api.post("/payments/simulate/{session_id}")
+@api.post("/payments/simulate/{session_id}", response_model=PaymentOut)
 async def simulate_payment(session_id: str, user: dict = Depends(get_current_user)):
     """Simulate completion of a Razorpay (mock) payment link."""
     record = await db.payments.find_one({"session_id": session_id})
@@ -830,7 +1034,7 @@ def _agent_leaderboard(agents, leads, meetings, payments):
     return sorted(rows, key=lambda x: x["revenue"], reverse=True)
 
 
-@api.get("/dashboard")
+@api.get("/dashboard", response_model=DashboardOut, response_model_exclude_none=True)
 async def dashboard(user: dict = Depends(get_current_user)):
     is_admin = user["role"] == "admin"
     scope = {} if is_admin else {"owner_id": user["id"]}
@@ -875,11 +1079,11 @@ async def dashboard(user: dict = Depends(get_current_user)):
         result["per_agent"] = _agent_leaderboard(agents, leads, meetings, payments)
     return result
 
-@api.get("/settings")
+@api.get("/settings", response_model=SettingsOut)
 async def get_settings(user: dict = Depends(get_current_user)):
     return {"inr_per_usd": await get_inr_rate()}
 
-@api.put("/settings")
+@api.put("/settings", response_model=SettingsOut)
 async def update_settings(body: SettingsIn, admin: dict = Depends(require_admin)):
     if body.inr_per_usd <= 0:
         raise HTTPException(status_code=400, detail="Rate must be positive")
