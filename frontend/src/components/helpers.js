@@ -13,6 +13,18 @@ export const STAGES = [
 
 export const PRIORITIES = ["Hot", "Follow-up This Week", "Payment Pending", "None"];
 
+export const BOOKING_DRIVERS = [
+  "Support",
+  "Lifetime Access",
+  "Top-Up Credits",
+  "Discount",
+  "Pricing / Upgrade",
+  "Feature Request",
+  "Renewal",
+  "Onboarding Help",
+  "Other",
+];
+
 export function money(n, currency = "usd") {
   const v = Number(n || 0);
   const sym = currency?.toLowerCase() === "inr" ? "₹" : "$";
@@ -37,7 +49,7 @@ export function priorityClass(p) {
   const map = {
     Hot: "bg-red-50 text-red-700 border-red-200",
     "Follow-up This Week": "bg-amber-50 text-amber-700 border-amber-200",
-    "Payment Pending": "bg-blue-50 text-blue-700 border-blue-200",
+    "Payment Pending": "bg-indigo-50 text-indigo-700 border-indigo-200",
     None: "bg-slate-50 text-slate-500 border-slate-200",
   };
   return map[p] || map.None;
@@ -55,7 +67,7 @@ export function paymentStatusClass(s) {
 export function Badge({ children, className = "" }) {
   return (
     <span
-      className={`inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-semibold border ${className}`}
+      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${className}`}
     >
       {children}
     </span>

@@ -42,6 +42,12 @@ PIPELINE_STAGES = [
 ]
 PRIORITIES = ["Hot", "Follow-up This Week", "Payment Pending", "None"]
 
+# What got the lead to book the meeting (the "hook"/incentive)
+BOOKING_DRIVERS = [
+    "Support", "Lifetime Access", "Top-Up Credits", "Discount",
+    "Pricing / Upgrade", "Feature Request", "Renewal", "Onboarding Help", "Other",
+]
+
 PRESET_PACKAGES = {
     "upsell_pro": {"name": "Pro Upgrade", "amount": 1000.0, "currency": "usd"},
     "upsell_scale": {"name": "Scale Plan", "amount": 2500.0, "currency": "usd"},
@@ -113,6 +119,12 @@ async def log_audit(action: str, actor: str, target: str, details: str = ""):
         "target": target, "details": details, "created_at": now_iso(),
     })
 
+async def get_inr_rate() -> float:
+    s = await db.settings.find_one({"id": "settings"})
+    if s and s.get("inr_per_usd"):
+        return float(s["inr_per_usd"])
+    return 85.0
+
 # ----------------------------------------------------------------------------
 # Models
 # ----------------------------------------------------------------------------
@@ -166,6 +178,7 @@ class MeetingIn(BaseModel):
     scheduled_at: str
     duration: int = 30
     source: str = "Manual"
+    booking_driver: Optional[str] = ""  # what got them to book (Support, Discount, etc.)
     agent_id: Optional[str] = None  # if None -> round robin
 
 class MeetingOutcome(BaseModel):
@@ -189,6 +202,9 @@ class PaymentIn(BaseModel):
     currency: str = "usd"
     description: Optional[str] = ""
     origin_url: str
+
+class SettingsIn(BaseModel):
+    inr_per_usd: float
 
 # ----------------------------------------------------------------------------
 # Auth routes
@@ -429,6 +445,9 @@ async def list_meetings(request: Request, user: dict = Depends(get_current_user)
     q = {}
     if user["role"] == "agent":
         q["agent_id"] = user["id"]
+    driver = request.query_params.get("driver")
+    if driver:
+        q["booking_driver"] = driver
     today_only = request.query_params.get("today")
     meetings = await db.meetings.find(q).sort("scheduled_at", 1).to_list(1000)
     result = [clean(m) for m in meetings]
@@ -454,6 +473,7 @@ async def create_meeting(body: MeetingIn, user: dict = Depends(get_current_user)
         "agent_id": agent["id"], "agent_name": agent["name"],
         "scheduled_at": body.scheduled_at, "duration": body.duration,
         "status": "scheduled", "source": body.source,
+        "booking_driver": body.booking_driver or "",
         "no_show_reason": "", "reschedule_status": "", "outcome_notes": "",
         "created_at": now_iso(),
     }
@@ -464,7 +484,9 @@ async def create_meeting(body: MeetingIn, user: dict = Depends(get_current_user)
     await db.leads.update_one({"id": body.lead_id}, {"$set": {
         "stage": "Meeting Scheduled", "next_meeting_at": body.scheduled_at, "updated_at": now_iso(),
     }})
-    await log_activity(body.lead_id, "meeting", f"Meeting booked ({body.source}) with {agent['name']}", user["name"])
+    driver_txt = f" · hook: {body.booking_driver}" if body.booking_driver else ""
+    await log_activity(body.lead_id, "meeting",
+                       f"Meeting booked ({body.source}) with {agent['name']}{driver_txt}", user["name"])
     return clean(meeting)
 
 @api.put("/meetings/{meeting_id}/outcome")
@@ -557,13 +579,18 @@ async def create_payment_link(body: PaymentIn, user: dict = Depends(get_current_
     else:
         if not body.amount or body.amount <= 0:
             raise HTTPException(status_code=400, detail="A valid amount is required")
-        amount, currency, desc = float(body.amount), body.currency, body.description or "Custom upsell"
+        amount, currency, desc = float(body.amount), (body.currency or "usd").lower(), body.description or "Custom upsell"
+
+    # convert everything to USD for reporting using the admin-managed FX rate
+    fx_rate = await get_inr_rate()
+    amount_usd = round(amount / fx_rate, 2) if currency == "inr" else round(amount, 2)
 
     payment_id = new_id()
     record = {
         "id": payment_id, "lead_id": body.lead_id, "lead_name": lead["name"],
         "agent_id": user["id"], "agent_name": user["name"],
         "provider": body.provider, "amount": amount, "currency": currency,
+        "amount_usd": amount_usd, "fx_rate": fx_rate,
         "description": desc, "status": "initiated", "payment_status": "pending",
         "session_id": None, "payment_link": None,
         "created_at": now_iso(), "updated_at": now_iso(),
@@ -591,7 +618,7 @@ async def create_payment_link(body: PaymentIn, user: dict = Depends(get_current_
     await db.leads.update_one({"id": body.lead_id}, {"$set": {
         "stage": "Payment Link Sent", "payment_status": "link_sent", "priority": "Payment Pending",
         "updated_at": now_iso()}})
-    await log_activity(body.lead_id, "payment", f"{body.provider.title()} payment link sent: {currency.upper()} {amount:.0f}", user["name"])
+    await log_activity(body.lead_id, "payment", f"{body.provider.title()} payment link sent: {currency.upper()} {amount:.0f} (~${amount_usd:.0f})", user["name"])
     return clean(record)
 
 @api.get("/payments/status/{session_id}")
@@ -630,7 +657,7 @@ async def _apply_payment_status(record: dict, status: str, payment_status: str):
             "stage": "Won", "payment_status": "paid", "priority": "None",
             "won_at": now_iso(), "updated_at": now_iso()}})
         await log_activity(record["lead_id"], "payment",
-                           f"Payment completed: {record['currency'].upper()} {record['amount']:.0f} 🎉",
+                           f"Payment completed: {record['currency'].upper()} {record['amount']:.0f} (~${record.get('amount_usd', record['amount']):.0f}) 🎉",
                            record["agent_name"])
 
 @api.post("/webhook/stripe")
@@ -671,11 +698,25 @@ async def dashboard(user: dict = Depends(get_current_user)):
     completed_today = [m for m in meetings if (m.get("completed_at") or "").startswith(today) and m["status"] == "completed"]
     noshow_today = [m for m in meetings if (m.get("completed_at") or "").startswith(today) and m["status"] == "no_show"]
 
-    revenue_won = sum(p["amount"] for p in payments if p["payment_status"] == "paid")
-    pipeline_value = sum(p["amount"] for p in payments if p["payment_status"] == "pending")
+    revenue_won = sum(p.get("amount_usd", p["amount"]) for p in payments if p["payment_status"] == "paid")
+    pipeline_value = sum(p.get("amount_usd", p["amount"]) for p in payments if p["payment_status"] == "pending")
     payment_pending = len([l for l in leads if l.get("priority") == "Payment Pending"])
     follow_up = len([l for l in leads if l.get("priority") == "Follow-up This Week"])
     hot = len([l for l in leads if l.get("priority") == "Hot"])
+
+    # Booking driver attribution: which hooks drive meetings (and which convert)
+    driver_stats = {}
+    won_lead_ids = {l["id"] for l in leads if l.get("stage") == "Won"}
+    for m in meetings:
+        d = m.get("booking_driver") or "Unspecified"
+        if d not in driver_stats:
+            driver_stats[d] = {"driver": d, "meetings": 0, "completed": 0, "won": 0}
+        driver_stats[d]["meetings"] += 1
+        if m.get("status") == "completed":
+            driver_stats[d]["completed"] += 1
+        if m.get("lead_id") in won_lead_ids:
+            driver_stats[d]["won"] += 1
+    booking_drivers = sorted(driver_stats.values(), key=lambda x: x["meetings"], reverse=True)
 
     # target
     target = user.get("monthly_target", 0) if not is_admin else 0
@@ -697,6 +738,7 @@ async def dashboard(user: dict = Depends(get_current_user)):
         "target": target,
         "weekly_target": weekly_target,
         "won_count": stage_counts.get("Won", 0),
+        "booking_drivers": booking_drivers,
     }
 
     if is_admin:
@@ -707,7 +749,7 @@ async def dashboard(user: dict = Depends(get_current_user)):
             a_leads = [l for l in leads if l.get("owner_id") == a["id"]]
             a_pays = [p for p in payments if p["agent_id"] == a["id"] and p["payment_status"] == "paid"]
             a_meetings = [m for m in meetings if m["agent_id"] == a["id"]]
-            rev = sum(p["amount"] for p in a_pays)
+            rev = sum(p.get("amount_usd", p["amount"]) for p in a_pays)
             per_agent.append({
                 "id": a["id"], "name": a["name"], "avatar_url": a.get("avatar_url"),
                 "leads": len(a_leads), "won": len([l for l in a_leads if l.get("stage") == "Won"]),
@@ -718,6 +760,20 @@ async def dashboard(user: dict = Depends(get_current_user)):
         result["per_agent"] = sorted(per_agent, key=lambda x: x["revenue"], reverse=True)
     return result
 
+@api.get("/settings")
+async def get_settings(user: dict = Depends(get_current_user)):
+    return {"inr_per_usd": await get_inr_rate()}
+
+@api.put("/settings")
+async def update_settings(body: SettingsIn, admin: dict = Depends(require_admin)):
+    if body.inr_per_usd <= 0:
+        raise HTTPException(status_code=400, detail="Rate must be positive")
+    await db.settings.update_one({"id": "settings"}, {"$set": {
+        "id": "settings", "inr_per_usd": float(body.inr_per_usd),
+        "updated_by": admin["name"], "updated_at": now_iso()}}, upsert=True)
+    await log_audit("update_fx_rate", admin["name"], "INR/USD", f"{body.inr_per_usd} INR per USD")
+    return {"inr_per_usd": float(body.inr_per_usd)}
+
 @api.get("/audit-logs")
 async def audit_logs(admin: dict = Depends(require_admin)):
     logs = await db.audit_logs.find({}).sort("created_at", -1).to_list(500)
@@ -725,17 +781,18 @@ async def audit_logs(admin: dict = Depends(require_admin)):
 
 @api.get("/meta")
 async def meta(user: dict = Depends(get_current_user)):
-    return {"stages": PIPELINE_STAGES, "priorities": PRIORITIES}
+    return {"stages": PIPELINE_STAGES, "priorities": PRIORITIES, "booking_drivers": BOOKING_DRIVERS}
 
 # ----------------------------------------------------------------------------
 # Seeding
 # ----------------------------------------------------------------------------
 async def seed():
+    await db.settings.update_one({"id": "settings"}, {"$setOnInsert": {"id": "settings", "inr_per_usd": 85.0}}, upsert=True)
     admin_email = os.environ["ADMIN_EMAIL"].lower()
     admin = await db.users.find_one({"email": admin_email})
     if not admin:
         admin = {
-            "id": new_id(), "name": "Jordan Pierce", "email": admin_email,
+            "id": new_id(), "name": "Diyea", "email": admin_email,
             "password_hash": hash_password(os.environ["ADMIN_PASSWORD"]), "role": "admin",
             "avatar_url": "https://images.unsplash.com/photo-1560250097-0b93528c311a?crop=entropy&cs=srgb&fm=jpg&w=200&q=80",
             "monthly_target": 0, "weekly_target": 0, "active": True, "created_at": now_iso(),
@@ -745,21 +802,19 @@ async def seed():
         await db.users.update_one({"email": admin_email}, {"$set": {"password_hash": hash_password(os.environ["ADMIN_PASSWORD"])}})
 
     if await db.users.count_documents({"role": "agent"}) == 0:
-        agent_avatars = [
-            "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?crop=entropy&cs=srgb&fm=jpg&w=200&q=80",
-            "https://api.dicebear.com/7.x/initials/svg?seed=Marcus%20Lee",
-            "https://api.dicebear.com/7.x/initials/svg?seed=Priya%20Nair",
-        ]
+        photo = "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?crop=entropy&cs=srgb&fm=jpg&w=200&q=80"
         agents_data = [
-            ("Sofia Reyes", "sofia@emergent.com"),
-            ("Marcus Lee", "marcus@emergent.com"),
-            ("Priya Nair", "priya@emergent.com"),
+            ("Aryan", "aryan@emergent.com"),
+            ("Deepin", "deepin@emergent.com"),
+            ("Vinay", "vinay@emergent.com"),
+            ("Brian", "brian@emergent.com"),
         ]
         for i, (name, email) in enumerate(agents_data):
+            avatar = photo if i == 0 else f"https://api.dicebear.com/7.x/initials/svg?seed={name}"
             await db.users.insert_one({
                 "id": new_id(), "name": name, "email": email,
                 "password_hash": hash_password("agent123"), "role": "agent",
-                "avatar_url": agent_avatars[i], "monthly_target": 25000.0,
+                "avatar_url": avatar, "monthly_target": 25000.0,
                 "weekly_target": 6250.0, "active": True, "created_at": now_iso(),
             })
 
@@ -794,16 +849,18 @@ async def seed():
             if owner:
                 await log_activity(doc["id"], "assignment", f"Assigned to {owner['name']} (seed)", "System")
 
-        # a few meetings today
+        # a few meetings today with booking drivers
         leads = await db.leads.find({"owner_id": {"$ne": None}}).to_list(100)
         base = datetime.now(timezone.utc).replace(hour=14, minute=0, second=0, microsecond=0)
+        seed_drivers = ["Discount", "Lifetime Access", "Top-Up Credits", "Support"]
         for i, lead in enumerate(leads[:4]):
             await db.meetings.insert_one({
                 "id": new_id(), "lead_id": lead["id"], "lead_name": lead["name"],
                 "agent_id": lead["owner_id"], "agent_name": lead["owner_name"],
                 "scheduled_at": (base + timedelta(hours=i)).isoformat(), "duration": 30,
-                "status": "scheduled", "source": "Calendly", "no_show_reason": "",
-                "reschedule_status": "", "outcome_notes": "", "created_at": now_iso(),
+                "status": "scheduled", "source": "Calendly",
+                "booking_driver": seed_drivers[i % len(seed_drivers)],
+                "no_show_reason": "", "reschedule_status": "", "outcome_notes": "", "created_at": now_iso(),
             })
 
 @app.on_event("startup")

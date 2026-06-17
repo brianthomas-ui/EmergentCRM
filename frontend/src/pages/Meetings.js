@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import client, { apiError } from "@/api";
-import { Badge, fmtDateTime } from "@/components/helpers";
+import { Badge, fmtDateTime, BOOKING_DRIVERS } from "@/components/helpers";
 import Modal, { Field, inputCls, btnPrimary, btnSecondary } from "@/components/Modal";
 
 const statusBadge = {
@@ -15,14 +15,17 @@ const statusBadge = {
 export default function Meetings() {
   const [meetings, setMeetings] = useState([]);
   const [todayOnly, setTodayOnly] = useState(false);
+  const [driverFilter, setDriverFilter] = useState("");
   const [outcomeFor, setOutcomeFor] = useState(null);
   const [form, setForm] = useState({ status: "completed", no_show_reason: "", outcome_notes: "", reschedule_status: "" });
 
   const load = () => {
-    const params = todayOnly ? { today: "true" } : {};
+    const params = {};
+    if (todayOnly) params.today = "true";
+    if (driverFilter) params.driver = driverFilter;
     client.get("/meetings", { params }).then((r) => setMeetings(r.data));
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [todayOnly]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [todayOnly, driverFilter]);
 
   const saveOutcome = async () => {
     try {
@@ -40,20 +43,26 @@ export default function Meetings() {
     <div className="space-y-5">
       <div className="flex items-end justify-between">
         <div>
-          <h1 className="font-heading text-3xl font-black tracking-tighter text-slate-900">Meetings</h1>
+          <h1 className="font-heading text-3xl font-bold tracking-tighter text-slate-900">Meetings</h1>
           <p className="text-sm text-slate-500 mt-1">{meetings.length} meetings · Calendly intake + manual</p>
         </div>
-        <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
-          <input type="checkbox" checked={todayOnly} onChange={(e) => setTodayOnly(e.target.checked)} data-testid="today-toggle" />
-          Today only
-        </label>
+        <div className="flex items-center gap-3">
+          <select value={driverFilter} onChange={(e) => setDriverFilter(e.target.value)} data-testid="driver-filter" className={`${inputCls} w-auto`}>
+            <option value="">All hooks</option>
+            {BOOKING_DRIVERS.map((d) => <option key={d} value={d}>{d}</option>)}
+          </select>
+          <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+            <input type="checkbox" checked={todayOnly} onChange={(e) => setTodayOnly(e.target.checked)} data-testid="today-toggle" />
+            Today only
+          </label>
+        </div>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-sm overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
         <table className="w-full">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200">
-              {["Lead", "When", "Agent", "Source", "Status", ""].map((h) => (
+              {["Lead", "When", "Agent", "Source", "Driver", "Status", ""].map((h) => (
                 <th key={h} className="text-xs font-semibold text-slate-500 uppercase tracking-widest text-left p-3">{h}</th>
               ))}
             </tr>
@@ -67,6 +76,7 @@ export default function Meetings() {
                 <td className="p-3 text-sm text-slate-700 font-mono">{fmtDateTime(m.scheduled_at)}</td>
                 <td className="p-3 text-sm text-slate-700">{m.agent_name}</td>
                 <td className="p-3 text-xs text-slate-500">{m.source}</td>
+                <td className="p-3">{m.booking_driver ? <Badge className="bg-indigo-50 text-indigo-700 border-indigo-200">{m.booking_driver}</Badge> : <span className="text-xs text-slate-300">—</span>}</td>
                 <td className="p-3"><Badge className={statusBadge[m.status]}>{m.status.replace("_", "-")}</Badge></td>
                 <td className="p-3 text-right">
                   {m.status === "scheduled" && (
@@ -82,7 +92,7 @@ export default function Meetings() {
               </tr>
             ))}
             {meetings.length === 0 && (
-              <tr><td colSpan={6} className="p-12 text-center text-slate-400 text-sm">No meetings.</td></tr>
+              <tr><td colSpan={7} className="p-12 text-center text-slate-400 text-sm">No meetings.</td></tr>
             )}
           </tbody>
         </table>

@@ -95,7 +95,7 @@ export default function Leads() {
     <div className="space-y-5">
       <div className="flex items-end justify-between flex-wrap gap-4">
         <div>
-          <h1 className="font-heading text-3xl font-black tracking-tighter text-slate-900">Leads</h1>
+          <h1 className="font-heading text-3xl font-bold tracking-tighter text-slate-900">Leads</h1>
           <p className="text-sm text-slate-500 mt-1">
             {leads.length} accounts {isAdmin ? "across the team" : "assigned to you"}
           </p>
@@ -142,7 +142,7 @@ export default function Leads() {
       </div>
 
       {/* Table */}
-      <div className="bg-white border border-slate-200 rounded-sm overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
         <table className="w-full">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200">
@@ -180,7 +180,7 @@ export default function Leads() {
                       data-testid={`assign-select-${l.id}`}
                       value=""
                       onChange={(e) => e.target.value && assign(l.id, e.target.value)}
-                      className="border border-slate-300 rounded-sm text-xs px-2 py-1 bg-white"
+                      className="border border-slate-300 rounded-xl text-xs px-2 py-1 bg-white"
                     >
                       <option value="">Assign…</option>
                       <option value="__rr__">⚡ Round-robin</option>

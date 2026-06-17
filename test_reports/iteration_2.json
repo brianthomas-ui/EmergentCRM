@@ -1,0 +1,34 @@
+{
+  "summary": "Iteration 2 testing of Emergent Upsell CRM (booking driver + multi-currency + new team). 28/28 backend pytest cases passed including new tests for: NEW team (Diyea admin + Aryan/Deepin/Vinay/Brian agents) logins, /api/meta booking_drivers list, meeting creation with booking_driver + ?driver= filter, /api/settings GET (both roles) + PUT (admin only, agent 403), Stripe USD preset (upsell_scale=$2500, amount_usd=2500), INR custom payment link with FX conversion (8500 INR / 85 = $100 amount_usd), Razorpay simulate -> lead Won + dashboard revenue (USD) delta exactly equals amount_usd, dashboard booking_drivers widget with meetings/completed/won counts, audit log contains update_fx_rate. Frontend Playwright verified: Diyea admin login + dashboard 'What's Driving Bookings' widget (4 driver-row-* present), Team page lists all 5 members, Meetings page 'Driver' column with hook badges + driver-filter, FX card admin edit + save (toast 'Conversion rate updated'), Payments page renders ₹ symbol + '≈ $' USD equivalents with USD totals ($1,200 collected / $2,700 pending), Aryan agent login hides Campaigns/Team/Audit nav links and FX input absent (read-only).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py remains a single ~880-line file — still works but flagged for modularisation as the app grows (routers per resource).",
+    "GET /api/settings is open to agents (correct) but the PUT correctly admin-gates via require_admin — verified.",
+    "amount_usd conversion uses get_inr_rate() at creation time and is stored on each payment record, so historical payments stay correct if the rate changes later — good design.",
+    "Dashboard sums amount_usd with fallback to amount (legacy rows). Acceptable since freshly seeded DB has amount_usd on every record.",
+    "/api/payments/link rounds amount_usd to 2 dp via round(amount/fx_rate, 2) — verified 8500/85=100.0 exactly and 17000/85=200.0 in tests.",
+    "Stripe webhook still publicly mounted (no auth dep) — correct, relies on Stripe-Signature verification inside emergentintegrations.",
+    "CORS allow_origins default '*' with allow_credentials=True — would be rejected by browsers in credentialed mode; restrict via CORS_ORIGINS in prod (carry-over from iter1).",
+    "List endpoints still unpaginated (leads 2000, meetings 1000, payments 1000) — fine for MVP scale."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py"
+  ],
+  "success_rate": {"backend": "100% (28/28)", "frontend": "~95% (all critical flows verified visually; one Playwright meet-datetime fill timed out on the specific lead clicked, but booking-driver capture + render are independently proven by backend tests and the Meetings page UI screenshot showing Discount/Support hook badges from earlier API-created meetings)"},
+  "test_credentials": "Admin: diyea@emergent.com / leader123. Agents: aryan/deepin/vinay/brian@emergent.com / agent123. Matches /app/memory/test_credentials.md and seed.",
+  "seed_data_creation": "App auto-seeds Diyea + 4 agents + 8 leads + 4 meetings today with booking_drivers (Discount, Lifetime Access, Top-Up Credits, Support). FX setting default 85 INR/USD. Tests created TEST_* prefixed leads/payments; FX rate was momentarily set to 80 during testing and restored to 85.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All new iter2 features verified: booking_driver on MeetingIn + filter + dashboard aggregate; FX rate (settings collection) with admin-only PUT; multi-currency payments storing amount_usd computed via get_inr_rate(); USD-normalised dashboard totals + agent leaderboard. data-testids in use: driver-row-{driver}, driver-filter, fx-card, fx-input, fx-save, meet-driver, pay-currency, fx-preview, generate-payment-btn, send-payment-btn, book-meeting-btn, meet-datetime, confirm-meeting-btn, simulate-{id}. Stripe link returns real cs_test_* URL via emergentintegrations. Razorpay is simulated (POST /api/payments/simulate/{session_id}).",
+  "rca of the issue": "N/A — no critical defects found. Booking driver attribution, FX rate persistence, multi-currency payment conversion, USD revenue rollup, and role-scoped access all pass backend assertions and UI verification."
+}

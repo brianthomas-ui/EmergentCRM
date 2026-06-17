@@ -18,7 +18,7 @@ function Stat({ label, value, sub, icon: Icon, accent = "text-slate-900", testid
   return (
     <div
       data-testid={testid}
-      className="bg-white border border-slate-200 rounded-sm p-5 flex flex-col gap-2 animate-fade-up"
+      className="bg-white border border-slate-200 rounded-xl p-5 flex flex-col gap-2 animate-fade-up"
     >
       <div className="flex items-center justify-between">
         <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">
@@ -26,7 +26,7 @@ function Stat({ label, value, sub, icon: Icon, accent = "text-slate-900", testid
         </span>
         <Icon className="w-4 h-4 text-slate-300" />
       </div>
-      <div className={`font-heading text-3xl font-black tracking-tighter ${accent}`}>{value}</div>
+      <div className={`font-heading text-3xl font-bold tracking-tighter ${accent}`}>{value}</div>
       {sub && <div className="text-xs text-slate-400">{sub}</div>}
     </div>
   );
@@ -43,7 +43,7 @@ function StageFunnel({ counts }) {
   ];
   const max = Math.max(1, ...order.map((s) => counts[s] || 0));
   return (
-    <div className="bg-white border border-slate-200 rounded-sm p-5">
+    <div className="bg-white border border-slate-200 rounded-xl p-5">
       <h3 className="font-heading text-base font-bold tracking-tight text-slate-900 mb-4">
         Pipeline Funnel
       </h3>
@@ -51,9 +51,9 @@ function StageFunnel({ counts }) {
         {order.map((s) => (
           <div key={s} className="flex items-center gap-3">
             <div className="w-32 text-xs font-medium text-slate-600 shrink-0">{s}</div>
-            <div className="flex-1 bg-slate-100 rounded-sm h-6 overflow-hidden">
+            <div className="flex-1 bg-slate-100 rounded-xl h-6 overflow-hidden">
               <div
-                className="h-full bg-slate-900 rounded-sm transition-all"
+                className="h-full bg-slate-900 rounded-xl transition-all"
                 style={{ width: `${((counts[s] || 0) / max) * 100}%` }}
               />
             </div>
@@ -86,7 +86,7 @@ export default function Dashboard() {
     <div className="space-y-6">
       <div className="flex items-end justify-between">
         <div>
-          <h1 className="font-heading text-3xl font-black tracking-tighter text-slate-900">
+          <h1 className="font-heading text-3xl font-bold tracking-tighter text-slate-900">
             {isAdmin ? "Team Control Room" : `Welcome, ${user?.name?.split(" ")[0]}`}
           </h1>
           <p className="text-sm text-slate-500 mt-1">
@@ -132,7 +132,7 @@ export default function Dashboard() {
       </div>
 
       {/* Target bar */}
-      <div className="bg-white border border-slate-200 rounded-sm p-5">
+      <div className="bg-white border border-slate-200 rounded-xl p-5">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <Target className="w-4 h-4 text-slate-400" />
@@ -144,10 +144,10 @@ export default function Dashboard() {
             {money(data.revenue_won)} / {money(isAdmin ? data.team_target : data.target)}
           </span>
         </div>
-        <div className="bg-slate-100 rounded-sm h-3 overflow-hidden">
+        <div className="bg-slate-100 rounded-xl h-3 overflow-hidden">
           <div
             data-testid="target-progress"
-            className="h-full bg-blue-600 rounded-sm transition-all"
+            className="h-full bg-blue-600 rounded-xl transition-all"
             style={{ width: `${isAdmin ? teamPct : targetPct}%` }}
           />
         </div>
@@ -160,7 +160,7 @@ export default function Dashboard() {
         <StageFunnel counts={data.stage_counts} />
 
         {/* Today's meetings */}
-        <div className="bg-white border border-slate-200 rounded-sm p-5">
+        <div className="bg-white border border-slate-200 rounded-xl p-5">
           <h3 className="font-heading text-base font-bold tracking-tight text-slate-900 mb-4">
             My Meetings Today
           </h3>
@@ -173,7 +173,7 @@ export default function Dashboard() {
                   to={`/leads/${m.lead_id}`}
                   key={m.id}
                   data-testid={`today-meeting-${m.id}`}
-                  className="flex items-center justify-between p-3 border border-slate-200 rounded-sm hover:border-slate-400 transition-colors"
+                  className="flex items-center justify-between p-3 border border-slate-200 rounded-xl hover:border-slate-400 transition-colors"
                 >
                   <div>
                     <div className="text-sm font-semibold text-slate-900">{m.lead_name}</div>
@@ -191,26 +191,26 @@ export default function Dashboard() {
 
       {/* Priority queues */}
       <div className="grid grid-cols-3 gap-4">
-        <div className="bg-white border border-slate-200 rounded-sm p-5 flex items-center gap-4">
+        <div className="bg-white border border-slate-200 rounded-xl p-5 flex items-center gap-4">
           <Flame className="w-8 h-8 text-red-500" />
           <div>
-            <div className="font-heading text-2xl font-black text-slate-900">{data.hot}</div>
+            <div className="font-heading text-2xl font-bold text-slate-900">{data.hot}</div>
             <div className="text-xs text-slate-400 uppercase tracking-widest font-semibold">Hot Leads</div>
           </div>
         </div>
-        <div className="bg-white border border-slate-200 rounded-sm p-5 flex items-center gap-4">
+        <div className="bg-white border border-slate-200 rounded-xl p-5 flex items-center gap-4">
           <CalendarCheck className="w-8 h-8 text-amber-500" />
           <div>
-            <div className="font-heading text-2xl font-black text-slate-900">{data.follow_up}</div>
+            <div className="font-heading text-2xl font-bold text-slate-900">{data.follow_up}</div>
             <div className="text-xs text-slate-400 uppercase tracking-widest font-semibold">
               Follow-up
             </div>
           </div>
         </div>
-        <div className="bg-white border border-slate-200 rounded-sm p-5 flex items-center gap-4">
+        <div className="bg-white border border-slate-200 rounded-xl p-5 flex items-center gap-4">
           <CreditCard className="w-8 h-8 text-blue-500" />
           <div>
-            <div className="font-heading text-2xl font-black text-slate-900">
+            <div className="font-heading text-2xl font-bold text-slate-900">
               {data.payment_pending}
             </div>
             <div className="text-xs text-slate-400 uppercase tracking-widest font-semibold">
@@ -220,9 +220,38 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Booking drivers — what gets leads to book */}
+      <div className="bg-white border border-slate-200 rounded-xl p-5">
+        <h3 className="font-heading text-base font-bold tracking-tight text-slate-900 mb-1">What's Driving Bookings</h3>
+        <p className="text-xs text-slate-400 mb-4">Which hooks get leads to book a meeting — and how they convert.</p>
+        {data.booking_drivers.length === 0 ? (
+          <div className="text-sm text-slate-400 py-6 text-center">No meetings booked yet.</div>
+        ) : (
+          <div className="space-y-2.5">
+            {(() => {
+              const max = Math.max(1, ...data.booking_drivers.map((d) => d.meetings));
+              return data.booking_drivers.map((d) => (
+                <div key={d.driver} data-testid={`driver-row-${d.driver}`} className="flex items-center gap-3">
+                  <div className="w-40 text-sm font-medium text-slate-700 shrink-0 truncate">{d.driver}</div>
+                  <div className="flex-1 bg-slate-100 rounded-full h-6 overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-brand rounded-full flex items-center justify-end pr-2 transition-all"
+                      style={{ width: `${(d.meetings / max) * 100}%` }}
+                    >
+                      <span className="text-[10px] font-semibold text-white">{d.meetings}</span>
+                    </div>
+                  </div>
+                  <div className="w-32 text-right text-xs text-slate-500 font-mono">{d.completed} done · {d.won} won</div>
+                </div>
+              ));
+            })()}
+          </div>
+        )}
+      </div>
+
       {/* Per-agent leaderboard (admin) */}
       {isAdmin && data.per_agent && (
-        <div className="bg-white border border-slate-200 rounded-sm overflow-hidden">
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
           <div className="flex items-center gap-2 p-5 border-b border-slate-200">
             <Trophy className="w-4 h-4 text-amber-500" />
             <h3 className="font-heading text-base font-bold tracking-tight text-slate-900">
@@ -252,7 +281,7 @@ export default function Dashboard() {
                         <img
                           src={a.avatar_url}
                           alt=""
-                          className="w-7 h-7 rounded-sm object-cover border border-slate-200 bg-slate-100"
+                          className="w-7 h-7 rounded-xl object-cover border border-slate-200 bg-slate-100"
                         />
                         <span className="text-sm font-semibold text-slate-900">{a.name}</span>
                       </div>

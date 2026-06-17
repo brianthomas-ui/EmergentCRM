@@ -1,71 +1,83 @@
-@import url('https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@400,500,700,800,900&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600,700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --bg: #F8FAFC;
+  --bg: #FAFAFA;
   --surface: #FFFFFF;
-  --border: #E2E8F0;
+  --border: #ECECEE;
 }
 
 * {
   border-color: var(--border);
 }
 
-body {
+html, body {
   margin: 0;
-  font-family: 'IBM Plex Sans', sans-serif;
   background-color: var(--bg);
-  color: #0F172A;
+  font-family: 'General Sans', -apple-system, sans-serif;
+  color: #18181B;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 h1, h2, h3, h4, .font-heading {
-  font-family: 'Cabinet Grotesk', sans-serif;
+  font-family: 'General Sans', sans-serif;
+  letter-spacing: -0.02em;
 }
 
 .font-mono {
   font-family: 'JetBrains Mono', monospace;
 }
 
+/* emergent blue->indigo gradient accent */
+.text-gradient {
+  background: linear-gradient(90deg, #38BDF8 0%, #3B82F6 45%, #6366F1 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.bg-gradient-brand {
+  background: linear-gradient(135deg, #60A5FA 0%, #6366F1 60%, #8B5CF6 100%);
+}
+
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+::-webkit-scrollbar-thumb { background: #D4D4D8; border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: #A1A1AA; }
 
-::selection { background: #2563EB; color: #fff; }
+::selection { background: #6366F1; color: #fff; }
 
 @keyframes fadeInUp {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.animate-fade-up { animation: fadeInUp 0.25s ease-out both; }
+.animate-fade-up { animation: fadeInUp 0.3s ease-out both; }
 
 @layer base {
   :root {
-    --background: 210 40% 98%;
-    --foreground: 222 47% 11%;
+    --background: 0 0% 98%;
+    --foreground: 240 6% 10%;
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 240 6% 10%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-    --primary: 222 47% 11%;
+    --popover-foreground: 240 6% 10%;
+    --primary: 240 6% 10%;
     --primary-foreground: 0 0% 98%;
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222 47% 11%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
-    --accent: 217 91% 60%;
+    --secondary: 240 5% 96%;
+    --secondary-foreground: 240 6% 10%;
+    --muted: 240 5% 96%;
+    --muted-foreground: 240 4% 46%;
+    --accent: 239 84% 67%;
     --accent-foreground: 0 0% 100%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 98%;
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 217 91% 60%;
-    --radius: 0.25rem;
+    --border: 240 6% 90%;
+    --input: 240 6% 90%;
+    --ring: 239 84% 67%;
+    --radius: 0.75rem;
   }
 }

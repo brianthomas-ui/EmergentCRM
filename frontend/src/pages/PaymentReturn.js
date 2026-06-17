@@ -53,12 +53,12 @@ export default function PaymentReturn() {
 
   return (
     <div className="flex items-center justify-center min-h-[70vh]">
-      <div className="bg-white border border-slate-200 rounded-sm p-10 max-w-md w-full text-center" data-testid="payment-return">
+      <div className="bg-white border border-slate-200 rounded-xl p-10 max-w-md w-full text-center" data-testid="payment-return">
         <Icon className={`w-14 h-14 mx-auto mb-4 ${cfg.color}`} />
-        <h1 className="font-heading text-2xl font-black tracking-tight text-slate-900">{cfg.title}</h1>
+        <h1 className="font-heading text-2xl font-bold tracking-tight text-slate-900">{cfg.title}</h1>
         <p className="text-sm text-slate-500 mt-2">{cfg.sub}</p>
         {record && (
-          <div className="mt-5 border border-slate-200 rounded-sm p-4 text-left">
+          <div className="mt-5 border border-slate-200 rounded-xl p-4 text-left">
             <div className="flex justify-between text-sm py-1"><span className="text-slate-400">Lead</span><span className="font-semibold text-slate-900">{record.lead_name}</span></div>
             <div className="flex justify-between text-sm py-1"><span className="text-slate-400">Amount</span><span className="font-mono font-semibold text-slate-900">{money(record.amount, record.currency)}</span></div>
             <div className="flex justify-between text-sm py-1"><span className="text-slate-400">Status</span><span className="font-semibold capitalize">{record.payment_status}</span></div>

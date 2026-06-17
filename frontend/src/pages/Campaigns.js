@@ -47,7 +47,7 @@ export default function Campaigns() {
     <div className="space-y-5">
       <div className="flex items-end justify-between">
         <div>
-          <h1 className="font-heading text-3xl font-black tracking-tighter text-slate-900">Campaigns</h1>
+          <h1 className="font-heading text-3xl font-bold tracking-tighter text-slate-900">Campaigns</h1>
           <p className="text-sm text-slate-500 mt-1">Segmented Gmail mail-merge outreach to existing users</p>
         </div>
         <button className={btnPrimary} onClick={() => setShow(true)} data-testid="new-campaign-btn">
@@ -57,7 +57,7 @@ export default function Campaigns() {
 
       <div className="grid md:grid-cols-2 gap-4">
         {campaigns.map((c) => (
-          <div key={c.id} data-testid={`campaign-${c.id}`} className="bg-white border border-slate-200 rounded-sm p-5">
+          <div key={c.id} data-testid={`campaign-${c.id}`} className="bg-white border border-slate-200 rounded-xl p-5">
             <div className="flex items-start justify-between mb-2">
               <div>
                 <h3 className="font-heading text-base font-bold text-slate-900">{c.name}</h3>
@@ -82,7 +82,7 @@ export default function Campaigns() {
           </div>
         ))}
         {campaigns.length === 0 && (
-          <div className="col-span-2 bg-white border border-slate-200 rounded-sm p-12 text-center text-slate-400 text-sm">
+          <div className="col-span-2 bg-white border border-slate-200 rounded-xl p-12 text-center text-slate-400 text-sm">
             No campaigns yet. Create your first segment.
           </div>
         )}
@@ -109,7 +109,7 @@ export default function Campaigns() {
 
 function Metric({ icon: Icon, label, value }) {
   return (
-    <div className="border border-slate-100 rounded-sm p-2 text-center">
+    <div className="border border-slate-100 rounded-xl p-2 text-center">
       <Icon className="w-3.5 h-3.5 text-slate-400 mx-auto mb-1" />
       <div className="text-sm font-bold text-slate-900 font-mono">{value}</div>
       <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold">{label}</div>

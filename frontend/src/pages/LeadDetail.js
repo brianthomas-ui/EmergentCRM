@@ -13,6 +13,7 @@ import {
   PRIORITIES,
   fmtDateTime,
   timeAgo,
+  BOOKING_DRIVERS,
 } from "@/components/helpers";
 import Modal, { Field, inputCls, btnPrimary, btnSecondary } from "@/components/Modal";
 import {
@@ -40,14 +41,15 @@ export default function LeadDetail() {
   const [meetModal, setMeetModal] = useState(false);
   const [packages, setPackages] = useState({});
 
-  const [payForm, setPayForm] = useState({ provider: "stripe", package_id: "", amount: "", description: "" });
-  const [meetForm, setMeetForm] = useState({ scheduled_at: "", duration: 30, source: "Calendly" });
+  const [payForm, setPayForm] = useState({ provider: "stripe", package_id: "", amount: "", currency: "usd", description: "" });
+  const [meetForm, setMeetForm] = useState({ scheduled_at: "", duration: 30, source: "Calendly", booking_driver: "Support" });
 
   const load = () => client.get(`/leads/${id}`).then((r) => setData(r.data));
 
   useEffect(() => {
     load();
     client.get("/payments/packages").then((r) => setPackages(r.data));
+    client.get("/settings").then((r) => setFxRate(r.data.inr_per_usd));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
@@ -83,12 +85,13 @@ export default function LeadDetail() {
       if (payForm.package_id) body.package_id = payForm.package_id;
       else {
         body.amount = Number(payForm.amount);
+        body.currency = payForm.currency;
         body.description = payForm.description;
       }
       const { data: rec } = await client.post("/payments/link", body);
       toast.success("Payment link generated");
       setPayModal(false);
-      setPayForm({ provider: "stripe", package_id: "", amount: "", description: "" });
+      setPayForm({ provider: "stripe", package_id: "", amount: "", currency: "usd", description: "" });
       load();
       if (rec.payment_link) {
         navigator.clipboard?.writeText(rec.payment_link).catch(() => {});
@@ -105,6 +108,7 @@ export default function LeadDetail() {
         scheduled_at: new Date(meetForm.scheduled_at).toISOString(),
         duration: Number(meetForm.duration),
         source: meetForm.source,
+        booking_driver: meetForm.booking_driver,
       });
       toast.success("Meeting booked");
       setMeetModal(false);
@@ -122,7 +126,7 @@ export default function LeadDetail() {
 
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
-          <h1 className="font-heading text-3xl font-black tracking-tighter text-slate-900" data-testid="lead-detail-name">
+          <h1 className="font-heading text-3xl font-bold tracking-tighter text-slate-900" data-testid="lead-detail-name">
             {lead.name}
           </h1>
           <p className="text-sm text-slate-500 mt-1">
@@ -147,7 +151,7 @@ export default function LeadDetail() {
       <div className="grid lg:grid-cols-3 gap-6">
         {/* Left: context panel */}
         <div className="space-y-5">
-          <div className="bg-white border border-slate-200 rounded-sm p-5" data-testid="account-context-panel">
+          <div className="bg-white border border-slate-200 rounded-xl p-5" data-testid="account-context-panel">
             <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-4">
               Account Context
             </h3>
@@ -189,7 +193,7 @@ export default function LeadDetail() {
           </div>
 
           {/* Stage & priority controls */}
-          <div className="bg-white border border-slate-200 rounded-sm p-5">
+          <div className="bg-white border border-slate-200 rounded-xl p-5">
             <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3">Update</h3>
             <Field label="Pipeline Stage">
               <select data-testid="stage-select" className={inputCls} value={lead.stage} onChange={(e) => updateStage(e.target.value)}>
@@ -205,7 +209,7 @@ export default function LeadDetail() {
 
           {/* Ownership history */}
           {lead.ownership_history?.length > 0 && (
-            <div className="bg-white border border-slate-200 rounded-sm p-5">
+            <div className="bg-white border border-slate-200 rounded-xl p-5">
               <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3">Ownership History</h3>
               <div className="space-y-2">
                 {lead.ownership_history.map((h, i) => (
@@ -222,7 +226,7 @@ export default function LeadDetail() {
         {/* Middle: notes + timeline */}
         <div className="lg:col-span-2 space-y-5">
           {/* Notes */}
-          <div className="bg-white border border-slate-200 rounded-sm p-5">
+          <div className="bg-white border border-slate-200 rounded-xl p-5">
             <h3 className="font-heading text-base font-bold tracking-tight text-slate-900 mb-3 flex items-center gap-2">
               <StickyNote className="w-4 h-4 text-slate-400" /> Notes
             </h3>
@@ -244,7 +248,7 @@ export default function LeadDetail() {
             </div>
             <div className="space-y-2 max-h-60 overflow-y-auto">
               {(lead.notes || []).map((n) => (
-                <div key={n.id} className="border border-slate-100 rounded-sm p-3">
+                <div key={n.id} className="border border-slate-100 rounded-xl p-3">
                   <div className="flex items-center justify-between mb-1">
                     <Badge className="bg-slate-50 text-slate-600 border-slate-200">{n.type}</Badge>
                     <span className="text-[10px] text-slate-400">{n.author} · {timeAgo(n.created_at)}</span>
@@ -257,17 +261,17 @@ export default function LeadDetail() {
           </div>
 
           {/* Meetings */}
-          <div className="bg-white border border-slate-200 rounded-sm p-5">
+          <div className="bg-white border border-slate-200 rounded-xl p-5">
             <h3 className="font-heading text-base font-bold tracking-tight text-slate-900 mb-3">Meetings</h3>
             {meetings.length === 0 ? (
               <div className="text-xs text-slate-400">No meetings yet.</div>
             ) : (
               <div className="space-y-2">
                 {meetings.map((m) => (
-                  <div key={m.id} className="flex items-center justify-between border border-slate-100 rounded-sm p-3">
+                  <div key={m.id} className="flex items-center justify-between border border-slate-100 rounded-xl p-3">
                     <div>
                       <div className="text-sm text-slate-900 font-medium">{fmtDateTime(m.scheduled_at)}</div>
-                      <div className="text-xs text-slate-400">{m.source} · {m.agent_name}</div>
+                      <div className="text-xs text-slate-400">{m.source} · {m.agent_name}{m.booking_driver ? ` · hook: ${m.booking_driver}` : ""}</div>
                     </div>
                     <Badge className={
                       m.status === "completed" ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
@@ -281,14 +285,14 @@ export default function LeadDetail() {
           </div>
 
           {/* Payments */}
-          <div className="bg-white border border-slate-200 rounded-sm p-5">
+          <div className="bg-white border border-slate-200 rounded-xl p-5">
             <h3 className="font-heading text-base font-bold tracking-tight text-slate-900 mb-3">Payment Links</h3>
             {payments.length === 0 ? (
               <div className="text-xs text-slate-400">No payment links sent.</div>
             ) : (
               <div className="space-y-2">
                 {payments.map((p) => (
-                  <div key={p.id} className="flex items-center justify-between border border-slate-100 rounded-sm p-3" data-testid={`payment-row-${p.id}`}>
+                  <div key={p.id} className="flex items-center justify-between border border-slate-100 rounded-xl p-3" data-testid={`payment-row-${p.id}`}>
                     <div>
                       <div className="text-sm font-semibold text-slate-900 font-mono">{money(p.amount, p.currency)} · {p.provider}</div>
                       <div className="text-xs text-slate-400">{p.description}</div>
@@ -312,7 +316,7 @@ export default function LeadDetail() {
           </div>
 
           {/* Activity timeline */}
-          <div className="bg-white border border-slate-200 rounded-sm p-5">
+          <div className="bg-white border border-slate-200 rounded-xl p-5">
             <h3 className="font-heading text-base font-bold tracking-tight text-slate-900 mb-3 flex items-center gap-2">
               <Activity className="w-4 h-4 text-slate-400" /> Activity Timeline
             </h3>
@@ -350,9 +354,24 @@ export default function LeadDetail() {
         </Field>
         {!payForm.package_id && (
           <>
-            <Field label="Amount (USD)">
-              <input type="number" className={inputCls} value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} data-testid="pay-amount" placeholder="2500" />
-            </Field>
+            <div className="grid grid-cols-3 gap-3">
+              <Field label="Currency">
+                <select className={inputCls} value={payForm.currency} onChange={(e) => setPayForm({ ...payForm, currency: e.target.value })} data-testid="pay-currency">
+                  <option value="usd">USD</option>
+                  <option value="inr">INR</option>
+                </select>
+              </Field>
+              <div className="col-span-2">
+                <Field label={`Amount (${payForm.currency.toUpperCase()})`}>
+                  <input type="number" className={inputCls} value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} data-testid="pay-amount" placeholder="2500" />
+                </Field>
+              </div>
+            </div>
+            {payForm.currency === "inr" && Number(payForm.amount) > 0 && (
+              <div className="-mt-1 mb-3 text-xs text-slate-500" data-testid="fx-preview">
+                ≈ <span className="font-semibold text-slate-800">{money(Number(payForm.amount) / fxRate)}</span> at ₹{fxRate}/$1 · reported in USD
+              </div>
+            )}
             <Field label="Description">
               <input className={inputCls} value={payForm.description} onChange={(e) => setPayForm({ ...payForm, description: e.target.value })} placeholder="Scale plan upgrade" />
             </Field>
@@ -379,6 +398,11 @@ export default function LeadDetail() {
           <select className={inputCls} value={meetForm.source} onChange={(e) => setMeetForm({ ...meetForm, source: e.target.value })}>
             <option>Calendly</option>
             <option>Manual</option>
+          </select>
+        </Field>
+        <Field label="What got them to book? (hook)">
+          <select className={inputCls} value={meetForm.booking_driver} onChange={(e) => setMeetForm({ ...meetForm, booking_driver: e.target.value })} data-testid="meet-driver">
+            {BOOKING_DRIVERS.map((d) => <option key={d} value={d}>{d}</option>)}
           </select>
         </Field>
         <div className="flex justify-end gap-2 mt-2">

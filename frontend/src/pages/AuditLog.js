@@ -10,11 +10,11 @@ export default function AuditLog() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="font-heading text-3xl font-black tracking-tighter text-slate-900">Audit Log</h1>
+        <h1 className="font-heading text-3xl font-bold tracking-tighter text-slate-900">Audit Log</h1>
         <p className="text-sm text-slate-500 mt-1">Admin actions across the workspace</p>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-sm overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
         <table className="w-full">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200">
@@ -26,7 +26,7 @@ export default function AuditLog() {
           <tbody>
             {logs.map((l) => (
               <tr key={l.id} className="border-b border-slate-100">
-                <td className="p-3"><span className="text-xs font-mono font-semibold text-slate-900 bg-slate-100 px-2 py-0.5 rounded-sm">{l.action}</span></td>
+                <td className="p-3"><span className="text-xs font-mono font-semibold text-slate-900 bg-slate-100 px-2 py-0.5 rounded-xl">{l.action}</span></td>
                 <td className="p-3 text-sm text-slate-700">{l.actor}</td>
                 <td className="p-3 text-sm text-slate-700">{l.target}</td>
                 <td className="p-3 text-xs text-slate-500">{l.details}</td>
