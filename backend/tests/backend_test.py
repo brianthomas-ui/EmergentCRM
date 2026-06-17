@@ -22,8 +22,8 @@ if not BASE_URL:
 BASE_URL = BASE_URL.rstrip('/')
 API = f"{BASE_URL}/api"
 
-ADMIN = {"email": "diyea@emergent.com", "password": "leader123"}
-AGENT = {"email": "aryan@emergent.com", "password": "agent123"}
+ADMIN = {"email": "diyea@emergent.sh", "password": "leader123"}
+AGENT = {"email": "aryan.f@emergent.sh", "password": "agent123"}
 
 
 def H(t):
@@ -75,16 +75,16 @@ def test_team_has_new_members(admin_token):
     assert r.status_code == 200
     members = r.json()
     emails = {m["email"] for m in members}
-    for e in ["diyea@emergent.com", "aryan@emergent.com", "deepin@emergent.com",
-              "vinay@emergent.com", "brian@emergent.com"]:
+    for e in ["diyea@emergent.sh", "aryan.f@emergent.sh", "dipan@emergent.sh",
+              "vinay.p@emergent.sh", "brian@emergent.sh"]:
         assert e in emails, f"missing {e}"
-    diyea = next(m for m in members if m["email"] == "diyea@emergent.com")
+    diyea = next(m for m in members if m["email"] == "diyea@emergent.sh")
     assert diyea["role"] == "admin"
     assert all("password_hash" not in m and "_id" not in m for m in members)
 
 
 def test_all_agent_logins():
-    for email in ["aryan@emergent.com", "deepin@emergent.com", "vinay@emergent.com", "brian@emergent.com"]:
+    for email in ["aryan.f@emergent.sh", "dipan@emergent.sh", "vinay.p@emergent.sh", "brian@emergent.sh"]:
         r = requests.post(f"{API}/auth/login", json={"email": email, "password": "agent123"})
         assert r.status_code == 200, f"{email} login failed: {r.text}"
 

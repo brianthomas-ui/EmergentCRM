@@ -20,6 +20,7 @@ export function AuthProvider({ children }) {
         localStorage.removeItem("crm_token");
         setUser(false);
       });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const login = useCallback(async (email, password) => {

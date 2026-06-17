@@ -5,16 +5,19 @@ import { apiError } from "@/api";
 import BackgroundTexture from "@/components/BackgroundTexture";
 import { ArrowRight } from "lucide-react";
 
-const DEMO = [
-  { role: "Sales Head", email: "diyea@emergent.sh", password: "leader123" },
-  { role: "Agent", email: "aryan.f@emergent.sh", password: "agent123" },
-];
+const DEMO = (() => {
+  try {
+    return JSON.parse(process.env.REACT_APP_DEMO_LOGINS || "[]");
+  } catch {
+    return [];
+  }
+})();
 
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState("diyea@emergent.sh");
-  const [password, setPassword] = useState("leader123");
+  const [email, setEmail] = useState(DEMO[0]?.email || "");
+  const [password, setPassword] = useState(DEMO[0]?.password || "");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -102,8 +105,8 @@ export default function Login() {
           </form>
         </div>
 
-        {/* Demo credentials — click to fill (hideable in production via REACT_APP_SHOW_DEMO_LOGINS=false) */}
-        {process.env.REACT_APP_SHOW_DEMO_LOGINS !== "false" && (
+        {/* Demo credentials — click to fill. Populated from REACT_APP_DEMO_LOGINS; absent => hidden (e.g. production). */}
+        {DEMO.length > 0 && (
         <div className="mt-5 rounded-md border border-dashed border-zinc-300 bg-zinc-50 p-4">
           <div className="label-mono text-[10px] text-zinc-400 mb-2.5">Demo credentials</div>
           <div className="space-y-1.5">

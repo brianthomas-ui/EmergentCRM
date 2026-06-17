@@ -474,40 +474,45 @@ async def add_note(lead_id: str, body: NoteIn, user: dict = Depends(get_current_
     await log_activity(lead_id, "note", f"{body.type}: {body.text[:80]}", user["name"])
     return note
 
+def _csv_float(row, key):
+    try:
+        return float(row.get(key) or 0)
+    except Exception:
+        return 0.0
+
+
+def _csv_row_to_lead_doc(row):
+    """Build a lead doc from a CSV row, or None if required fields are missing."""
+    email = (row.get("email") or "").strip().lower()
+    name = (row.get("name") or "").strip()
+    if not email or not name:
+        return None
+    return {
+        "id": new_id(), "name": name, "email": email,
+        "company": (row.get("company") or "").strip(),
+        "phone": (row.get("phone") or "").strip(),
+        "plan": (row.get("plan") or "").strip(),
+        "monthly_spend": _csv_float(row, "monthly_spend"),
+        "lifetime_value": _csv_float(row, "lifetime_value"),
+        "usage_trend": (row.get("usage_trend") or "stable").strip(),
+        "product_history": [], "source": (row.get("source") or "CSV Import").strip(),
+        "priority": "None", "stage": "New Booking",
+        "owner_id": None, "owner_name": None, "notes": [], "ownership_history": [],
+        "payment_status": "none", "last_meeting_at": None, "next_meeting_at": None,
+        "created_at": now_iso(), "updated_at": now_iso(),
+    }
+
+
 @api.post("/leads/import")
 async def import_leads(file: UploadFile = File(...), admin: dict = Depends(require_admin)):
-    content = await file.read()
-    text = content.decode("utf-8", errors="ignore")
+    text = (await file.read()).decode("utf-8", errors="ignore")
     reader = csv.DictReader(io.StringIO(text))
     created, skipped = 0, 0
     for row in reader:
-        email = (row.get("email") or "").strip().lower()
-        name = (row.get("name") or "").strip()
-        if not email or not name:
+        doc = _csv_row_to_lead_doc(row)
+        if not doc or await db.leads.find_one({"email": doc["email"]}):
             skipped += 1
             continue
-        if await db.leads.find_one({"email": email}):
-            skipped += 1
-            continue
-        def fnum(key):
-            try:
-                return float(row.get(key) or 0)
-            except Exception:
-                return 0.0
-        doc = {
-            "id": new_id(), "name": name, "email": email,
-            "company": (row.get("company") or "").strip(),
-            "phone": (row.get("phone") or "").strip(),
-            "plan": (row.get("plan") or "").strip(),
-            "monthly_spend": fnum("monthly_spend"),
-            "lifetime_value": fnum("lifetime_value"),
-            "usage_trend": (row.get("usage_trend") or "stable").strip(),
-            "product_history": [], "source": (row.get("source") or "CSV Import").strip(),
-            "priority": "None", "stage": "New Booking",
-            "owner_id": None, "owner_name": None, "notes": [], "ownership_history": [],
-            "payment_status": "none", "last_meeting_at": None, "next_meeting_at": None,
-            "created_at": now_iso(), "updated_at": now_iso(),
-        }
         await db.leads.insert_one(doc)
         created += 1
     await log_audit("import_leads", admin["name"], file.filename, f"{created} created, {skipped} skipped")
@@ -644,21 +649,36 @@ async def list_payments(request: Request, user: dict = Depends(get_current_user)
     payments = await db.payments.find(q).sort("created_at", -1).to_list(1000)
     return [clean(p) for p in payments]
 
+def _resolve_payment_amount(body: "PaymentIn"):
+    """Resolve (amount, currency, description) server-side from a preset package or custom input."""
+    if body.package_id and body.package_id in PRESET_PACKAGES:
+        pkg = PRESET_PACKAGES[body.package_id]
+        return pkg["amount"], pkg["currency"], pkg["name"]
+    if not body.amount or body.amount <= 0:
+        raise HTTPException(status_code=400, detail="A valid amount is required")
+    return float(body.amount), (body.currency or "usd").lower(), body.description or "Custom upsell"
+
+
+async def _create_stripe_link(body, amount, currency, payment_id, user):
+    from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionRequest
+    stripe_checkout = StripeCheckout(api_key=os.environ["STRIPE_API_KEY"], webhook_url=f"{body.origin_url}/api/webhook/stripe")
+    req = CheckoutSessionRequest(
+        amount=amount, currency=currency,
+        success_url=f"{body.origin_url}/payment-return?session_id={{CHECKOUT_SESSION_ID}}",
+        cancel_url=f"{body.origin_url}/payments",
+        metadata={"lead_id": body.lead_id, "payment_id": payment_id, "agent_id": user["id"]},
+    )
+    session = await stripe_checkout.create_checkout_session(req)
+    return session.session_id, session.url
+
+
 @api.post("/payments/link")
 async def create_payment_link(body: PaymentIn, user: dict = Depends(get_current_user)):
     lead = await db.leads.find_one({"id": body.lead_id})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
 
-    # resolve amount/currency server-side
-    if body.package_id and body.package_id in PRESET_PACKAGES:
-        pkg = PRESET_PACKAGES[body.package_id]
-        amount, currency, desc = pkg["amount"], pkg["currency"], pkg["name"]
-    else:
-        if not body.amount or body.amount <= 0:
-            raise HTTPException(status_code=400, detail="A valid amount is required")
-        amount, currency, desc = float(body.amount), (body.currency or "usd").lower(), body.description or "Custom upsell"
-
+    amount, currency, desc = _resolve_payment_amount(body)
     # convert everything to USD for reporting using the admin-managed FX rate
     fx_rate = await get_inr_rate()
     amount_usd = round(amount / fx_rate, 2) if currency == "inr" else round(amount, 2)
@@ -675,18 +695,7 @@ async def create_payment_link(body: PaymentIn, user: dict = Depends(get_current_
     }
 
     if body.provider == "stripe":
-        from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionRequest
-        webhook_url = f"{body.origin_url}/api/webhook/stripe"
-        stripe_checkout = StripeCheckout(api_key=os.environ["STRIPE_API_KEY"], webhook_url=webhook_url)
-        success_url = f"{body.origin_url}/payment-return?session_id={{CHECKOUT_SESSION_ID}}"
-        cancel_url = f"{body.origin_url}/payments"
-        req = CheckoutSessionRequest(
-            amount=amount, currency=currency, success_url=success_url, cancel_url=cancel_url,
-            metadata={"lead_id": body.lead_id, "payment_id": payment_id, "agent_id": user["id"]},
-        )
-        session = await stripe_checkout.create_checkout_session(req)
-        record["session_id"] = session.session_id
-        record["payment_link"] = session.url
+        record["session_id"], record["payment_link"] = await _create_stripe_link(body, amount, currency, payment_id, user)
     else:
         # Razorpay simulated payment link
         record["session_id"] = f"rzp_{payment_id[:12]}"
@@ -1015,6 +1024,42 @@ async def _seed_agents():
         })
 
 
+def _build_demo_lead(i, sample_row, owner, stage):
+    company, name, email, plan, spend, ltv, trend, priority, source, region = sample_row
+    is_won = stage == "Won"
+    locked = bool(is_won and owner)
+    return {
+        "id": new_id(), "name": name, "email": email, "company": company,
+        "phone": f"+1 555 01{i:02d}", "plan": plan, "monthly_spend": float(spend),
+        "lifetime_value": float(ltv), "usage_trend": trend, "product_history": ["API", "Dashboard"],
+        "source": source, "region": region, "priority": "None" if is_won else priority, "stage": stage,
+        "owner_id": owner["id"] if owner else None,
+        "owner_name": owner["name"] if owner else None,
+        "owner_locked": locked,
+        "total_revenue_usd": 2500.0 if locked else 0.0,
+        "deals_won": 1 if locked else 0, "upsell_cycles": 0,
+        "notes": [], "ownership_history": [], "payment_status": "paid" if locked else "none",
+        "last_meeting_at": None, "next_meeting_at": None,
+        "won_at": now_iso() if locked else None,
+        "created_at": now_iso(), "updated_at": now_iso(),
+    }
+
+
+async def _seed_demo_meetings():
+    leads = await db.leads.find({"owner_id": {"$ne": None}}).to_list(100)
+    base = datetime.now(timezone.utc).replace(hour=14, minute=0, second=0, microsecond=0)
+    seed_drivers = ["Discount", "Lifetime Access", "Top-Up Credits", "Support"]
+    for i, lead in enumerate(leads[:4]):
+        await db.meetings.insert_one({
+            "id": new_id(), "lead_id": lead["id"], "lead_name": lead["name"],
+            "agent_id": lead["owner_id"], "agent_name": lead["owner_name"],
+            "scheduled_at": (base + timedelta(hours=i)).isoformat(), "duration": 30,
+            "status": "scheduled", "source": "Calendly",
+            "booking_driver": seed_drivers[i % len(seed_drivers)],
+            "no_show_reason": "", "reschedule_status": "", "outcome_notes": "", "created_at": now_iso(),
+        })
+
+
 async def _seed_demo_leads():
     if await db.leads.count_documents({}) != 0:
         return
@@ -1030,31 +1075,15 @@ async def _seed_demo_leads():
         ("Northstar", "Leo Becker", "leo@northstar.app", "Pro $179/mo", 179, 2800, "rising", "Payment Pending", "Q3 Power User Outreach", "MEA"),
     ]
     stages = ["New Booking", "Assigned", "Meeting Scheduled", "Meeting Completed", "Payment Link Sent", "Won", "Follow-up Later", "Assigned"]
-    for i, (company, name, email, plan, spend, ltv, trend, priority, source, region) in enumerate(sample):
+    for i, row in enumerate(sample):
         owner = agents[i % len(agents)] if i % 3 != 0 else None
-        stage = stages[i]
-        is_won = stage == "Won"
-        doc = {
-            "id": new_id(), "name": name, "email": email, "company": company,
-            "phone": f"+1 555 01{i:02d}", "plan": plan, "monthly_spend": float(spend),
-            "lifetime_value": float(ltv), "usage_trend": trend, "product_history": ["API", "Dashboard"],
-            "source": source, "region": region, "priority": "None" if is_won else priority, "stage": stage,
-            "owner_id": owner["id"] if owner else None,
-            "owner_name": owner["name"] if owner else None,
-            "owner_locked": bool(is_won and owner),
-            "total_revenue_usd": 2500.0 if (is_won and owner) else 0.0,
-            "deals_won": 1 if (is_won and owner) else 0, "upsell_cycles": 0,
-            "notes": [], "ownership_history": [], "payment_status": "paid" if (is_won and owner) else "none",
-            "last_meeting_at": None, "next_meeting_at": None,
-            "won_at": now_iso() if (is_won and owner) else None,
-            "created_at": now_iso(), "updated_at": now_iso(),
-        }
+        doc = _build_demo_lead(i, row, owner, stages[i])
         await db.leads.insert_one(doc)
         if owner:
             await log_activity(doc["id"], "assignment", f"Assigned to {owner['name']} (seed)", "System")
-        if is_won and owner:
+        if doc["owner_locked"]:
             await db.payments.insert_one({
-                "id": new_id(), "lead_id": doc["id"], "lead_name": name,
+                "id": new_id(), "lead_id": doc["id"], "lead_name": doc["name"],
                 "agent_id": owner["id"], "agent_name": owner["name"],
                 "provider": "stripe", "amount": 2500.0, "currency": "usd",
                 "amount_usd": 2500.0, "fx_rate": 85.0, "description": "Scale Plan",
@@ -1062,20 +1091,7 @@ async def _seed_demo_leads():
                 "session_id": f"seed_{new_id()[:10]}", "payment_link": None,
                 "created_at": now_iso(), "updated_at": now_iso(),
             })
-
-    # a few meetings today with booking drivers
-    leads = await db.leads.find({"owner_id": {"$ne": None}}).to_list(100)
-    base = datetime.now(timezone.utc).replace(hour=14, minute=0, second=0, microsecond=0)
-    seed_drivers = ["Discount", "Lifetime Access", "Top-Up Credits", "Support"]
-    for i, lead in enumerate(leads[:4]):
-        await db.meetings.insert_one({
-            "id": new_id(), "lead_id": lead["id"], "lead_name": lead["name"],
-            "agent_id": lead["owner_id"], "agent_name": lead["owner_name"],
-            "scheduled_at": (base + timedelta(hours=i)).isoformat(), "duration": 30,
-            "status": "scheduled", "source": "Calendly",
-            "booking_driver": seed_drivers[i % len(seed_drivers)],
-            "no_show_reason": "", "reschedule_status": "", "outcome_notes": "", "created_at": now_iso(),
-        })
+    await _seed_demo_meetings()
 
 
 async def _seed_coverage_history():
