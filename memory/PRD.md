@@ -13,6 +13,10 @@ Web CRM for an inside sales team (4–10 agents + 1 sales head) to convert exist
 - **Agents:** Aryan, Deepin, Vinay, Brian — *@emergent.com / agent123
 
 ## Implemented (current)
+- **Coverage & Burn analytics (admin):** coverage by usage tier (toggle Monthly Spend / Lifetime Value) and by region (NA/Europe/APAC/LATAM/MEA/Other) as stacked bars (Uncovered→Assigned→Met→Advanced→Won); burn-up line (cumulative total vs covered vs won); region breakdown table; revenue rolled up in USD. Endpoint `/api/coverage`.
+- **Sticky sales ownership (hard lock):** Won leads lock to their owner; future meetings auto-route to that owner; round-robin blocked on locked leads; admin can still manually reassign. Repeat revenue tracked per lead (total_revenue_usd, deals_won, upsell_cycles).
+- **Reopen for upsell/cross-sell:** Won/Lost leads can start a new opportunity (Upsell/Cross-sell/Renewal) keeping the same owner; logs activity + audit.
+- **Region** field on leads (create form, detail edit, CSV import).
 - Auth + RBAC (admin vs agent scoping on all data).
 - Lead/account workspace: profile, account context panel, activity timeline, notes (Note/Call Outcome/Follow-up), ownership history, priority tags (Hot/Follow-up/Payment Pending), duplicate-email guard, CSV import.
 - Assignment: manual + round-robin + reassignment (traceable).
@@ -36,3 +40,4 @@ Web CRM for an inside sales team (4–10 agents + 1 sales head) to convert exist
 ## Test Status
 - iteration_1: 22/22 backend + UI verified.
 - iteration_2: 28/28 backend + UI verified (booking drivers, FX/multi-currency, new team).
+- iteration_3: 35/35 backend + UI verified (coverage analytics, sticky ownership, reopen, region). Fixed a missing fxRate useState in LeadDetail.
