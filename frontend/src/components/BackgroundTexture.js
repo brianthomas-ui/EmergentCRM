@@ -17,7 +17,7 @@ export default function BackgroundTexture() {
 
   return (
     <div className="fixed inset-0 z-0 pointer-events-none select-none overflow-hidden" aria-hidden="true">
-      <div className="font-mono text-[12px] leading-[20px] whitespace-pre tracking-[0.35em] p-3 text-slate-900/[0.028]">
+      <div className="font-mono text-[12px] leading-[20px] whitespace-pre tracking-[0.35em] p-3 text-zinc-900/[0.028]">
         {rows.map((l, i) => (
           <div key={i}>{l}</div>
         ))}

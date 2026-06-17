@@ -29,6 +29,7 @@ import {
   StickyNote,
   CheckCircle2,
   RefreshCw,
+  Lock,
 } from "lucide-react";
 
 const trendIcon = { rising: TrendingUp, declining: TrendingDown, stable: Minus };
@@ -58,7 +59,7 @@ export default function LeadDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  if (!data) return <div className="text-slate-400 text-sm">Loading…</div>;
+  if (!data) return <div className="text-zinc-400 text-sm">Loading…</div>;
   const { lead, activities, meetings, payments } = data;
   const TrendIco = trendIcon[lead.usage_trend] || Minus;
 
@@ -141,24 +142,24 @@ export default function LeadDetail() {
 
   return (
     <div className="space-y-5">
-      <Link to="/leads" className="text-sm text-slate-500 hover:text-slate-900 inline-flex items-center gap-1">
+      <Link to="/leads" className="text-sm text-zinc-500 hover:text-zinc-900 inline-flex items-center gap-1">
         <ArrowLeft className="w-4 h-4" /> Back to leads
       </Link>
 
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
-          <h1 className="font-heading text-3xl font-bold tracking-tighter text-slate-900" data-testid="lead-detail-name">
+          <h1 className="font-heading text-3xl font-bold tracking-tighter text-zinc-900" data-testid="lead-detail-name">
             {lead.name}
           </h1>
-          <p className="text-sm text-slate-500 mt-1">
+          <p className="text-sm text-zinc-500 mt-1">
             {lead.company} · {lead.email} · {lead.phone}
           </p>
           <div className="flex items-center gap-2 mt-3">
             <Badge className={stageClass(lead.stage)}>{lead.stage}</Badge>
             <Badge className={priorityClass(lead.priority)}>{lead.priority}</Badge>
-            <span className="text-xs text-slate-400">Owner: {lead.owner_name || "Unassigned"}</span>
+            <span className="text-xs text-zinc-400">Owner: {lead.owner_name || "Unassigned"}</span>
             {lead.owner_locked && (
-              <Badge className="bg-slate-900 text-white border-slate-900">🔒 Locked to owner</Badge>
+              <Badge className="bg-zinc-950 text-white border-zinc-950"><Lock className="w-3 h-3" /> Locked to owner</Badge>
             )}
           </div>
         </div>
@@ -180,48 +181,48 @@ export default function LeadDetail() {
       <div className="grid lg:grid-cols-3 gap-6">
         {/* Left: context panel */}
         <div className="space-y-5">
-          <div className="bg-white border border-slate-200 rounded-xl p-5" data-testid="account-context-panel">
-            <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-4">
+          <div className="bg-white border border-zinc-200 rounded-lg p-5" data-testid="account-context-panel">
+            <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-widest mb-4">
               Account Context
             </h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Plan</div>
-                <div className="text-sm font-semibold text-slate-900 mt-0.5">{lead.plan || "—"}</div>
+                <div className="text-[10px] uppercase tracking-widest text-zinc-400 font-semibold">Plan</div>
+                <div className="text-sm font-semibold text-zinc-900 mt-0.5">{lead.plan || "—"}</div>
               </div>
               <div>
-                <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Monthly Spend</div>
-                <div className="text-sm font-semibold text-slate-900 mt-0.5 font-mono">{money(lead.monthly_spend)}</div>
+                <div className="text-[10px] uppercase tracking-widest text-zinc-400 font-semibold">Monthly Spend</div>
+                <div className="text-sm font-semibold text-zinc-900 mt-0.5 font-mono">{money(lead.monthly_spend)}</div>
               </div>
               <div>
-                <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Lifetime Value</div>
-                <div className="text-sm font-semibold text-slate-900 mt-0.5 font-mono">{money(lead.lifetime_value)}</div>
+                <div className="text-[10px] uppercase tracking-widest text-zinc-400 font-semibold">Lifetime Value</div>
+                <div className="text-sm font-semibold text-zinc-900 mt-0.5 font-mono">{money(lead.lifetime_value)}</div>
               </div>
               <div>
-                <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Usage Trend</div>
-                <div className="text-sm font-semibold text-slate-900 mt-0.5 flex items-center gap-1 capitalize">
+                <div className="text-[10px] uppercase tracking-widest text-zinc-400 font-semibold">Usage Trend</div>
+                <div className="text-sm font-semibold text-zinc-900 mt-0.5 flex items-center gap-1 capitalize">
                   <TrendIco className="w-3.5 h-3.5" /> {lead.usage_trend}
                 </div>
               </div>
             </div>
-            <div className="mt-4 pt-4 border-t border-slate-100">
-              <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-2">Product History</div>
+            <div className="mt-4 pt-4 border-t border-zinc-100">
+              <div className="text-[10px] uppercase tracking-widest text-zinc-400 font-semibold mb-2">Product History</div>
               <div className="flex flex-wrap gap-1.5">
                 {(lead.product_history || []).length ? (
                   lead.product_history.map((p) => (
-                    <Badge key={p} className="bg-slate-50 text-slate-600 border-slate-200">{p}</Badge>
+                    <Badge key={p} className="bg-zinc-50 text-zinc-600 border-zinc-200">{p}</Badge>
                   ))
                 ) : (
-                  <span className="text-xs text-slate-400">No history</span>
+                  <span className="text-xs text-zinc-400">No history</span>
                 )}
               </div>
             </div>
-            <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between text-xs">
-              <span className="text-slate-400">Region: <span className="text-slate-600 font-medium">{lead.region || "—"}</span></span>
-              <span className="text-slate-400">Source: <span className="text-slate-600 font-medium">{lead.source}</span></span>
+            <div className="mt-4 pt-4 border-t border-zinc-100 flex items-center justify-between text-xs">
+              <span className="text-zinc-400">Region: <span className="text-zinc-600 font-medium">{lead.region || "—"}</span></span>
+              <span className="text-zinc-400">Source: <span className="text-zinc-600 font-medium">{lead.source}</span></span>
             </div>
             {(lead.total_revenue_usd > 0 || lead.deals_won > 0) && (
-              <div className="mt-3 rounded-xl bg-emerald-50 border border-emerald-100 p-3 flex items-center justify-between" data-testid="lifetime-revenue">
+              <div className="mt-3 rounded-lg bg-emerald-50 border border-emerald-100 p-3 flex items-center justify-between" data-testid="lifetime-revenue">
                 <div>
                   <div className="text-[10px] uppercase tracking-widest text-emerald-700 font-semibold">Lifetime Revenue</div>
                   <div className="text-lg font-bold text-emerald-700 font-mono">{money(lead.total_revenue_usd)}</div>
@@ -235,8 +236,8 @@ export default function LeadDetail() {
           </div>
 
           {/* Stage & priority controls */}
-          <div className="bg-white border border-slate-200 rounded-xl p-5">
-            <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3">Update</h3>
+          <div className="bg-white border border-zinc-200 rounded-lg p-5">
+            <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-widest mb-3">Update</h3>
             <Field label="Pipeline Stage">
               <select data-testid="stage-select" className={inputCls} value={lead.stage} onChange={(e) => updateStage(e.target.value)}>
                 {STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -256,13 +257,13 @@ export default function LeadDetail() {
 
           {/* Ownership history */}
           {lead.ownership_history?.length > 0 && (
-            <div className="bg-white border border-slate-200 rounded-xl p-5">
-              <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3">Ownership History</h3>
+            <div className="bg-white border border-zinc-200 rounded-lg p-5">
+              <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-widest mb-3">Ownership History</h3>
               <div className="space-y-2">
                 {lead.ownership_history.map((h, i) => (
-                  <div key={`${h.at}-${i}`} className="text-xs text-slate-600">
-                    <span className="text-slate-400">{h.from || "Unassigned"}</span> → <span className="font-semibold">{h.to}</span>
-                    <span className="text-slate-400"> · {h.by} · {timeAgo(h.at)}</span>
+                  <div key={`${h.at}-${i}`} className="text-xs text-zinc-600">
+                    <span className="text-zinc-400">{h.from || "Unassigned"}</span> → <span className="font-semibold">{h.to}</span>
+                    <span className="text-zinc-400"> · {h.by} · {timeAgo(h.at)}</span>
                   </div>
                 ))}
               </div>
@@ -273,9 +274,9 @@ export default function LeadDetail() {
         {/* Middle: notes + timeline */}
         <div className="lg:col-span-2 space-y-5">
           {/* Notes */}
-          <div className="bg-white border border-slate-200 rounded-xl p-5">
-            <h3 className="font-heading text-base font-bold tracking-tight text-slate-900 mb-3 flex items-center gap-2">
-              <StickyNote className="w-4 h-4 text-slate-400" /> Notes
+          <div className="bg-white border border-zinc-200 rounded-lg p-5">
+            <h3 className="font-heading text-base font-bold tracking-tight text-zinc-900 mb-3 flex items-center gap-2">
+              <StickyNote className="w-4 h-4 text-zinc-400" /> Notes
             </h3>
             <div className="flex gap-2 mb-3">
               <select className={`${inputCls} w-auto`} value={noteType} onChange={(e) => setNoteType(e.target.value)} data-testid="note-type">
@@ -295,35 +296,35 @@ export default function LeadDetail() {
             </div>
             <div className="space-y-2 max-h-60 overflow-y-auto">
               {(lead.notes || []).map((n) => (
-                <div key={n.id} className="border border-slate-100 rounded-xl p-3">
+                <div key={n.id} className="border border-zinc-100 rounded-lg p-3">
                   <div className="flex items-center justify-between mb-1">
-                    <Badge className="bg-slate-50 text-slate-600 border-slate-200">{n.type}</Badge>
-                    <span className="text-[10px] text-slate-400">{n.author} · {timeAgo(n.created_at)}</span>
+                    <Badge className="bg-zinc-50 text-zinc-600 border-zinc-200">{n.type}</Badge>
+                    <span className="text-[10px] text-zinc-400">{n.author} · {timeAgo(n.created_at)}</span>
                   </div>
-                  <div className="text-sm text-slate-700">{n.text}</div>
+                  <div className="text-sm text-zinc-700">{n.text}</div>
                 </div>
               ))}
-              {(lead.notes || []).length === 0 && <div className="text-xs text-slate-400 py-2">No notes yet.</div>}
+              {(lead.notes || []).length === 0 && <div className="text-xs text-zinc-400 py-2">No notes yet.</div>}
             </div>
           </div>
 
           {/* Meetings */}
-          <div className="bg-white border border-slate-200 rounded-xl p-5">
-            <h3 className="font-heading text-base font-bold tracking-tight text-slate-900 mb-3">Meetings</h3>
+          <div className="bg-white border border-zinc-200 rounded-lg p-5">
+            <h3 className="font-heading text-base font-bold tracking-tight text-zinc-900 mb-3">Meetings</h3>
             {meetings.length === 0 ? (
-              <div className="text-xs text-slate-400">No meetings yet.</div>
+              <div className="text-xs text-zinc-400">No meetings yet.</div>
             ) : (
               <div className="space-y-2">
                 {meetings.map((m) => (
-                  <div key={m.id} className="flex items-center justify-between border border-slate-100 rounded-xl p-3">
+                  <div key={m.id} className="flex items-center justify-between border border-zinc-100 rounded-lg p-3">
                     <div>
-                      <div className="text-sm text-slate-900 font-medium">{fmtDateTime(m.scheduled_at)}</div>
-                      <div className="text-xs text-slate-400">{m.source} · {m.agent_name}{m.booking_driver ? ` · hook: ${m.booking_driver}` : ""}</div>
+                      <div className="text-sm text-zinc-900 font-medium">{fmtDateTime(m.scheduled_at)}</div>
+                      <div className="text-xs text-zinc-400">{m.source} · {m.agent_name}{m.booking_driver ? ` · hook: ${m.booking_driver}` : ""}</div>
                     </div>
                     <Badge className={
-                      m.status === "completed" ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
-                      m.status === "no_show" ? "bg-red-50 text-red-700 border-red-200" :
-                      "bg-indigo-50 text-indigo-700 border-indigo-200"
+                      m.status === "completed" ? "text-emerald-600 border-emerald-200" :
+                      m.status === "no_show" ? "text-rose-600 border-rose-200" :
+                      "text-blue-600 border-blue-200"
                     }>{m.status.replace("_", "-")}</Badge>
                   </div>
                 ))}
@@ -332,24 +333,24 @@ export default function LeadDetail() {
           </div>
 
           {/* Payments */}
-          <div className="bg-white border border-slate-200 rounded-xl p-5">
-            <h3 className="font-heading text-base font-bold tracking-tight text-slate-900 mb-3">Payment Links</h3>
+          <div className="bg-white border border-zinc-200 rounded-lg p-5">
+            <h3 className="font-heading text-base font-bold tracking-tight text-zinc-900 mb-3">Payment Links</h3>
             {payments.length === 0 ? (
-              <div className="text-xs text-slate-400">No payment links sent.</div>
+              <div className="text-xs text-zinc-400">No payment links sent.</div>
             ) : (
               <div className="space-y-2">
                 {payments.map((p) => (
-                  <div key={p.id} className="flex items-center justify-between border border-slate-100 rounded-xl p-3" data-testid={`payment-row-${p.id}`}>
+                  <div key={p.id} className="flex items-center justify-between border border-zinc-100 rounded-lg p-3" data-testid={`payment-row-${p.id}`}>
                     <div>
-                      <div className="text-sm font-semibold text-slate-900 font-mono">{money(p.amount, p.currency)} · {p.provider}</div>
-                      <div className="text-xs text-slate-400">{p.description}</div>
+                      <div className="text-sm font-semibold text-zinc-900 font-mono">{money(p.amount, p.currency)} · {p.provider}</div>
+                      <div className="text-xs text-zinc-400">{p.description}</div>
                     </div>
                     <div className="flex items-center gap-2">
                       <Badge className={paymentStatusClass(p.payment_status)}>{p.payment_status}</Badge>
                       {p.payment_link && (
                         <button
                           onClick={() => { navigator.clipboard?.writeText(p.payment_link); toast.success("Link copied"); }}
-                          className="text-slate-400 hover:text-slate-900"
+                          className="text-zinc-400 hover:text-zinc-900"
                           title="Copy link"
                         >
                           <Copy className="w-3.5 h-3.5" />
@@ -363,21 +364,21 @@ export default function LeadDetail() {
           </div>
 
           {/* Activity timeline */}
-          <div className="bg-white border border-slate-200 rounded-xl p-5">
-            <h3 className="font-heading text-base font-bold tracking-tight text-slate-900 mb-3 flex items-center gap-2">
-              <Activity className="w-4 h-4 text-slate-400" /> Activity Timeline
+          <div className="bg-white border border-zinc-200 rounded-lg p-5">
+            <h3 className="font-heading text-base font-bold tracking-tight text-zinc-900 mb-3 flex items-center gap-2">
+              <Activity className="w-4 h-4 text-zinc-400" /> Activity Timeline
             </h3>
             <div className="space-y-3 max-h-72 overflow-y-auto">
               {activities.map((a) => (
                 <div key={a.id} className="flex gap-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-slate-900 mt-1.5 shrink-0" />
+                  <div className="w-1.5 h-1.5 rounded-full bg-zinc-900 mt-1.5 shrink-0" />
                   <div className="flex-1">
-                    <div className="text-sm text-slate-700">{a.description}</div>
-                    <div className="text-[10px] text-slate-400 uppercase tracking-wider">{a.actor} · {timeAgo(a.created_at)}</div>
+                    <div className="text-sm text-zinc-700">{a.description}</div>
+                    <div className="text-[10px] text-zinc-400 uppercase tracking-wider">{a.actor} · {timeAgo(a.created_at)}</div>
                   </div>
                 </div>
               ))}
-              {activities.length === 0 && <div className="text-xs text-slate-400">No activity yet.</div>}
+              {activities.length === 0 && <div className="text-xs text-zinc-400">No activity yet.</div>}
             </div>
           </div>
         </div>
@@ -415,8 +416,8 @@ export default function LeadDetail() {
               </div>
             </div>
             {payForm.currency === "inr" && Number(payForm.amount) > 0 && (
-              <div className="-mt-1 mb-3 text-xs text-slate-500" data-testid="fx-preview">
-                ≈ <span className="font-semibold text-slate-800">{money(Number(payForm.amount) / fxRate)}</span> at ₹{fxRate}/$1 · reported in USD
+              <div className="-mt-1 mb-3 text-xs text-zinc-500" data-testid="fx-preview">
+                ≈ <span className="font-semibold text-zinc-800">{money(Number(payForm.amount) / fxRate)}</span> at ₹{fxRate}/$1 · reported in USD
               </div>
             )}
             <Field label="Description">
@@ -428,16 +429,16 @@ export default function LeadDetail() {
           <button className={btnSecondary} onClick={() => setPayModal(false)}>Cancel</button>
           <button className={btnPrimary} onClick={createPayment} data-testid="generate-payment-btn">Generate & Copy Link</button>
         </div>
-        <p className="text-[11px] text-slate-400 mt-3 flex items-center gap-1">
+        <p className="text-[11px] text-zinc-400 mt-3 flex items-center gap-1">
           <CheckCircle2 className="w-3 h-3" /> Link copied to clipboard automatically. Stripe is live (test mode).
         </p>
       </Modal>
 
       {/* Reopen for Upsell Modal */}
       <Modal open={reopenModal} onClose={() => setReopenModal(false)} title="Reopen for Upsell / Cross-sell" testid="reopen-modal">
-        <p className="text-xs text-slate-500 mb-3">
+        <p className="text-xs text-zinc-500 mb-3">
           Starts a new opportunity and keeps ownership with{" "}
-          <span className="font-semibold text-slate-700">{lead.owner_name}</span>.
+          <span className="font-semibold text-zinc-700">{lead.owner_name}</span>.
         </p>
         <Field label="Opportunity Type">
           <select className={inputCls} value={reopenForm.type} onChange={(e) => setReopenForm({ ...reopenForm, type: e.target.value })} data-testid="reopen-type">

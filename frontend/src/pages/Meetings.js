@@ -6,10 +6,10 @@ import { Badge, fmtDateTime, BOOKING_DRIVERS } from "@/components/helpers";
 import Modal, { Field, inputCls, btnPrimary, btnSecondary } from "@/components/Modal";
 
 const statusBadge = {
-  scheduled: "bg-indigo-50 text-indigo-700 border-indigo-200",
-  completed: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  no_show: "bg-red-50 text-red-700 border-red-200",
-  cancelled: "bg-slate-50 text-slate-500 border-slate-200",
+  scheduled: "text-blue-600 border-blue-200",
+  completed: "text-emerald-600 border-emerald-200",
+  no_show: "text-rose-600 border-rose-200",
+  cancelled: "text-zinc-500 border-zinc-200",
 };
 
 export default function Meetings() {
@@ -46,47 +46,47 @@ export default function Meetings() {
     <div className="space-y-5">
       <div className="flex items-end justify-between">
         <div>
-          <h1 className="font-heading text-3xl font-bold tracking-tighter text-slate-900">Meetings</h1>
-          <p className="text-sm text-slate-500 mt-1">{meetings.length} meetings · Calendly intake + manual</p>
+          <h1 className="font-heading text-3xl font-bold tracking-tighter text-zinc-900">Meetings</h1>
+          <p className="text-sm text-zinc-500 mt-1">{meetings.length} meetings · Calendly intake + manual</p>
         </div>
         <div className="flex items-center gap-3">
           <select value={driverFilter} onChange={(e) => setDriverFilter(e.target.value)} data-testid="driver-filter" className={`${inputCls} w-auto`}>
             <option value="">All hooks</option>
             {BOOKING_DRIVERS.map((d) => <option key={d} value={d}>{d}</option>)}
           </select>
-          <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+          <label className="flex items-center gap-2 text-sm text-zinc-600 cursor-pointer">
             <input type="checkbox" checked={todayOnly} onChange={(e) => setTodayOnly(e.target.checked)} data-testid="today-toggle" />
             Today only
           </label>
         </div>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+      <div className="bg-white border border-zinc-200 rounded-lg overflow-hidden">
         <table className="w-full">
           <thead>
-            <tr className="bg-slate-50 border-b border-slate-200">
+            <tr className="bg-zinc-50 border-b border-zinc-200">
               {["Lead", "When", "Agent", "Source", "Driver", "Status", ""].map((h) => (
-                <th key={h} className="text-xs font-semibold text-slate-500 uppercase tracking-widest text-left p-3">{h}</th>
+                <th key={h} className="text-xs font-semibold text-zinc-500 uppercase tracking-widest text-left p-3">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {meetings.map((m) => (
-              <tr key={m.id} data-testid={`meeting-row-${m.id}`} className="border-b border-slate-100 hover:bg-slate-50">
+              <tr key={m.id} data-testid={`meeting-row-${m.id}`} className="border-b border-zinc-100 hover:bg-zinc-50">
                 <td className="p-3">
-                  <Link to={`/leads/${m.lead_id}`} className="text-sm font-semibold text-slate-900 hover:underline">{m.lead_name}</Link>
+                  <Link to={`/leads/${m.lead_id}`} className="text-sm font-semibold text-zinc-900 hover:underline">{m.lead_name}</Link>
                 </td>
-                <td className="p-3 text-sm text-slate-700 font-mono">{fmtDateTime(m.scheduled_at)}</td>
-                <td className="p-3 text-sm text-slate-700">{m.agent_name}</td>
-                <td className="p-3 text-xs text-slate-500">{m.source}</td>
-                <td className="p-3">{m.booking_driver ? <Badge className="bg-indigo-50 text-indigo-700 border-indigo-200">{m.booking_driver}</Badge> : <span className="text-xs text-slate-300">—</span>}</td>
+                <td className="p-3 text-sm text-zinc-700 font-mono">{fmtDateTime(m.scheduled_at)}</td>
+                <td className="p-3 text-sm text-zinc-700">{m.agent_name}</td>
+                <td className="p-3 text-xs text-zinc-500">{m.source}</td>
+                <td className="p-3">{m.booking_driver ? <Badge className="text-zinc-600 border-zinc-200">{m.booking_driver}</Badge> : <span className="text-xs text-zinc-300">—</span>}</td>
                 <td className="p-3"><Badge className={statusBadge[m.status]}>{m.status.replace("_", "-")}</Badge></td>
                 <td className="p-3 text-right">
                   {m.status === "scheduled" && (
                     <button
                       onClick={() => setOutcomeFor(m)}
                       data-testid={`outcome-btn-${m.id}`}
-                      className="text-xs font-semibold text-blue-600 hover:text-blue-800"
+                      className="text-xs font-semibold text-zinc-950 hover:text-zinc-600 underline underline-offset-2"
                     >
                       Record outcome
                     </button>
@@ -95,7 +95,7 @@ export default function Meetings() {
               </tr>
             ))}
             {meetings.length === 0 && (
-              <tr><td colSpan={7} className="p-12 text-center text-slate-400 text-sm">No meetings.</td></tr>
+              <tr><td colSpan={7} className="p-12 text-center text-zinc-400 text-sm">No meetings.</td></tr>
             )}
           </tbody>
         </table>

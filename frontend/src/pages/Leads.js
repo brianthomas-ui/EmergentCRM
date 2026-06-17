@@ -96,8 +96,8 @@ export default function Leads() {
     <div className="space-y-5">
       <div className="flex items-end justify-between flex-wrap gap-4">
         <div>
-          <h1 className="font-heading text-3xl font-bold tracking-tighter text-slate-900">Leads</h1>
-          <p className="text-sm text-slate-500 mt-1">
+          <h1 className="font-heading text-3xl font-bold tracking-tighter text-zinc-900">Leads</h1>
+          <p className="text-sm text-zinc-500 mt-1">
             {leads.length} accounts {isAdmin ? "across the team" : "assigned to you"}
           </p>
         </div>
@@ -119,7 +119,7 @@ export default function Leads() {
       {/* Filters */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 min-w-[220px]">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -tranzinc-y-1/2" />
           <input
             data-testid="lead-search"
             value={search}
@@ -143,12 +143,12 @@ export default function Leads() {
       </div>
 
       {/* Table */}
-      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+      <div className="bg-white border border-zinc-200 rounded-lg overflow-hidden">
         <table className="w-full">
           <thead>
-            <tr className="bg-slate-50 border-b border-slate-200">
+            <tr className="bg-zinc-50 border-b border-zinc-200">
               {["Account", "Plan / Spend", "Stage", "Priority", "Owner", "Source", ""].map((h) => (
-                <th key={h} className="text-xs font-semibold text-slate-500 uppercase tracking-widest text-left p-3">
+                <th key={h} className="text-xs font-semibold text-zinc-500 uppercase tracking-widest text-left p-3">
                   {h}
                 </th>
               ))}
@@ -156,16 +156,16 @@ export default function Leads() {
           </thead>
           <tbody>
             {leads.map((l) => (
-              <tr key={l.id} data-testid={`lead-row-${l.id}`} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+              <tr key={l.id} data-testid={`lead-row-${l.id}`} className="border-b border-zinc-100 hover:bg-zinc-50 transition-colors">
                 <td className="p-3">
                   <Link to={`/leads/${l.id}`} className="block">
-                    <div className="text-sm font-semibold text-slate-900">{l.name}</div>
-                    <div className="text-xs text-slate-400">{l.company || l.email}</div>
+                    <div className="text-sm font-semibold text-zinc-900">{l.name}</div>
+                    <div className="text-xs text-zinc-400">{l.company || l.email}</div>
                   </Link>
                 </td>
                 <td className="p-3">
-                  <div className="text-sm text-slate-700">{l.plan || "—"}</div>
-                  <div className="text-xs text-slate-400 font-mono">{money(l.monthly_spend)}/mo</div>
+                  <div className="text-sm text-zinc-700">{l.plan || "—"}</div>
+                  <div className="text-xs text-zinc-400 font-mono">{money(l.monthly_spend)}/mo</div>
                 </td>
                 <td className="p-3">
                   <Badge className={stageClass(l.stage)}>{l.stage}</Badge>
@@ -173,15 +173,15 @@ export default function Leads() {
                 <td className="p-3">
                   <Badge className={priorityClass(l.priority)}>{l.priority}</Badge>
                 </td>
-                <td className="p-3 text-sm text-slate-700">{l.owner_name || <span className="text-slate-400">Unassigned</span>}</td>
-                <td className="p-3 text-xs text-slate-500">{l.source}</td>
+                <td className="p-3 text-sm text-zinc-700">{l.owner_name || <span className="text-zinc-400">Unassigned</span>}</td>
+                <td className="p-3 text-xs text-zinc-500">{l.source}</td>
                 <td className="p-3 text-right">
                   {isAdmin ? (
                     <select
                       data-testid={`assign-select-${l.id}`}
                       value=""
                       onChange={(e) => e.target.value && assign(l.id, e.target.value)}
-                      className="border border-slate-300 rounded-xl text-xs px-2 py-1 bg-white"
+                      className="border border-zinc-300 rounded-lg text-xs px-2 py-1 bg-white"
                     >
                       <option value="">Assign…</option>
                       <option value="__rr__">⚡ Round-robin</option>
@@ -190,7 +190,7 @@ export default function Leads() {
                       ))}
                     </select>
                   ) : (
-                    <Link to={`/leads/${l.id}`} className="text-slate-400 hover:text-slate-900">
+                    <Link to={`/leads/${l.id}`} className="text-zinc-400 hover:text-zinc-900">
                       <ArrowRight className="w-4 h-4 inline" />
                     </Link>
                   )}
@@ -199,8 +199,8 @@ export default function Leads() {
             ))}
             {leads.length === 0 && (
               <tr>
-                <td colSpan={7} className="p-12 text-center text-slate-400 text-sm">
-                  <UsersIcon className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                <td colSpan={7} className="p-12 text-center text-zinc-400 text-sm">
+                  <UsersIcon className="w-8 h-8 mx-auto mb-2 text-zinc-300" />
                   No leads found.
                 </td>
               </tr>

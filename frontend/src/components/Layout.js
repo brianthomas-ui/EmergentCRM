@@ -35,14 +35,14 @@ export default function Layout({ children }) {
       <BackgroundTexture />
 
       {/* Sidebar */}
-      <aside className="w-60 bg-white/80 backdrop-blur-xl border-r border-slate-200 h-screen fixed left-0 top-0 flex flex-col z-20">
-        <div className="px-5 h-16 flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-gradient-brand flex items-center justify-center shadow-sm">
+      <aside className="w-60 bg-zinc-50/70 backdrop-blur-xl border-r border-zinc-200 h-screen fixed left-0 top-0 flex flex-col z-20">
+        <div className="px-5 h-16 flex items-center gap-2.5 border-b border-zinc-200/70">
+          <div className="w-8 h-8 rounded-md bg-zinc-950 flex items-center justify-center">
             <span className="text-white font-heading font-bold leading-none">e</span>
           </div>
           <div className="leading-tight">
-            <div className="font-heading font-semibold tracking-tight text-sm text-slate-900">Upsell CRM</div>
-            <div className="text-[10px] text-slate-400 font-medium">Emergent Labs</div>
+            <div className="font-heading font-semibold tracking-tight text-sm text-zinc-950">Upsell CRM</div>
+            <div className="label-mono text-[10px] text-zinc-400">Emergent Labs</div>
           </div>
         </div>
 
@@ -58,10 +58,10 @@ export default function Layout({ children }) {
                   end={item.to === "/"}
                   data-testid={item.testid}
                   className={({ isActive }) =>
-                    `flex items-center gap-3 px-3.5 py-2.5 rounded-full text-sm font-medium transition-colors ${
+                    `flex items-center gap-3 px-3.5 py-2.5 rounded-md text-sm font-medium transition-colors ${
                       isActive
-                        ? "bg-slate-900 text-white"
-                        : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                        ? "bg-white border border-zinc-200 text-zinc-950 shadow-sm"
+                        : "text-zinc-600 hover:bg-zinc-100/80 hover:text-zinc-950"
                     }`
                   }
                 >
@@ -72,18 +72,18 @@ export default function Layout({ children }) {
             })}
         </nav>
 
-        <div className="p-3">
-          <div className="flex items-center gap-3 px-2 py-2 rounded-2xl bg-slate-50 border border-slate-100">
+        <div className="p-3 border-t border-zinc-200/70">
+          <div className="flex items-center gap-3 px-2 py-2 rounded-md bg-white border border-zinc-200">
             <img
               src={user?.avatar_url}
               alt={user?.name}
-              className="w-8 h-8 rounded-full object-cover border border-slate-200 bg-slate-100"
+              className="w-8 h-8 rounded-md object-cover border border-zinc-200 bg-zinc-100"
             />
             <div className="flex-1 min-w-0 leading-tight">
-              <div className="text-sm font-semibold text-slate-900 truncate" data-testid="current-user-name">
+              <div className="text-sm font-semibold text-zinc-950 truncate" data-testid="current-user-name">
                 {user?.name}
               </div>
-              <div className="text-[10px] text-slate-400 font-medium">
+              <div className="label-mono text-[10px] text-zinc-400">
                 {isAdmin ? "Sales Head" : "Agent"}
               </div>
             </div>
@@ -93,7 +93,7 @@ export default function Layout({ children }) {
                 logout();
                 navigate("/login");
               }}
-              className="text-slate-400 hover:text-red-600 hover:bg-white rounded-lg p-1.5 transition-colors"
+              className="text-zinc-400 hover:text-rose-600 hover:bg-zinc-50 rounded-md p-1.5 transition-colors"
               title="Log out"
             >
               <LogOut className="w-4 h-4" />

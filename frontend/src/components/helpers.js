@@ -33,35 +33,37 @@ export function money(n, currency = "usd") {
   return `${sym}${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 }
 
+// Outline badges: white background, 1px border, colored text only — keeps the
+// CRM clean and avoids "rainbow fill" overload.
 export function stageClass(stage) {
   const map = {
-    "New Booking": "bg-slate-100 text-slate-700 border-slate-200",
-    Assigned: "bg-sky-50 text-sky-700 border-sky-200",
-    "Meeting Scheduled": "bg-indigo-50 text-indigo-700 border-indigo-200",
-    "Meeting Completed": "bg-violet-50 text-violet-700 border-violet-200",
-    "Payment Link Sent": "bg-amber-50 text-amber-700 border-amber-200",
-    Won: "bg-emerald-50 text-emerald-700 border-emerald-200",
-    Lost: "bg-red-50 text-red-700 border-red-200",
-    "Follow-up Later": "bg-orange-50 text-orange-700 border-orange-200",
+    "New Booking": "text-zinc-500 border-zinc-200",
+    Assigned: "text-zinc-700 border-zinc-300",
+    "Meeting Scheduled": "text-blue-600 border-blue-200",
+    "Meeting Completed": "text-indigo-600 border-indigo-200",
+    "Payment Link Sent": "text-amber-600 border-amber-200",
+    Won: "text-emerald-600 border-emerald-200",
+    Lost: "text-rose-600 border-rose-200",
+    "Follow-up Later": "text-orange-600 border-orange-200",
   };
-  return map[stage] || "bg-slate-100 text-slate-700 border-slate-200";
+  return map[stage] || "text-zinc-500 border-zinc-200";
 }
 
 export function priorityClass(p) {
   const map = {
-    Hot: "bg-red-50 text-red-700 border-red-200",
-    "Follow-up This Week": "bg-amber-50 text-amber-700 border-amber-200",
-    "Payment Pending": "bg-indigo-50 text-indigo-700 border-indigo-200",
-    None: "bg-slate-50 text-slate-500 border-slate-200",
+    Hot: "text-rose-600 border-rose-200",
+    "Follow-up This Week": "text-amber-600 border-amber-200",
+    "Payment Pending": "text-zinc-700 border-zinc-300",
+    None: "text-zinc-400 border-zinc-200",
   };
   return map[p] || map.None;
 }
 
 export function paymentStatusClass(s) {
   const map = {
-    paid: "bg-emerald-50 text-emerald-700 border-emerald-200",
-    pending: "bg-amber-50 text-amber-700 border-amber-200",
-    initiated: "bg-slate-50 text-slate-600 border-slate-200",
+    paid: "text-emerald-600 border-emerald-200",
+    pending: "text-amber-600 border-amber-200",
+    initiated: "text-zinc-500 border-zinc-200",
   };
   return map[s] || map.pending;
 }
@@ -69,7 +71,7 @@ export function paymentStatusClass(s) {
 export function Badge({ children, className = "" }) {
   return (
     <span
-      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${className}`}
+      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-mono font-medium uppercase tracking-wider border bg-white ${className}`}
     >
       {children}
     </span>

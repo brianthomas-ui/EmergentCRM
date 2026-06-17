@@ -19,7 +19,7 @@ function Protected({ children, adminOnly }) {
   const { user, isAdmin } = useAuth();
   if (user === null)
     return (
-      <div className="min-h-screen flex items-center justify-center text-slate-400 text-sm">
+      <div className="min-h-screen flex items-center justify-center text-zinc-400 text-sm">
         Loading…
       </div>
     );
