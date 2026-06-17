@@ -307,7 +307,7 @@ def test_dashboard_admin_has_booking_drivers(admin_token):
     r = requests.get(f"{API}/dashboard", headers=H(admin_token))
     assert r.status_code == 200
     d = r.json()
-    assert d["is_admin"] is True
+    assert d["is_admin"]
     assert "booking_drivers" in d
     assert isinstance(d["booking_drivers"], list)
     # seed should have at least these drivers
@@ -325,7 +325,7 @@ def test_dashboard_agent_scoped(agent_token):
     r = requests.get(f"{API}/dashboard", headers=H(agent_token))
     assert r.status_code == 200
     d = r.json()
-    assert d["is_admin"] is False
+    assert not d["is_admin"]
     assert "per_agent" not in d
     assert "booking_drivers" in d
 
@@ -531,7 +531,7 @@ def test_payment_complete_sets_locked_and_revenue(admin_token):
     requests.post(f"{API}/payments/simulate/{pay['session_id']}", headers=H(admin_token))
     final = requests.get(f"{API}/leads/{lid}", headers=H(admin_token)).json()["lead"]
     assert final["stage"] == "Won"
-    assert final["owner_locked"] is True
+    assert final["owner_locked"]
     assert final["payment_status"] == "paid"
     assert final["total_revenue_usd"] == 100.0
     assert final["deals_won"] == 1

@@ -28,6 +28,7 @@ const CHART_MARGIN = { top: 4, right: 8, left: -16, bottom: 4 };
 const TOOLTIP_STYLE = { borderRadius: 6, border: "1px solid #18181B", background: "#0A0A0A", color: "#fff", fontSize: 12 };
 const TOOLTIP_ITEM = { color: "#fff" };
 const LEGEND_STYLE = { fontSize: 11 };
+const LINE_DOT = { r: 3 };
 const AXIS_TICK = { fontSize: 11, fill: "#A1A1AA" };
 const XAXIS_TICK_SM = { fontSize: 10, fill: "#71717A" };
 const XAXIS_TICK_DATE = { fontSize: 10, fill: "#A1A1AA" };
@@ -151,8 +152,8 @@ export default function Coverage() {
               <Tooltip contentStyle={TOOLTIP_STYLE} itemStyle={TOOLTIP_ITEM} labelStyle={TOOLTIP_ITEM} />
               <Legend wrapperStyle={LEGEND_STYLE} />
               <Line type="monotone" dataKey="total" name="Total (scope)" stroke="#D4D4D8" strokeWidth={2} strokeDasharray="5 4" dot={false} />
-              <Line type="monotone" dataKey="covered" name="Covered" stroke="#A1A1AA" strokeWidth={2.5} dot={{ r: 3 }} />
-              <Line type="monotone" dataKey="won" name="Won" stroke="#18181B" strokeWidth={2.5} dot={{ r: 3 }} />
+              <Line type="monotone" dataKey="covered" name="Covered" stroke="#A1A1AA" strokeWidth={2.5} dot={LINE_DOT} />
+              <Line type="monotone" dataKey="won" name="Won" stroke="#18181B" strokeWidth={2.5} dot={LINE_DOT} />
             </LineChart>
           </ResponsiveContainer>
         </div>

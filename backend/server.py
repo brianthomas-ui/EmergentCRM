@@ -18,6 +18,7 @@ import csv
 import random
 import asyncio
 from datetime import datetime, timezone, timedelta, date
+from collections import Counter
 
 import bcrypt
 import jwt
@@ -758,16 +759,51 @@ async def stripe_webhook(request: Request):
 # ----------------------------------------------------------------------------
 # Dashboard / Reporting
 # ----------------------------------------------------------------------------
+def _revenue(payments, status):
+    return sum(p.get("amount_usd", p["amount"]) for p in payments if p["payment_status"] == status)
+
+
+def _booking_driver_stats(meetings, won_lead_ids):
+    """Attribute meetings to the hook that drove them (and which convert)."""
+    stats = {}
+    for m in meetings:
+        d = m.get("booking_driver") or "Unspecified"
+        s = stats.setdefault(d, {"driver": d, "meetings": 0, "completed": 0, "won": 0})
+        s["meetings"] += 1
+        if m.get("status") == "completed":
+            s["completed"] += 1
+        if m.get("lead_id") in won_lead_ids:
+            s["won"] += 1
+    return sorted(stats.values(), key=lambda x: x["meetings"], reverse=True)
+
+
+def _agent_leaderboard(agents, leads, meetings, payments):
+    rows = []
+    for a in agents:
+        a_leads = [l for l in leads if l.get("owner_id") == a["id"]]
+        a_meetings = [m for m in meetings if m["agent_id"] == a["id"]]
+        a_revenue = sum(
+            p.get("amount_usd", p["amount"]) for p in payments
+            if p["agent_id"] == a["id"] and p["payment_status"] == "paid"
+        )
+        rows.append({
+            "id": a["id"], "name": a["name"], "avatar_url": a.get("avatar_url"),
+            "leads": len(a_leads), "won": len([l for l in a_leads if l.get("stage") == "Won"]),
+            "meetings": len(a_meetings), "revenue": a_revenue,
+            "target": a.get("monthly_target", 0),
+        })
+    return sorted(rows, key=lambda x: x["revenue"], reverse=True)
+
+
 @api.get("/dashboard")
 async def dashboard(user: dict = Depends(get_current_user)):
     is_admin = user["role"] == "admin"
-    lead_filter = {} if is_admin else {"owner_id": user["id"]}
-    meeting_filter = {} if is_admin else {"agent_id": user["id"]}
-    pay_filter = {} if is_admin else {"agent_id": user["id"]}
+    scope = {} if is_admin else {"owner_id": user["id"]}
+    agent_scope = {} if is_admin else {"agent_id": user["id"]}
 
-    leads = await db.leads.find(lead_filter, {"_id": 0, "id": 1, "stage": 1, "priority": 1, "owner_id": 1}).to_list(5000)
-    meetings = await db.meetings.find(meeting_filter, {"_id": 0, "id": 1, "lead_id": 1, "lead_name": 1, "agent_id": 1, "agent_name": 1, "scheduled_at": 1, "completed_at": 1, "status": 1, "source": 1, "booking_driver": 1, "duration": 1}).to_list(5000)
-    payments = await db.payments.find(pay_filter, {"_id": 0, "amount": 1, "amount_usd": 1, "payment_status": 1, "agent_id": 1}).to_list(5000)
+    leads = await db.leads.find(scope, {"_id": 0, "id": 1, "stage": 1, "priority": 1, "owner_id": 1}).to_list(5000)
+    meetings = await db.meetings.find(agent_scope, {"_id": 0, "id": 1, "lead_id": 1, "lead_name": 1, "agent_id": 1, "agent_name": 1, "scheduled_at": 1, "completed_at": 1, "status": 1, "source": 1, "booking_driver": 1, "duration": 1}).to_list(5000)
+    payments = await db.payments.find(agent_scope, {"_id": 0, "amount": 1, "amount_usd": 1, "payment_status": 1, "agent_id": 1}).to_list(5000)
 
     stage_counts = {s: 0 for s in PIPELINE_STAGES}
     for l in leads:
@@ -777,30 +813,7 @@ async def dashboard(user: dict = Depends(get_current_user)):
     meetings_today = [m for m in meetings if (m.get("scheduled_at") or "").startswith(today)]
     completed_today = [m for m in meetings if (m.get("completed_at") or "").startswith(today) and m["status"] == "completed"]
     noshow_today = [m for m in meetings if (m.get("completed_at") or "").startswith(today) and m["status"] == "no_show"]
-
-    revenue_won = sum(p.get("amount_usd", p["amount"]) for p in payments if p["payment_status"] == "paid")
-    pipeline_value = sum(p.get("amount_usd", p["amount"]) for p in payments if p["payment_status"] == "pending")
-    payment_pending = len([l for l in leads if l.get("priority") == "Payment Pending"])
-    follow_up = len([l for l in leads if l.get("priority") == "Follow-up This Week"])
-    hot = len([l for l in leads if l.get("priority") == "Hot"])
-
-    # Booking driver attribution: which hooks drive meetings (and which convert)
-    driver_stats = {}
     won_lead_ids = {l["id"] for l in leads if l.get("stage") == "Won"}
-    for m in meetings:
-        d = m.get("booking_driver") or "Unspecified"
-        if d not in driver_stats:
-            driver_stats[d] = {"driver": d, "meetings": 0, "completed": 0, "won": 0}
-        driver_stats[d]["meetings"] += 1
-        if m.get("status") == "completed":
-            driver_stats[d]["completed"] += 1
-        if m.get("lead_id") in won_lead_ids:
-            driver_stats[d]["won"] += 1
-    booking_drivers = sorted(driver_stats.values(), key=lambda x: x["meetings"], reverse=True)
-
-    # target
-    target = user.get("monthly_target", 0) if not is_admin else 0
-    weekly_target = user.get("weekly_target", 0) if not is_admin else 0
 
     result = {
         "is_admin": is_admin,
@@ -810,34 +823,21 @@ async def dashboard(user: dict = Depends(get_current_user)):
         "meetings_today_list": [clean(m) for m in meetings_today],
         "completed_today": len(completed_today),
         "noshow_today": len(noshow_today),
-        "revenue_won": revenue_won,
-        "pipeline_value": pipeline_value,
-        "payment_pending": payment_pending,
-        "follow_up": follow_up,
-        "hot": hot,
-        "target": target,
-        "weekly_target": weekly_target,
+        "revenue_won": _revenue(payments, "paid"),
+        "pipeline_value": _revenue(payments, "pending"),
+        "payment_pending": len([l for l in leads if l.get("priority") == "Payment Pending"]),
+        "follow_up": len([l for l in leads if l.get("priority") == "Follow-up This Week"]),
+        "hot": len([l for l in leads if l.get("priority") == "Hot"]),
+        "target": 0 if is_admin else user.get("monthly_target", 0),
+        "weekly_target": 0 if is_admin else user.get("weekly_target", 0),
         "won_count": stage_counts.get("Won", 0),
-        "booking_drivers": booking_drivers,
+        "booking_drivers": _booking_driver_stats(meetings, won_lead_ids),
     }
 
     if is_admin:
         agents = await db.users.find({"role": "agent"}).to_list(100)
-        team_target = sum(a.get("monthly_target", 0) for a in agents)
-        per_agent = []
-        for a in agents:
-            a_leads = [l for l in leads if l.get("owner_id") == a["id"]]
-            a_pays = [p for p in payments if p["agent_id"] == a["id"] and p["payment_status"] == "paid"]
-            a_meetings = [m for m in meetings if m["agent_id"] == a["id"]]
-            rev = sum(p.get("amount_usd", p["amount"]) for p in a_pays)
-            per_agent.append({
-                "id": a["id"], "name": a["name"], "avatar_url": a.get("avatar_url"),
-                "leads": len(a_leads), "won": len([l for l in a_leads if l.get("stage") == "Won"]),
-                "meetings": len(a_meetings), "revenue": rev,
-                "target": a.get("monthly_target", 0),
-            })
-        result["team_target"] = team_target
-        result["per_agent"] = sorted(per_agent, key=lambda x: x["revenue"], reverse=True)
+        result["team_target"] = sum(a.get("monthly_target", 0) for a in agents)
+        result["per_agent"] = _agent_leaderboard(agents, leads, meetings, payments)
     return result
 
 @api.get("/settings")
@@ -854,82 +854,63 @@ async def update_settings(body: SettingsIn, admin: dict = Depends(require_admin)
     await log_audit("update_fx_rate", admin["name"], "INR/USD", f"{body.inr_per_usd} INR per USD")
     return {"inr_per_usd": float(body.inr_per_usd)}
 
-@api.get("/coverage")
-async def coverage(admin: dict = Depends(require_admin)):
-    leads = await db.leads.find({}, {"_id": 0, "id": 1, "owner_id": 1, "stage": 1, "monthly_spend": 1, "lifetime_value": 1, "region": 1, "created_at": 1, "won_at": 1, "ownership_history": 1}).to_list(5000)
-    meetings = await db.meetings.find({}, {"_id": 0, "lead_id": 1}).to_list(5000)
-    paid = await db.payments.find({"payment_status": "paid"}, {"_id": 0, "lead_id": 1, "amount": 1, "amount_usd": 1}).to_list(5000)
+def _cov_blank(label):
+    return {"label": label, "total": 0, "assigned": 0, "met": 0, "advanced": 0, "won": 0, "revenue_usd": 0.0}
 
-    met_ids = {m["lead_id"] for m in meetings}
-    rev_by_lead = {}
-    for p in paid:
-        rev_by_lead[p["lead_id"]] = rev_by_lead.get(p["lead_id"], 0.0) + p.get("amount_usd", p["amount"])
 
-    def blank(label):
-        return {"label": label, "total": 0, "assigned": 0, "met": 0, "advanced": 0, "won": 0, "revenue_usd": 0.0}
+def _cov_group_stats(leads, met_ids, rev_by_lead, group_fn, order):
+    groups = {o: _cov_blank(o) for o in order}
+    for l in leads:
+        label = group_fn(l)
+        g = groups.get(label) or _cov_blank(label)
+        groups[label] = g
+        g["total"] += 1
+        if l.get("owner_id"):
+            g["assigned"] += 1
+        if l["id"] in met_ids:
+            g["met"] += 1
+        if l.get("stage") in ("Payment Link Sent", "Won"):
+            g["advanced"] += 1
+        if l.get("stage") == "Won":
+            g["won"] += 1
+        g["revenue_usd"] += rev_by_lead.get(l["id"], 0.0)
+    return [groups[o] for o in order]
 
-    def group_stats(group_fn, order):
-        groups = {o: blank(o) for o in order}
-        for l in leads:
-            label = group_fn(l)
-            g = groups.get(label)
-            if g is None:
-                g = blank(label)
-                groups[label] = g
-            g["total"] += 1
-            if l.get("owner_id"):
-                g["assigned"] += 1
-            if l["id"] in met_ids:
-                g["met"] += 1
-            if l.get("stage") in ("Payment Link Sent", "Won"):
-                g["advanced"] += 1
-            if l.get("stage") == "Won":
-                g["won"] += 1
-            g["revenue_usd"] += rev_by_lead.get(l["id"], 0.0)
-        return [groups[o] for o in order]
 
-    tier_order = [t[0] for t in USAGE_TIERS]
-    by_tier_spend = group_stats(lambda l: tier_label(l.get("monthly_spend", 0)), tier_order)
-    by_tier_ltv = group_stats(lambda l: tier_label(l.get("lifetime_value", 0)), tier_order)
-    by_region = group_stats(lambda l: l.get("region") or "Other", REGIONS)
+def _cov_week_start(iso):
+    d = datetime.fromisoformat(iso).astimezone(timezone.utc)
+    return (d - timedelta(days=d.weekday())).date()
 
-    # burn-up: weekly cumulative scope(total) vs covered(assigned) vs won
-    def week_start(iso):
-        d = datetime.fromisoformat(iso).astimezone(timezone.utc)
-        return (d - timedelta(days=d.weekday())).date()
 
-    from collections import Counter
-    created = [week_start(l["created_at"]) for l in leads if l.get("created_at")]
+def _cov_weekly_burnup(leads):
+    """Cumulative weekly scope(total) vs covered(assigned) vs won — used as a fallback
+    when no daily snapshots exist yet."""
+    created = [_cov_week_start(l["created_at"]) for l in leads if l.get("created_at")]
+    if not created:
+        return []
     assigned_weeks = []
     for l in leads:
         if l.get("ownership_history"):
-            assigned_weeks.append(week_start(l["ownership_history"][0]["at"]))
+            assigned_weeks.append(_cov_week_start(l["ownership_history"][0]["at"]))
         elif l.get("owner_id") and l.get("created_at"):
-            assigned_weeks.append(week_start(l["created_at"]))
-    won_weeks = [week_start(l["won_at"]) for l in leads if l.get("won_at")]
+            assigned_weeks.append(_cov_week_start(l["created_at"]))
+    won_weeks = [_cov_week_start(l["won_at"]) for l in leads if l.get("won_at")]
 
-    burnup = []
-    if created:
-        c_created, c_assigned, c_won = Counter(created), Counter(assigned_weeks), Counter(won_weeks)
-        wk = min(created)
-        end = datetime.now(timezone.utc).date()
-        cum_t = cum_a = cum_w = 0
-        guard = 0
-        while wk <= end and guard < 104:
-            cum_t += c_created.get(wk, 0)
-            cum_a += c_assigned.get(wk, 0)
-            cum_w += c_won.get(wk, 0)
-            burnup.append({"week": wk.isoformat(), "total": cum_t, "covered": cum_a, "won": cum_w})
-            wk = wk + timedelta(days=7)
-            guard += 1
+    c_created, c_assigned, c_won = Counter(created), Counter(assigned_weeks), Counter(won_weeks)
+    wk, end = min(created), datetime.now(timezone.utc).date()
+    cum_t = cum_a = cum_w = 0
+    out, guard = [], 0
+    while wk <= end and guard < 104:
+        cum_t += c_created.get(wk, 0)
+        cum_a += c_assigned.get(wk, 0)
+        cum_w += c_won.get(wk, 0)
+        out.append({"week": wk.isoformat(), "total": cum_t, "covered": cum_a, "won": cum_w})
+        wk = wk + timedelta(days=7)
+        guard += 1
+    return out
 
-    totals = blank("All")
-    for g in by_region:
-        for k in ("total", "assigned", "met", "advanced", "won", "revenue_usd"):
-            totals[k] += g[k]
 
-    # Persist today's coverage snapshot (lazy daily capture) so the burn-up
-    # reflects real historical progress over time, not a single point.
+async def _cov_persist_snapshot(totals):
     snap_today = datetime.now(timezone.utc).date().isoformat()
     await db.coverage_snapshots.update_one(
         {"id": snap_today},
@@ -942,7 +923,35 @@ async def coverage(admin: dict = Depends(require_admin)):
         upsert=True,
     )
 
-    # Build the burn-up from stored daily snapshots (real history).
+
+@api.get("/coverage")
+async def coverage(admin: dict = Depends(require_admin)):
+    leads = await db.leads.find({}, {"_id": 0, "id": 1, "owner_id": 1, "stage": 1, "monthly_spend": 1, "lifetime_value": 1, "region": 1, "created_at": 1, "won_at": 1, "ownership_history": 1}).to_list(5000)
+    meetings = await db.meetings.find({}, {"_id": 0, "lead_id": 1}).to_list(5000)
+    paid = await db.payments.find({"payment_status": "paid"}, {"_id": 0, "lead_id": 1, "amount": 1, "amount_usd": 1}).to_list(5000)
+
+    met_ids = {m["lead_id"] for m in meetings}
+    rev_by_lead = {}
+    for p in paid:
+        rev_by_lead[p["lead_id"]] = rev_by_lead.get(p["lead_id"], 0.0) + p.get("amount_usd", p["amount"])
+
+    tier_order = [t[0] for t in USAGE_TIERS]
+    by_tier_spend = _cov_group_stats(leads, met_ids, rev_by_lead, lambda l: tier_label(l.get("monthly_spend", 0)), tier_order)
+    by_tier_ltv = _cov_group_stats(leads, met_ids, rev_by_lead, lambda l: tier_label(l.get("lifetime_value", 0)), tier_order)
+    by_region = _cov_group_stats(leads, met_ids, rev_by_lead, lambda l: l.get("region") or "Other", REGIONS)
+
+    burnup = _cov_weekly_burnup(leads)
+
+    totals = _cov_blank("All")
+    for g in by_region:
+        for k in ("total", "assigned", "met", "advanced", "won", "revenue_usd"):
+            totals[k] += g[k]
+
+    # Persist today's coverage snapshot (lazy daily capture) so the burn-up
+    # reflects real historical progress over time, not a single point.
+    await _cov_persist_snapshot(totals)
+
+    # Prefer the stored daily snapshots (real history) over the weekly estimate.
     snaps = await db.coverage_snapshots.find({}, {"_id": 0}).sort("date", 1).to_list(400)
     if snaps:
         burnup = [
@@ -969,8 +978,7 @@ async def meta(user: dict = Depends(get_current_user)):
 # ----------------------------------------------------------------------------
 # Seeding
 # ----------------------------------------------------------------------------
-async def seed():
-    await db.settings.update_one({"id": "settings"}, {"$setOnInsert": {"id": "settings", "inr_per_usd": 85.0}}, upsert=True)
+async def _seed_admin():
     admin_email = os.environ.get("ADMIN_EMAIL", "diyea@emergent.sh").lower()
     admin_password = os.environ.get("ADMIN_PASSWORD", "leader123")
     admin = await db.users.find_one({"email": admin_email})
@@ -986,102 +994,119 @@ async def seed():
         await db.users.update_one({"email": admin_email}, {"$set": {"password_hash": hash_password(admin_password)}})
         logger.info(f"seed: admin password self-healed -> {admin_email}")
 
-    if await db.users.count_documents({"role": "agent"}) == 0:
-        photo = "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?crop=entropy&cs=srgb&fm=jpg&w=200&q=80"
-        agents_data = [
-            ("Aryan", "aryan.f@emergent.sh"),
-            ("Dipan", "dipan@emergent.sh"),
-            ("Vinay", "vinay.p@emergent.sh"),
-            ("Brian", "brian@emergent.sh"),
-        ]
-        for i, (name, email) in enumerate(agents_data):
-            avatar = photo if i == 0 else f"https://api.dicebear.com/7.x/initials/svg?seed={name}"
-            await _safe_insert(db.users, {
-                "id": new_id(), "name": name, "email": email,
-                "password_hash": hash_password("agent123"), "role": "agent",
-                "avatar_url": avatar, "monthly_target": 25000.0,
-                "weekly_target": 6250.0, "active": True, "created_at": now_iso(),
-            })
 
-    if await db.leads.count_documents({}) == 0:
-        agents = await db.users.find({"role": "agent"}).to_list(100)
-        sample = [
-            ("Acme Analytics", "Dana Whitfield", "dana@acmeanalytics.io", "Pro $99/mo", 99, 1200, "rising", "Hot", "Q3 Power User Outreach", "North America"),
-            ("Nimbus Labs", "Owen Carter", "owen@nimbuslabs.dev", "Pro $149/mo", 149, 2100, "rising", "Payment Pending", "Q3 Power User Outreach", "Europe"),
-            ("BrightForge", "Lena Ortiz", "lena@brightforge.com", "Starter $49/mo", 49, 600, "stable", "Follow-up This Week", "Manual Entry", "LATAM"),
-            ("DataPeak", "Ravi Menon", "ravi@datapeak.ai", "Pro $199/mo", 199, 3400, "rising", "Hot", "Q3 Power User Outreach", "APAC"),
-            ("Loopline", "Greta Hofmann", "greta@loopline.co", "Pro $129/mo", 129, 1500, "declining", "None", "CSV Import", "Europe"),
-            ("Vertex IO", "Sam Patel", "sam@vertex.io", "Pro $99/mo", 99, 950, "stable", "Follow-up This Week", "CSV Import", "APAC"),
-            ("Quantli", "Mia Tanaka", "mia@quantli.com", "Starter $59/mo", 59, 720, "rising", "Hot", "Manual Entry", "APAC"),
-            ("Northstar", "Leo Becker", "leo@northstar.app", "Pro $179/mo", 179, 2800, "rising", "Payment Pending", "Q3 Power User Outreach", "MEA"),
-        ]
-        stages = ["New Booking", "Assigned", "Meeting Scheduled", "Meeting Completed", "Payment Link Sent", "Won", "Follow-up Later", "Assigned"]
-        for i, (company, name, email, plan, spend, ltv, trend, priority, source, region) in enumerate(sample):
-            owner = agents[i % len(agents)] if i % 3 != 0 else None
-            stage = stages[i]
-            is_won = stage == "Won"
-            doc = {
-                "id": new_id(), "name": name, "email": email, "company": company,
-                "phone": f"+1 555 01{i:02d}", "plan": plan, "monthly_spend": float(spend),
-                "lifetime_value": float(ltv), "usage_trend": trend, "product_history": ["API", "Dashboard"],
-                "source": source, "region": region, "priority": "None" if is_won else priority, "stage": stage,
-                "owner_id": owner["id"] if owner else None,
-                "owner_name": owner["name"] if owner else None,
-                "owner_locked": bool(is_won and owner),
-                "total_revenue_usd": 2500.0 if (is_won and owner) else 0.0,
-                "deals_won": 1 if (is_won and owner) else 0, "upsell_cycles": 0,
-                "notes": [], "ownership_history": [], "payment_status": "paid" if (is_won and owner) else "none",
-                "last_meeting_at": None, "next_meeting_at": None,
-                "won_at": now_iso() if (is_won and owner) else None,
+async def _seed_agents():
+    if await db.users.count_documents({"role": "agent"}) != 0:
+        return
+    photo = "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?crop=entropy&cs=srgb&fm=jpg&w=200&q=80"
+    agents_data = [
+        ("Aryan", "aryan.f@emergent.sh"),
+        ("Dipan", "dipan@emergent.sh"),
+        ("Vinay", "vinay.p@emergent.sh"),
+        ("Brian", "brian@emergent.sh"),
+    ]
+    for i, (name, email) in enumerate(agents_data):
+        avatar = photo if i == 0 else f"https://api.dicebear.com/7.x/initials/svg?seed={name}"
+        await _safe_insert(db.users, {
+            "id": new_id(), "name": name, "email": email,
+            "password_hash": hash_password("agent123"), "role": "agent",
+            "avatar_url": avatar, "monthly_target": 25000.0,
+            "weekly_target": 6250.0, "active": True, "created_at": now_iso(),
+        })
+
+
+async def _seed_demo_leads():
+    if await db.leads.count_documents({}) != 0:
+        return
+    agents = await db.users.find({"role": "agent"}).to_list(100)
+    sample = [
+        ("Acme Analytics", "Dana Whitfield", "dana@acmeanalytics.io", "Pro $99/mo", 99, 1200, "rising", "Hot", "Q3 Power User Outreach", "North America"),
+        ("Nimbus Labs", "Owen Carter", "owen@nimbuslabs.dev", "Pro $149/mo", 149, 2100, "rising", "Payment Pending", "Q3 Power User Outreach", "Europe"),
+        ("BrightForge", "Lena Ortiz", "lena@brightforge.com", "Starter $49/mo", 49, 600, "stable", "Follow-up This Week", "Manual Entry", "LATAM"),
+        ("DataPeak", "Ravi Menon", "ravi@datapeak.ai", "Pro $199/mo", 199, 3400, "rising", "Hot", "Q3 Power User Outreach", "APAC"),
+        ("Loopline", "Greta Hofmann", "greta@loopline.co", "Pro $129/mo", 129, 1500, "declining", "None", "CSV Import", "Europe"),
+        ("Vertex IO", "Sam Patel", "sam@vertex.io", "Pro $99/mo", 99, 950, "stable", "Follow-up This Week", "CSV Import", "APAC"),
+        ("Quantli", "Mia Tanaka", "mia@quantli.com", "Starter $59/mo", 59, 720, "rising", "Hot", "Manual Entry", "APAC"),
+        ("Northstar", "Leo Becker", "leo@northstar.app", "Pro $179/mo", 179, 2800, "rising", "Payment Pending", "Q3 Power User Outreach", "MEA"),
+    ]
+    stages = ["New Booking", "Assigned", "Meeting Scheduled", "Meeting Completed", "Payment Link Sent", "Won", "Follow-up Later", "Assigned"]
+    for i, (company, name, email, plan, spend, ltv, trend, priority, source, region) in enumerate(sample):
+        owner = agents[i % len(agents)] if i % 3 != 0 else None
+        stage = stages[i]
+        is_won = stage == "Won"
+        doc = {
+            "id": new_id(), "name": name, "email": email, "company": company,
+            "phone": f"+1 555 01{i:02d}", "plan": plan, "monthly_spend": float(spend),
+            "lifetime_value": float(ltv), "usage_trend": trend, "product_history": ["API", "Dashboard"],
+            "source": source, "region": region, "priority": "None" if is_won else priority, "stage": stage,
+            "owner_id": owner["id"] if owner else None,
+            "owner_name": owner["name"] if owner else None,
+            "owner_locked": bool(is_won and owner),
+            "total_revenue_usd": 2500.0 if (is_won and owner) else 0.0,
+            "deals_won": 1 if (is_won and owner) else 0, "upsell_cycles": 0,
+            "notes": [], "ownership_history": [], "payment_status": "paid" if (is_won and owner) else "none",
+            "last_meeting_at": None, "next_meeting_at": None,
+            "won_at": now_iso() if (is_won and owner) else None,
+            "created_at": now_iso(), "updated_at": now_iso(),
+        }
+        await db.leads.insert_one(doc)
+        if owner:
+            await log_activity(doc["id"], "assignment", f"Assigned to {owner['name']} (seed)", "System")
+        if is_won and owner:
+            await db.payments.insert_one({
+                "id": new_id(), "lead_id": doc["id"], "lead_name": name,
+                "agent_id": owner["id"], "agent_name": owner["name"],
+                "provider": "stripe", "amount": 2500.0, "currency": "usd",
+                "amount_usd": 2500.0, "fx_rate": 85.0, "description": "Scale Plan",
+                "status": "complete", "payment_status": "paid",
+                "session_id": f"seed_{new_id()[:10]}", "payment_link": None,
                 "created_at": now_iso(), "updated_at": now_iso(),
-            }
-            await db.leads.insert_one(doc)
-            if owner:
-                await log_activity(doc["id"], "assignment", f"Assigned to {owner['name']} (seed)", "System")
-            if is_won and owner:
-                await db.payments.insert_one({
-                    "id": new_id(), "lead_id": doc["id"], "lead_name": name,
-                    "agent_id": owner["id"], "agent_name": owner["name"],
-                    "provider": "stripe", "amount": 2500.0, "currency": "usd",
-                    "amount_usd": 2500.0, "fx_rate": 85.0, "description": "Scale Plan",
-                    "status": "complete", "payment_status": "paid",
-                    "session_id": f"seed_{new_id()[:10]}", "payment_link": None,
-                    "created_at": now_iso(), "updated_at": now_iso(),
-                })
-
-        # a few meetings today with booking drivers
-        leads = await db.leads.find({"owner_id": {"$ne": None}}).to_list(100)
-        base = datetime.now(timezone.utc).replace(hour=14, minute=0, second=0, microsecond=0)
-        seed_drivers = ["Discount", "Lifetime Access", "Top-Up Credits", "Support"]
-        for i, lead in enumerate(leads[:4]):
-            await db.meetings.insert_one({
-                "id": new_id(), "lead_id": lead["id"], "lead_name": lead["name"],
-                "agent_id": lead["owner_id"], "agent_name": lead["owner_name"],
-                "scheduled_at": (base + timedelta(hours=i)).isoformat(), "duration": 30,
-                "status": "scheduled", "source": "Calendly",
-                "booking_driver": seed_drivers[i % len(seed_drivers)],
-                "no_show_reason": "", "reschedule_status": "", "outcome_notes": "", "created_at": now_iso(),
             })
 
+    # a few meetings today with booking drivers
+    leads = await db.leads.find({"owner_id": {"$ne": None}}).to_list(100)
+    base = datetime.now(timezone.utc).replace(hour=14, minute=0, second=0, microsecond=0)
+    seed_drivers = ["Discount", "Lifetime Access", "Top-Up Credits", "Support"]
+    for i, lead in enumerate(leads[:4]):
+        await db.meetings.insert_one({
+            "id": new_id(), "lead_id": lead["id"], "lead_name": lead["name"],
+            "agent_id": lead["owner_id"], "agent_name": lead["owner_name"],
+            "scheduled_at": (base + timedelta(hours=i)).isoformat(), "duration": 30,
+            "status": "scheduled", "source": "Calendly",
+            "booking_driver": seed_drivers[i % len(seed_drivers)],
+            "no_show_reason": "", "reschedule_status": "", "outcome_notes": "", "created_at": now_iso(),
+        })
+
+
+async def _seed_coverage_history():
     # Seed ~1 week of coverage history so the burn-up chart shows a real trend
-    if await db.coverage_snapshots.count_documents({}) == 0:
-        base_day = datetime.now(timezone.utc).date()
-        ramp = [
-            (7, 3, 1, 0, 0.0),
-            (6, 4, 2, 0, 0.0),
-            (5, 5, 2, 0, 0.0),
-            (4, 6, 3, 0, 0.0),
-            (3, 7, 4, 1, 2500.0),
-            (2, 8, 4, 1, 2500.0),
-            (1, 8, 5, 1, 2500.0),
-        ]
-        for days_ago, total, assigned, won, rev in ramp:
-            d = (base_day - timedelta(days=days_ago)).isoformat()
-            await db.coverage_snapshots.insert_one({
-                "id": d, "date": d, "total": total, "assigned": assigned,
-                "met": max(0, assigned - 1), "advanced": won, "won": won,
-                "revenue_usd": rev, "updated_at": now_iso(),
-            })
+    if await db.coverage_snapshots.count_documents({}) != 0:
+        return
+    base_day = datetime.now(timezone.utc).date()
+    ramp = [
+        (7, 3, 1, 0, 0.0),
+        (6, 4, 2, 0, 0.0),
+        (5, 5, 2, 0, 0.0),
+        (4, 6, 3, 0, 0.0),
+        (3, 7, 4, 1, 2500.0),
+        (2, 8, 4, 1, 2500.0),
+        (1, 8, 5, 1, 2500.0),
+    ]
+    for days_ago, total, assigned, won, rev in ramp:
+        d = (base_day - timedelta(days=days_ago)).isoformat()
+        await db.coverage_snapshots.insert_one({
+            "id": d, "date": d, "total": total, "assigned": assigned,
+            "met": max(0, assigned - 1), "advanced": won, "won": won,
+            "revenue_usd": rev, "updated_at": now_iso(),
+        })
+
+
+async def seed():
+    await db.settings.update_one({"id": "settings"}, {"$setOnInsert": {"id": "settings", "inr_per_usd": 85.0}}, upsert=True)
+    await _seed_admin()
+    await _seed_agents()
+    await _seed_demo_leads()
+    await _seed_coverage_history()
 
 @app.on_event("startup")
 async def startup():

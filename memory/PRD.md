@@ -57,6 +57,23 @@ Clean, minimal "Emergent" identity. Blueprint at `/app/design_guidelines.json`. 
   - Regression test: `/app/backend/tests/test_auth.py` (9 tests, all pass).
   - NOTE: httpOnly-cookie auth migration remains DEFERRED (P1); app still uses Bearer token in localStorage.
 
+## Code-review fixes (Jun 2026)
+Applied from automated code-quality report:
+- **Perf**: `AuthContext` value now `useMemo` + `useCallback` (stable context ref); Coverage chart `dot` objects hoisted to a module const (`LINE_DOT`).
+- **Backend complexity refactor** (behavior-preserving, verified via curl + 9 pytest): `dashboard()` → `_revenue()`, `_booking_driver_stats()`, `_agent_leaderboard()`; `coverage()` → `_cov_blank/_cov_group_stats/_cov_week_start/_cov_weekly_burnup/_cov_persist_snapshot`; `seed()` → `_seed_admin/_seed_agents/_seed_demo_leads/_seed_coverage_history`. `Counter` moved to top-level import.
+- **Tests**: replaced `is True/False` boolean asserts with plain truthiness in `tests/test_auth.py` + `tests/backend_test.py`.
+- **Keys**: `BackgroundTexture` documented positional key (static decorative list).
+- **Demo creds**: Login demo-account hints (NOT secrets — they map to seeded demo users) are now hideable in production via `REACT_APP_SHOW_DEMO_LOGINS=false` (defaults to shown).
+
+### Triaged as FALSE POSITIVES / intentionally NOT changed
+- "server.py:269 undefined `user`" — no genuinely unbound `user`; all usages are `Depends(get_current_user)` params. No defensive code added (would be over-engineering).
+- "15 missing hook deps" — flagged effects already use the documented `eslint-disable-next-line react-hooks/exhaustive-deps` (mount-only fetches) or proper `useCallback` deps (PaymentReturn). Listed deps like `r`, `data`, `attempt`, `client` are callback params / stable module imports, not reactive deps.
+
+### DEFERRED (with rationale)
+- **localStorage → httpOnly cookies** (P1): explicitly deferred by user; needs coordinated FE+BE change + full re-test cycle.
+- **Frontend component splits** (LeadDetail/Dashboard/Leads, P2): working + fully tested; high-churn structural refactor deferred to a dedicated, individually-tested cycle to avoid regressions.
+- **TypeScript / Python type hints**: large separate initiative.
+
 ## Test Status
 - iteration_1: 22/22 backend + UI verified.
 - iteration_2: 28/28 backend + UI verified (booking drivers, FX/multi-currency, new team).
