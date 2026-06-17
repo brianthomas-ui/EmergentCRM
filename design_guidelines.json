@@ -1,100 +1,132 @@
 {
   "theme": "light",
-  "archetype": "4",
-  "design_philosophy": "Swiss & High-Contrast. The dashboard uses crisp, 1px borders, high-density layouts, and functional color coding. Pure utility. Zero fluff. Color is used exclusively for state indicators and data hierarchy, not decoration. The overall vibe is 'authority and clarity'.",
+  "archetype": "Archetype 4 (Swiss & High-Contrast)",
+  "design_philosophy": "Strictly structural, hyper-minimal, near-black/white monochromatic aesthetic matching emergent.sh. Gradients are completely removed. Reliance on sharp borders, generous whitespace, stark typography, and monospace accents.",
   "colors": {
-    "background": "#F8FAFC",
-    "surface": "#FFFFFF",
-    "primary": "#0F172A",
-    "secondary": "#334155",
-    "accent": "#2563EB",
-    "states": {
-      "success": "#059669",
-      "warning": "#D97706",
-      "danger": "#DC2626",
-      "info": "#0284C7"
+    "css_variables": {
+      "root": {
+        "--background": "0 0% 100%",
+        "--foreground": "0 0% 4%",
+        "--card": "0 0% 100%",
+        "--card-foreground": "0 0% 4%",
+        "--popover": "0 0% 100%",
+        "--popover-foreground": "0 0% 4%",
+        "--primary": "0 0% 4%",
+        "--primary-foreground": "0 0% 98%",
+        "--secondary": "0 0% 96.1%",
+        "--secondary-foreground": "0 0% 9%",
+        "--muted": "0 0% 96.1%",
+        "--muted-foreground": "0 0% 45.1%",
+        "--accent": "0 0% 96.1%",
+        "--accent-foreground": "0 0% 9%",
+        "--destructive": "0 84.2% 60.2%",
+        "--destructive-foreground": "0 0% 98%",
+        "--border": "0 0% 89.8%",
+        "--input": "0 0% 89.8%",
+        "--ring": "0 0% 4%",
+        "--radius": "0.25rem"
+      }
     },
-    "text": {
-      "primary": "#0F172A",
-      "secondary": "#475569",
-      "tertiary": "#94A3B8"
-    },
-    "border": "#E2E8F0"
+    "tailwind_palette": {
+      "brand_black": "#0A0A0A",
+      "brand_white": "#FFFFFF",
+      "brand_border": "#E4E4E7",
+      "brand_muted": "#71717A",
+      "brand_accent": "#F4F4F5"
+    }
   },
   "typography": {
-    "fonts": {
-      "heading": "Cabinet Grotesk, sans-serif",
-      "body": "IBM Plex Sans, sans-serif",
+    "font_families": {
+      "heading": "General Sans, sans-serif",
+      "body": "General Sans, sans-serif",
       "mono": "JetBrains Mono, monospace"
     },
     "hierarchy": {
-      "h1": "text-4xl font-black tracking-tighter leading-tight text-slate-900",
-      "h2": "text-2xl font-bold tracking-tight leading-snug text-slate-900",
-      "h3": "text-lg font-semibold tracking-tight text-slate-800",
-      "h4": "text-base font-semibold tracking-tight text-slate-800",
-      "body": "text-sm font-normal text-slate-600 leading-relaxed",
-      "small": "text-xs font-medium text-slate-500 uppercase tracking-widest",
-      "label": "text-xs font-semibold text-slate-700 uppercase tracking-widest"
+      "h1": "text-4xl font-semibold tracking-tight text-zinc-950",
+      "h2": "text-2xl font-semibold tracking-tight text-zinc-950",
+      "h3": "text-lg font-medium tracking-tight text-zinc-950",
+      "body": "text-sm text-zinc-700 leading-relaxed",
+      "metadata": "font-mono text-xs tracking-wider text-zinc-500 uppercase",
+      "numbers": "font-mono text-sm tracking-tight text-zinc-950"
     }
   },
-  "spacing_and_layout": {
-    "philosophy": "Dense and compact. The 'Control Room' grid. Every pixel is utilized for scanability. The layout relies on 1px borders rather than shadows to define structure.",
-    "container": "max-w-[1600px] mx-auto",
-    "sidebar": "w-64 border-r border-slate-200 bg-white h-screen fixed left-0 top-0",
-    "main_content": "ml-64 p-6 md:p-8 min-h-screen bg-slate-50",
-    "widget_container": "bg-white border border-slate-200 rounded-sm p-4 md:p-6",
-    "gap_system": "gap-4 md:gap-6",
-    "radius": "rounded-sm"
+  "layout_and_spacing": {
+    "philosophy": "Generous padding inside containers. Elements breathe. Sharp 1px borders define structure instead of drop shadows.",
+    "spacing_scale": "p-4, p-6, p-8 for standard containers. p-12 for page headers.",
+    "borders": "Universal use of border-border (zinc-200). Avoid rounded-lg or larger; stick to rounded-sm (0.25rem)."
   },
   "components": {
-    "button_primary": "bg-slate-900 text-white hover:bg-slate-800 hover:text-white px-4 py-2 rounded-sm text-sm font-semibold transition-colors focus:ring-2 focus:ring-slate-400 focus:outline-none",
-    "button_secondary": "bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 hover:text-slate-900 px-4 py-2 rounded-sm text-sm font-semibold transition-colors focus:ring-2 focus:ring-slate-200 focus:outline-none",
-    "badge_hot": "bg-red-50 text-red-700 border border-red-200 px-2 py-0.5 rounded-sm text-xs font-semibold",
-    "badge_pending": "bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-sm text-xs font-semibold",
-    "badge_won": "bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-sm text-xs font-semibold",
-    "input": "border border-slate-300 rounded-sm text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all bg-white",
-    "kanban_column": "bg-slate-100/50 rounded-sm p-3 min-h-[500px] border border-slate-200 border-dashed flex flex-col gap-3",
-    "kanban_card": "bg-white border border-slate-200 rounded-sm p-3 hover:border-slate-400 hover:shadow-sm transition-all cursor-grab active:cursor-grabbing",
-    "table_header": "bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase tracking-widest text-left p-3",
-    "table_cell": "p-3 text-sm text-slate-700 border-b border-slate-100"
-  },
-  "motion": {
-    "hover_state": "transition-all duration-150 ease-in-out",
-    "kanban_drag": "Layout animations via Framer Motion for smooth drag-and-drop feedback.",
-    "list_stagger": "Staggered fade-in (y: 10, opacity: 0 to 1) for list items and table rows on initial load.",
-    "rules": "Strict adherence to prefers-reduced-motion. Animations should be snappier (e.g., 150ms-200ms) to feel highly responsive."
-  },
-  "icons_and_assets": {
-    "icon_library": "@phosphor-icons/react",
-    "icon_weight": "regular",
-    "image_urls": [
-      {
-        "url": "https://images.unsplash.com/photo-1560250097-0b93528c311a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2Mzl8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBidXNpbmVzcyUyMHBvcnRyYWl0fGVufDB8fHx8MTc4MTY4ODY2NXww&ixlib=rb-4.1.0&q=85",
-        "description": "Sales Leader avatar profile",
-        "category": "user_avatar"
-      },
-      {
-        "url": "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2Mzl8MHwxfHNlYXJjaHwyfHxwcm9mZXNzaW9uYWwlMjBidXNpbmVzcyUyMHBvcnRyYWl0fGVufDB8fHx8MTc4MTY4ODY2NXww&ixlib=rb-4.1.0&q=85",
-        "description": "Sales Agent avatar profile",
-        "category": "user_avatar"
+    "cards": {
+      "container": "bg-white border border-zinc-200 rounded-sm shadow-none",
+      "header": "px-6 py-4 border-b border-zinc-100",
+      "body": "p-6"
+    },
+    "buttons": {
+      "primary": "bg-zinc-950 text-white rounded-sm px-4 py-2 text-sm font-medium hover:bg-zinc-800 transition-colors active:scale-[0.98]",
+      "secondary": "bg-white text-zinc-950 border border-zinc-200 rounded-sm px-4 py-2 text-sm font-medium hover:bg-zinc-50 transition-colors active:scale-[0.98]",
+      "ghost": "bg-transparent text-zinc-600 rounded-sm px-4 py-2 text-sm font-medium hover:bg-zinc-100 hover:text-zinc-950 transition-colors active:scale-[0.98]"
+    },
+    "badges": {
+      "philosophy": "Do NOT use filled colored backgrounds to avoid 'rainbow overload'. Use outline badges with a single colored dot.",
+      "container": "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-sm border border-zinc-200 bg-transparent text-xs font-medium text-zinc-700 font-mono uppercase tracking-wider",
+      "status_dots": {
+        "new": "w-1.5 h-1.5 rounded-full bg-blue-500",
+        "contacted": "w-1.5 h-1.5 rounded-full bg-amber-500",
+        "qualified": "w-1.5 h-1.5 rounded-full bg-emerald-500",
+        "lost": "w-1.5 h-1.5 rounded-full bg-zinc-400"
       }
-    ],
-    "illustration_style": "Minimal to none. Rely entirely on typography and data visualization (charts). Use clean Phosphor icons for actions."
+    },
+    "sidebar": {
+      "container": "w-64 border-r border-zinc-200 bg-zinc-50/50 flex flex-col h-screen",
+      "logo_lockup": "p-6 flex items-center gap-3. Use a pure black square or minimal grid SVG icon. Text is 'Emergent Labs' in General Sans, no gradients. 'Labs' can be in JetBrains Mono text-zinc-500 text-xs uppercase.",
+      "nav_item": "flex items-center gap-3 px-4 py-2 mx-2 rounded-sm text-sm font-medium transition-colors group",
+      "nav_item_active": "bg-white border border-zinc-200 text-zinc-950 shadow-sm",
+      "nav_item_inactive": "text-zinc-600 hover:bg-zinc-100/80 hover:text-zinc-950",
+      "footer": "p-4 mt-auto border-t border-zinc-200"
+    }
   },
-  "accessibility_and_testing": {
-    "contrast": "Ensure all text against colored badges passes WCAG AA. Primary buttons must have high contrast.",
-    "testing_attributes": "All key elements MUST include a data-testid attribute in kebab-case. Examples: `data-testid=\"nav-pipeline-link\"`, `data-testid=\"lead-kanban-card-{id}\"`, `data-testid=\"new-meeting-btn\"`."
+  "specific_pages": {
+    "login": {
+      "layout": "Centered stark card on a pure white background. Minimalist. Container: w-full max-w-md mx-auto p-8 bg-white border border-zinc-200 rounded-sm shadow-sm",
+      "headline": "Left-aligned, text-3xl font-semibold tracking-tight text-zinc-950. Remove all gradients. 'Sign in to Emergent.'",
+      "demo_helper": "mt-8 p-4 bg-zinc-50 border border-zinc-200 border-dashed rounded-sm font-mono text-xs text-zinc-600 space-y-2. Clearly labels 'Demo Credentials' with a small copy icon.",
+      "inputs": "bg-transparent border-zinc-200 rounded-sm focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950"
+    },
+    "dashboard": {
+      "kpi_cards": "Flat cards, 1px border. Values in JetBrains Mono for a highly technical, precise feel. Small monochrome sparklines.",
+      "charts": "Recharts styling: stroke='#0A0A0A' for primary lines. Hide grid lines or make them extremely faint stroke='#F4F4F5'. Tooltips should have stark black backgrounds with white text.",
+      "tables": "Dense, clean. Header row uses font-mono text-xs uppercase text-zinc-500. Row borders are border-zinc-100."
+    },
+    "pipeline": {
+      "board": "flex gap-6 overflow-x-auto pb-4",
+      "column": "w-80 flex-shrink-0 flex flex-col gap-3",
+      "column_header": "flex items-center justify-between pb-2 border-b border-zinc-200. Title in font-mono uppercase text-xs font-semibold.",
+      "card": "bg-white p-4 border border-zinc-200 rounded-sm shadow-sm hover:border-zinc-300 transition-colors cursor-grab"
+    }
+  },
+  "micro_interactions": {
+    "buttons": "Subtle scale down active:scale-[0.98] with fast transition.",
+    "hover_states": "Background color shifts (white to zinc-50). No heavy drop shadows on hover. Keep it flat.",
+    "transitions": "Use transition-colors duration-150 ease-out for interactive elements."
+  },
+  "testing_attributes": {
+    "rule": "All interactive and key informational elements MUST include a data-testid attribute in kebab-case based on their role.",
+    "examples": {
+      "login_submit": "data-testid='login-submit-button'",
+      "sidebar_nav": "data-testid='nav-dashboard-link'",
+      "kanban_card": "data-testid='kanban-card-123'",
+      "demo_fill": "data-testid='demo-fill-button'"
+    }
   },
   "instructions_to_main_agent": [
-    "Prioritize the 'F-pattern' reading direction. Place the primary KPI (e.g., Target vs Closed Revenue) in the top-left widget.",
-    "DO NOT use generic Shadcn Card component. Use raw divs with `bg-white border border-slate-200 rounded-sm` to maintain the strict 'Grid Borders / Technical' look.",
-    "Ensure the context sidebar (Account details before meeting) is collapsible or uses progressive disclosure.",
-    "Kanban columns should look structural (light grey with dashed borders) while active task cards should be pure white.",
-    "Add 'Cabinet Grotesk' and 'IBM Plex Sans' to your global CSS imports or Next.js layout.",
-    "Use Phosphor icons. Example: `yarn add @phosphor-icons/react`.",
-    "All form interactions (assigning lead, creating campaign) should use heavily customized Shadcn components (Dialog, Select, Input) matching the crisp, square, border-driven aesthetic.",
-    "Do not use box-shadows except for the very lightest `shadow-sm` on card hover.",
-    "Create a robust set of UI elements with explicit `data-testid` properties to allow reliable testing.",
-    "Design files must use .js or .jsx if there are constraints, avoiding .tsx."
+    "Replace index.css :root with the specific CSS variables provided.",
+    "Update tailwind.config.js to set radius to 0.25rem.",
+    "Remove all references to bg-gradient-to-r, from-blue, via-indigo, to-violet in the entire app.",
+    "Convert General Sans heading classes to text-zinc-950 tracking-tight.",
+    "Implement the 'outline + dot' style for all Pipeline, Lead, and Priority badges to remove rainbow effect.",
+    "For the Login page, ensure the demo helper is styled like a code block (mono, gray bg, dashed border).",
+    "On charts (Recharts), strip out colorful palettes and use a monochromatic scale (zinc-900, zinc-500, zinc-300).",
+    "All components must be .js files not .tsx.",
+    "Add data-testid attributes to all buttons, links, and forms."
   ]
 }
