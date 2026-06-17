@@ -71,11 +71,24 @@ Applied from automated code-quality report:
 
 ### DEFERRED (with rationale)
 - **localStorage → httpOnly cookies** (P1): explicitly deferred by user; needs coordinated FE+BE change + full re-test cycle.
-- **Frontend component splits** (LeadDetail/Dashboard/Leads, P2): working + fully tested; high-churn structural refactor deferred to a dedicated, individually-tested cycle to avoid regressions.
+- **Remaining frontend component splits** (Dashboard / Leads / Coverage / Meetings / Payments, P2): working + fully tested; lower priority than LeadDetail. Can follow in a dedicated, individually-tested cycle.
 - **TypeScript / Python type hints**: large separate initiative.
+
+## Code-review fixes — Round 2 (Jun 2026)
+- **Security (recurring "hardcoded creds" flag, resolved)**: Login demo accounts moved OUT of source into `REACT_APP_DEMO_LOGINS` (JSON env var, parsed in Login.js). Demo box auto-hides if the var is absent (e.g. production). No credentials remain hardcoded in `Login.js`.
+- **Frontend complexity (LeadDetail, was complexity 42 / 449 lines)**: SPLIT into `src/components/lead/LeadPanels.js` (LeadContextPanel, LeadMeetingsList, LeadPaymentsList, LeadActivityTimeline) + `src/components/lead/LeadModals.js` (PaymentModal, ReopenModal, MeetingModal); `LeadDetail.js` is now ~250-line orchestration. All data-testids preserved.
+- **Backend complexity**: `import_leads` → `_csv_row_to_lead_doc`/`_csv_float`; `create_payment_link` → `_resolve_payment_amount`/`_create_stripe_link`; `_seed_demo_leads` → `_build_demo_lead`/`_seed_demo_meetings`. Behavior-preserving (curl + 35/35 pytest verified).
+- **Hooks**: added the documented `eslint-disable-next-line react-hooks/exhaustive-deps` on AuthContext's mount-only effect.
+- **Verified**: testing agent iteration_5 — backend 35/35 pytest pass, frontend 0 regressions across LeadDetail (all sub-panels + 3 modals), env-driven login, payments, and full nav RBAC.
+
+### Round-2 FALSE POSITIVES (confirmed, no change)
+- `server.py:270` "undefined user" — `user` is guaranteed defined past the 401 early-returns.
+- `server.py:366` & `tests/backend_test.py:145` "is vs ==" — both are `is not None`, which is the CORRECT use of `is` (PEP8).
+- "`<span>` inside `<option>`" hydration warning — no such markup exists in source; all `<option>`s contain plain text/strings.
 
 ## Test Status
 - iteration_1: 22/22 backend + UI verified.
 - iteration_2: 28/28 backend + UI verified (booking drivers, FX/multi-currency, new team).
 - iteration_3: 35/35 backend + UI verified (coverage analytics, sticky ownership, reopen, region). Fixed a missing fxRate useState in LeadDetail.
 - iteration_4: Frontend regression after Emergent visual rebrand — 100% pass, 0 console errors, no functional regressions (login, nav RBAC, dashboard, leads, lead detail, meetings/outcome modal, payments, coverage charts, team, campaigns, audit).
+- iteration_5: Post-refactor regression (LeadDetail split + env-driven demo creds + backend import/payment/seed extractions) — backend 35/35 pytest pass, frontend 0 regressions across all LeadDetail sub-panels + 3 modals, login, payments, nav RBAC.
