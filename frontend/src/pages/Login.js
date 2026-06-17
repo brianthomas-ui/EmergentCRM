@@ -8,7 +8,7 @@ import { ArrowRight } from "lucide-react";
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState("diyea@emergent.com");
+  const [email, setEmail] = useState("diyea@emergent.sh");
   const [password, setPassword] = useState("leader123");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -95,8 +95,8 @@ export default function Login() {
 
         <div className="mt-8 rounded-2xl border border-slate-200 bg-white/70 backdrop-blur p-4 text-xs text-slate-500 space-y-1">
           <div className="font-semibold text-slate-700 mb-2">Demo accounts</div>
-          <div>Sales Head: diyea@emergent.com / leader123</div>
-          <div>Agent: aryan@emergent.com / agent123</div>
+          <div>Sales Head: diyea@emergent.sh / leader123</div>
+          <div>Agent: aryan.f@emergent.sh / agent123</div>
         </div>
       </div>
     </div>

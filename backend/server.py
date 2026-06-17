@@ -939,10 +939,10 @@ async def seed():
     if await db.users.count_documents({"role": "agent"}) == 0:
         photo = "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?crop=entropy&cs=srgb&fm=jpg&w=200&q=80"
         agents_data = [
-            ("Aryan", "aryan@emergent.com"),
-            ("Deepin", "deepin@emergent.com"),
-            ("Vinay", "vinay@emergent.com"),
-            ("Brian", "brian@emergent.com"),
+            ("Aryan", "aryan.f@emergent.sh"),
+            ("Dipan", "dipan@emergent.sh"),
+            ("Vinay", "vinay.p@emergent.sh"),
+            ("Brian", "brian@emergant.sh"),
         ]
         for i, (name, email) in enumerate(agents_data):
             avatar = photo if i == 0 else f"https://api.dicebear.com/7.x/initials/svg?seed={name}"
