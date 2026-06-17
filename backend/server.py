@@ -5,7 +5,8 @@ import os
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, UploadFile, File
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, UploadFile, File
+from fastapi.responses import JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.errors import DuplicateKeyError
@@ -17,6 +18,7 @@ import io
 import csv
 import random
 import asyncio
+import secrets
 from datetime import datetime, timezone, timedelta, date
 from collections import Counter
 
@@ -115,6 +117,19 @@ def create_token(user: dict) -> str:
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGO)
 
+COOKIE_MAX_AGE = 7 * 24 * 3600
+
+def _set_auth_cookies(response: Response, token: str):
+    # httpOnly session cookie (not readable by JS -> XSS-safe) + readable CSRF token (double-submit).
+    response.set_cookie("crm_token", token, max_age=COOKIE_MAX_AGE, httponly=True,
+                        secure=True, samesite="lax", path="/")
+    response.set_cookie("csrf_token", secrets.token_urlsafe(32), max_age=COOKIE_MAX_AGE,
+                        httponly=False, secure=True, samesite="lax", path="/")
+
+def _clear_auth_cookies(response: Response):
+    response.delete_cookie("crm_token", path="/")
+    response.delete_cookie("csrf_token", path="/")
+
 def clean(doc: dict) -> dict:
     if not doc:
         return doc
@@ -123,10 +138,14 @@ def clean(doc: dict) -> dict:
     return doc
 
 async def get_current_user(request: Request) -> dict:
-    auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
+    # Prefer the httpOnly cookie; fall back to the Authorization header for API clients/tests.
+    token = request.cookies.get("crm_token")
+    if not token:
+        auth = request.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            token = auth[7:]
+    if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    token = auth[7:]
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
     except jwt.ExpiredSignatureError:
@@ -252,7 +271,7 @@ class SettingsIn(BaseModel):
 # Auth routes
 # ----------------------------------------------------------------------------
 @api.post("/auth/login")
-async def login(body: LoginIn):
+async def login(body: LoginIn, response: Response):
     email = body.email.lower()
     try:
         user = await db.users.find_one({"email": email})
@@ -267,11 +286,18 @@ async def login(body: LoginIn):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     logger.info(f"login success: {email} (role={user.get('role')})")
     token = create_token(user)
+    _set_auth_cookies(response, token)
+    # token is also returned for API clients/tests; the browser app relies on the cookie.
     return {"token": token, "user": clean(user)}
 
 @api.get("/auth/me")
 async def me(user: dict = Depends(get_current_user)):
     return user
+
+@api.post("/auth/logout")
+async def logout(response: Response):
+    _clear_auth_cookies(response)
+    return {"ok": True}
 
 # ----------------------------------------------------------------------------
 # Team / Users
@@ -453,7 +479,7 @@ async def reopen_lead(lead_id: str, body: ReopenIn, user: dict = Depends(get_cur
         "$inc": {"upsell_cycles": 1},
     })
     await log_activity(lead_id, "reopen",
-                       f"{body.type} cycle opened — routed to owner {lead['owner_name']}. {body.reason}".strip(),
+                       f"{body.type} cycle opened, routed to owner {lead['owner_name']}. {body.reason}".strip(),
                        user["name"])
     await log_audit("reopen_lead", user["name"], lead["name"], f"{body.type} -> {lead['owner_name']}")
     lead = await db.leads.find_one({"id": lead_id})
@@ -892,7 +918,7 @@ def _cov_week_start(iso):
 
 
 def _cov_weekly_burnup(leads):
-    """Cumulative weekly scope(total) vs covered(assigned) vs won — used as a fallback
+    """Cumulative weekly scope(total) vs covered(assigned) vs won, used as a fallback
     when no daily snapshots exist yet."""
     created = [_cov_week_start(l["created_at"]) for l in leads if l.get("created_at")]
     if not created:
@@ -1139,7 +1165,7 @@ async def startup():
         logger.error("MongoDB unreachable after retries; skipping startup seed")
         return
 
-    # Indexes — never let an index error block seeding/serving.
+    # Indexes: never let an index error block seeding/serving.
     index_specs = [
         ("users", "email", {"unique": True}),
         ("leads", "email", {}),
@@ -1154,7 +1180,7 @@ async def startup():
         except Exception as e:
             logger.warning(f"create_index {coll}.{field} failed (continuing): {e}")
 
-    # Seed — must never crash startup; the app should still serve if seeding fails.
+    # Seed: must never crash startup; the app should still serve if seeding fails.
     try:
         await seed()
         logger.info("CRM startup complete")
@@ -1164,6 +1190,22 @@ async def startup():
 @app.on_event("shutdown")
 async def shutdown():
     client.close()
+
+CSRF_EXEMPT_PATHS = {"/api/auth/login", "/api/webhook/stripe"}
+
+@app.middleware("http")
+async def csrf_protect(request: Request, call_next):
+    # Double-submit CSRF: only enforced for cookie-authenticated, state-changing requests.
+    if (request.method not in ("GET", "HEAD", "OPTIONS")
+            and request.url.path.startswith("/api")
+            and request.url.path not in CSRF_EXEMPT_PATHS):
+        # Bearer-token (API/curl) clients are immune to cookie CSRF; skip them.
+        if not request.headers.get("Authorization", "").startswith("Bearer "):
+            cookie_csrf = request.cookies.get("csrf_token")
+            header_csrf = request.headers.get("X-CSRF-Token")
+            if not cookie_csrf or cookie_csrf != header_csrf:
+                return JSONResponse(status_code=403, content={"detail": "CSRF token missing or invalid"})
+    return await call_next(request)
 
 app.include_router(api)
 app.add_middleware(

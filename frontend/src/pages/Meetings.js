@@ -79,7 +79,7 @@ export default function Meetings() {
                 <td className="p-3 text-sm text-zinc-700 font-mono">{fmtDateTime(m.scheduled_at)}</td>
                 <td className="p-3 text-sm text-zinc-700">{m.agent_name}</td>
                 <td className="p-3 text-xs text-zinc-500">{m.source}</td>
-                <td className="p-3">{m.booking_driver ? <Badge className="text-zinc-600 border-zinc-200">{m.booking_driver}</Badge> : <span className="text-xs text-zinc-300">—</span>}</td>
+                <td className="p-3">{m.booking_driver ? <Badge className="text-zinc-600 border-zinc-200">{m.booking_driver}</Badge> : <span className="text-xs text-zinc-300">-</span>}</td>
                 <td className="p-3"><Badge className={statusBadge[m.status]}>{m.status.replace("_", "-")}</Badge></td>
                 <td className="p-3 text-right">
                   {m.status === "scheduled" && (
@@ -116,7 +116,7 @@ export default function Meetings() {
             </Field>
             <Field label="Reschedule Status">
               <select className={inputCls} value={form.reschedule_status} onChange={(e) => setForm({ ...form, reschedule_status: e.target.value })}>
-                <option value="">—</option>
+                <option value="">-</option>
                 <option value="reschedule_requested">Reschedule requested</option>
                 <option value="rescheduled">Rescheduled</option>
                 <option value="dropped">Dropped</option>

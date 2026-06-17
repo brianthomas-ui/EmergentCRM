@@ -33,7 +33,7 @@ export function money(n, currency = "usd") {
   return `${sym}${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 }
 
-// Outline badges: white background, 1px border, colored text only — keeps the
+// Outline badges: white background, 1px border, colored text only, keeps the
 // CRM clean and avoids "rainbow fill" overload.
 export function stageClass(stage) {
   const map = {
@@ -89,7 +89,7 @@ export function timeAgo(iso) {
 }
 
 export function fmtDateTime(iso) {
-  if (!iso) return "—";
+  if (!iso) return "-";
   return new Date(iso).toLocaleString(undefined, {
     month: "short",
     day: "numeric",

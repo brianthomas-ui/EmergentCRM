@@ -13,7 +13,7 @@ export function PaymentModal({ open, onClose, payForm, setPayForm, packages, fxR
       </Field>
       <Field label="Preset Package">
         <select className={inputCls} value={payForm.package_id} onChange={(e) => setPayForm({ ...payForm, package_id: e.target.value })} data-testid="pay-package">
-          <option value="">— Custom amount —</option>
+          <option value="">Custom amount</option>
           {Object.entries(packages).map(([key, p]) => (
             <option key={key} value={key}>{p.name} · {money(p.amount, p.currency)}</option>
           ))}

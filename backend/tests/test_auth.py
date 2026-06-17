@@ -89,5 +89,45 @@ def test_me_requires_token():
     assert bad.status_code == 401
 
 
+# ---------- httpOnly cookie + CSRF ----------
+def test_login_sets_httponly_cookie():
+    r = requests.post(f"{BASE}/auth/login", json=ADMIN, timeout=15)
+    assert r.status_code == 200
+    set_cookie = r.headers.get("set-cookie", "")
+    assert "crm_token=" in set_cookie
+    assert "HttpOnly" in set_cookie       # session cookie not readable by JS
+    assert "Secure" in set_cookie         # HTTPS-only
+    assert "SameSite=lax" in set_cookie   # CSRF mitigation
+    assert "csrf_token=" in set_cookie    # double-submit token (JS-readable)
+    assert "crm_token" in r.cookies
+
+
+def test_cookie_session_authenticates_me():
+    r = requests.post(f"{BASE}/auth/login", json=ADMIN, timeout=15)
+    # Pass cookies explicitly (requests won't send Secure cookies over http://localhost)
+    cookies = {"crm_token": r.cookies["crm_token"], "csrf_token": r.cookies["csrf_token"]}
+    me = requests.get(f"{BASE}/auth/me", cookies=cookies, timeout=15)  # cookie auth, no Bearer
+    assert me.status_code == 200
+    assert me.json()["role"] == "admin"
+
+
+def test_cookie_mutation_requires_csrf():
+    r = requests.post(f"{BASE}/auth/login", json=ADMIN, timeout=15)
+    cookies = {"crm_token": r.cookies["crm_token"], "csrf_token": r.cookies["csrf_token"]}
+    # cookie session but no X-CSRF-Token header -> must be rejected
+    blocked = requests.post(f"{BASE}/auth/logout", cookies=cookies, timeout=15)
+    assert blocked.status_code == 403
+    # with the matching csrf header it succeeds
+    ok = requests.post(f"{BASE}/auth/logout", cookies=cookies, headers={"X-CSRF-Token": cookies["csrf_token"]}, timeout=15)
+    assert ok.status_code == 200
+
+
+def test_bearer_mutation_skips_csrf():
+    token = requests.post(f"{BASE}/auth/login", json=ADMIN, timeout=15).json()["token"]
+    # Bearer (API) clients are not cookie-CSRF-vulnerable; logout works without a CSRF header.
+    r = requests.post(f"{BASE}/auth/logout", headers={"Authorization": f"Bearer {token}"}, timeout=15)
+    assert r.status_code == 200
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

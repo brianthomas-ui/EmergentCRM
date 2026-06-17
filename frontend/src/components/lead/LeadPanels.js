@@ -18,7 +18,7 @@ export function LeadContextPanel({ lead }) {
       <div className="grid grid-cols-2 gap-4">
         <div>
           <div className="text-[10px] uppercase tracking-widest text-zinc-400 font-semibold">Plan</div>
-          <div className="text-sm font-semibold text-zinc-900 mt-0.5">{lead.plan || "—"}</div>
+          <div className="text-sm font-semibold text-zinc-900 mt-0.5">{lead.plan || "-"}</div>
         </div>
         <div>
           <div className="text-[10px] uppercase tracking-widest text-zinc-400 font-semibold">Monthly Spend</div>
@@ -48,7 +48,7 @@ export function LeadContextPanel({ lead }) {
         </div>
       </div>
       <div className="mt-4 pt-4 border-t border-zinc-100 flex items-center justify-between text-xs">
-        <span className="text-zinc-400">Region: <span className="text-zinc-600 font-medium">{lead.region || "—"}</span></span>
+        <span className="text-zinc-400">Region: <span className="text-zinc-600 font-medium">{lead.region || "-"}</span></span>
         <span className="text-zinc-400">Source: <span className="text-zinc-600 font-medium">{lead.source}</span></span>
       </div>
       {(lead.total_revenue_usd > 0 || lead.deals_won > 0) && (

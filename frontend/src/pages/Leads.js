@@ -164,7 +164,7 @@ export default function Leads() {
                   </Link>
                 </td>
                 <td className="p-3">
-                  <div className="text-sm text-zinc-700">{l.plan || "—"}</div>
+                  <div className="text-sm text-zinc-700">{l.plan || "-"}</div>
                   <div className="text-xs text-zinc-400 font-mono">{money(l.monthly_spend)}/mo</div>
                 </td>
                 <td className="p-3">

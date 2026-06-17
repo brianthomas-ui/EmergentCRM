@@ -57,7 +57,7 @@ export default function Login() {
             Sign in to your workspace
           </h1>
           <p className="text-sm text-zinc-500 mt-1.5 leading-relaxed">
-            Booked meetings, account context, pipeline and payment links — one place for the team.
+            Booked meetings, account context, pipeline and payment links, one place for the team.
           </p>
 
           <form onSubmit={submit} className="space-y-4 mt-7">
@@ -105,7 +105,7 @@ export default function Login() {
           </form>
         </div>
 
-        {/* Demo credentials — click to fill. Populated from REACT_APP_DEMO_LOGINS; absent => hidden (e.g. production). */}
+        {/* Demo credentials: click to fill. Populated from REACT_APP_DEMO_LOGINS; absent => hidden (e.g. production). */}
         {DEMO.length > 0 && (
         <div className="mt-5 rounded-md border border-dashed border-zinc-300 bg-zinc-50 p-4">
           <div className="label-mono text-[10px] text-zinc-400 mb-2.5">Demo credentials</div>

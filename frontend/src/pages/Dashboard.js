@@ -222,10 +222,10 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Booking drivers — what gets leads to book */}
+      {/* Booking drivers: what gets leads to book */}
       <div className="bg-white border border-zinc-200 rounded-lg p-5">
         <h3 className="font-heading text-base font-bold tracking-tight text-zinc-900 mb-1">What's Driving Bookings</h3>
-        <p className="text-xs text-zinc-400 mb-4">Which hooks get leads to book a meeting — and how they convert.</p>
+        <p className="text-xs text-zinc-400 mb-4">Which hooks get leads to book a meeting, and how they convert.</p>
         {data.booking_drivers.length === 0 ? (
           <div className="text-sm text-zinc-400 py-6 text-center">No meetings booked yet.</div>
         ) : (

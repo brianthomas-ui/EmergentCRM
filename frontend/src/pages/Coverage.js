@@ -142,7 +142,7 @@ export default function Coverage() {
 
         {/* Burn-up */}
         <div className="bg-white border border-zinc-200 rounded-lg p-5">
-          <h3 className="font-heading text-base font-bold tracking-tight text-zinc-900 mb-1">Burn-up — Progress vs Scope</h3>
+          <h3 className="font-heading text-base font-bold tracking-tight text-zinc-900 mb-1">Burn-up: Progress vs Scope</h3>
           <p className="text-xs text-zinc-400 mb-4">Cumulative accounts covered and won against the total book over time.</p>
           <ResponsiveContainer width="100%" height={260}>
             <LineChart data={data.burnup} margin={CHART_MARGIN}>

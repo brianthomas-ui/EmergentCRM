@@ -158,7 +158,7 @@ export default function Payments() {
           </tbody>
         </table>
       </div>
-      <p className="text-[11px] text-zinc-400">Razorpay is simulated for V1 — use the ✓ action to mark a Razorpay link as paid. Stripe is live in test mode.</p>
+      <p className="text-[11px] text-zinc-400">Razorpay is simulated for V1. Use the check action to mark a Razorpay link as paid. Stripe is live in test mode.</p>
     </div>
   );
 }
