@@ -48,7 +48,14 @@ Clean, minimal "Emergent" identity. Blueprint at `/app/design_guidelines.json`. 
 - **Charts** (Coverage.js): monochrome zinc ramp for stacked bars, monochrome burn-up lines, stark black tooltips.
 
 ## Deployment status (as of Jun 2026)
-- Production custom domain **emergentcrm.com** returned platform "Application not found" (router-level) — deployment/domain mapping was torn down (user mentioned an internal "sweep"). NOT an app-code issue; deployment readiness check PASSES. Resolution = redeploy (Deploy → Deploy Now), verify on default `*.emergent.host`, then re-link custom domain via Entri. Earlier production 401 (Atlas seed/login) is moot until redeployed.
+- Production custom domain **emergentcrm.com** returned platform "Application not found" (router-level) — deployment/domain mapping was torn down (user mentioned an internal "sweep"). NOT an app-code issue; deployment readiness check PASSES. Resolution = redeploy (Deploy → Deploy Now), verify on default `*.emergent.host`, then re-link custom domain via Entri.
+- **Backend auth/seed HARDENED (Jun 2026)** so the earlier production 401 cannot recur on a fresh Atlas DB:
+  - Startup now does a **MongoDB ping-with-retry (5×2s)** before seeding (handles Atlas cold start); index creation + `seed()` wrapped in try/except so the app still serves even if either fails.
+  - `seed()` is **idempotent across replicas** via `_safe_insert()` (swallows `DuplicateKeyError` on concurrent admin/agent inserts); admin creds fall back to `diyea@emergent.sh`/`leader123` if env vars are missing in prod, and the admin password self-heals.
+  - `/api/auth/login` adds **diagnostic logging** (user-not-found vs password-mismatch vs DB error) while keeping a generic 401 to clients; DB errors now return 503 (retryable) instead of a misleading 401.
+  - bcrypt `_pw_bytes()` truncates to 72 bytes (no ValueError on long inputs); `verify_password` tolerates malformed/empty hashes.
+  - Regression test: `/app/backend/tests/test_auth.py` (9 tests, all pass).
+  - NOTE: httpOnly-cookie auth migration remains DEFERRED (P1); app still uses Bearer token in localStorage.
 
 ## Test Status
 - iteration_1: 22/22 backend + UI verified.

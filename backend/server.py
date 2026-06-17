@@ -8,6 +8,7 @@ load_dotenv(ROOT_DIR / '.env')
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, UploadFile, File
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo.errors import DuplicateKeyError
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional, Dict, Any
 import uuid
@@ -15,6 +16,7 @@ import logging
 import io
 import csv
 import random
+import asyncio
 from datetime import datetime, timezone, timedelta, date
 
 import bcrypt
@@ -24,7 +26,7 @@ import jwt
 # DB / App setup
 # ----------------------------------------------------------------------------
 mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
+client = AsyncIOMotorClient(mongo_url, serverSelectionTimeoutMS=10000)
 db = client[os.environ['DB_NAME']]
 
 app = FastAPI(title="Emergent Upsell CRM")
@@ -83,13 +85,26 @@ def now_iso() -> str:
 def new_id() -> str:
     return str(uuid.uuid4())
 
+async def _safe_insert(coll, doc) -> bool:
+    """Insert that tolerates concurrent seeding across replicas (unique-index races)."""
+    try:
+        await coll.insert_one(doc)
+        return True
+    except DuplicateKeyError:
+        return False
+
+def _pw_bytes(password: str) -> bytes:
+    # bcrypt only considers the first 72 bytes; truncate so long inputs never raise.
+    return (password or "").encode("utf-8")[:72]
+
 def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    return bcrypt.hashpw(_pw_bytes(password), bcrypt.gensalt()).decode("utf-8")
 
 def verify_password(plain: str, hashed: str) -> bool:
     try:
-        return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
-    except Exception:
+        return bcrypt.checkpw(_pw_bytes(plain), (hashed or "").encode("utf-8"))
+    except Exception as e:
+        logger.warning(f"verify_password error: {e}")
         return False
 
 def create_token(user: dict) -> str:
@@ -237,9 +252,19 @@ class SettingsIn(BaseModel):
 # ----------------------------------------------------------------------------
 @api.post("/auth/login")
 async def login(body: LoginIn):
-    user = await db.users.find_one({"email": body.email.lower()})
-    if not user or not verify_password(body.password, user["password_hash"]):
+    email = body.email.lower()
+    try:
+        user = await db.users.find_one({"email": email})
+    except Exception as e:
+        logger.error(f"login: DB lookup error for {email}: {e}")
+        raise HTTPException(status_code=503, detail="Service temporarily unavailable, please retry")
+    if not user:
+        logger.warning(f"login failed (user not found): {email}")
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    if not verify_password(body.password, user.get("password_hash", "")):
+        logger.warning(f"login failed (password mismatch): {email}")
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    logger.info(f"login success: {email} (role={user.get('role')})")
     token = create_token(user)
     return {"token": token, "user": clean(user)}
 
@@ -946,18 +971,20 @@ async def meta(user: dict = Depends(get_current_user)):
 # ----------------------------------------------------------------------------
 async def seed():
     await db.settings.update_one({"id": "settings"}, {"$setOnInsert": {"id": "settings", "inr_per_usd": 85.0}}, upsert=True)
-    admin_email = os.environ["ADMIN_EMAIL"].lower()
+    admin_email = os.environ.get("ADMIN_EMAIL", "diyea@emergent.sh").lower()
+    admin_password = os.environ.get("ADMIN_PASSWORD", "leader123")
     admin = await db.users.find_one({"email": admin_email})
     if not admin:
-        admin = {
+        created = await _safe_insert(db.users, {
             "id": new_id(), "name": "Diyea", "email": admin_email,
-            "password_hash": hash_password(os.environ["ADMIN_PASSWORD"]), "role": "admin",
+            "password_hash": hash_password(admin_password), "role": "admin",
             "avatar_url": "https://images.unsplash.com/photo-1560250097-0b93528c311a?crop=entropy&cs=srgb&fm=jpg&w=200&q=80",
             "monthly_target": 0, "weekly_target": 0, "active": True, "created_at": now_iso(),
-        }
-        await db.users.insert_one(admin)
-    elif not verify_password(os.environ["ADMIN_PASSWORD"], admin["password_hash"]):
-        await db.users.update_one({"email": admin_email}, {"$set": {"password_hash": hash_password(os.environ["ADMIN_PASSWORD"])}})
+        })
+        logger.info(f"seed: admin {'created' if created else 'already present (race)'} -> {admin_email}")
+    elif not verify_password(admin_password, admin.get("password_hash", "")):
+        await db.users.update_one({"email": admin_email}, {"$set": {"password_hash": hash_password(admin_password)}})
+        logger.info(f"seed: admin password self-healed -> {admin_email}")
 
     if await db.users.count_documents({"role": "agent"}) == 0:
         photo = "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?crop=entropy&cs=srgb&fm=jpg&w=200&q=80"
@@ -969,7 +996,7 @@ async def seed():
         ]
         for i, (name, email) in enumerate(agents_data):
             avatar = photo if i == 0 else f"https://api.dicebear.com/7.x/initials/svg?seed={name}"
-            await db.users.insert_one({
+            await _safe_insert(db.users, {
                 "id": new_id(), "name": name, "email": email,
                 "password_hash": hash_password("agent123"), "role": "agent",
                 "avatar_url": avatar, "monthly_target": 25000.0,
@@ -1058,14 +1085,40 @@ async def seed():
 
 @app.on_event("startup")
 async def startup():
-    await db.users.create_index("email", unique=True)
-    await db.leads.create_index("email")
-    await db.leads.create_index("stage")
-    await db.meetings.create_index("agent_id")
-    await db.payments.create_index("session_id")
-    await db.coverage_snapshots.create_index("date")
-    await seed()
-    logger.info("CRM startup complete")
+    # Wait for the database (Atlas can be slow to accept the first connection on cold start).
+    for attempt in range(1, 6):
+        try:
+            await client.admin.command("ping")
+            logger.info("MongoDB reachable")
+            break
+        except Exception as e:
+            logger.warning(f"MongoDB not ready (attempt {attempt}/5): {e}")
+            await asyncio.sleep(2)
+    else:
+        logger.error("MongoDB unreachable after retries; skipping startup seed")
+        return
+
+    # Indexes — never let an index error block seeding/serving.
+    index_specs = [
+        ("users", "email", {"unique": True}),
+        ("leads", "email", {}),
+        ("leads", "stage", {}),
+        ("meetings", "agent_id", {}),
+        ("payments", "session_id", {}),
+        ("coverage_snapshots", "date", {}),
+    ]
+    for coll, field, kwargs in index_specs:
+        try:
+            await db[coll].create_index(field, **kwargs)
+        except Exception as e:
+            logger.warning(f"create_index {coll}.{field} failed (continuing): {e}")
+
+    # Seed — must never crash startup; the app should still serve if seeding fails.
+    try:
+        await seed()
+        logger.info("CRM startup complete")
+    except Exception as e:
+        logger.error(f"seed() failed (app will still serve): {e}", exc_info=True)
 
 @app.on_event("shutdown")
 async def shutdown():
