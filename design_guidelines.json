@@ -1,0 +1,100 @@
+{
+  "theme": "light",
+  "archetype": "4",
+  "design_philosophy": "Swiss & High-Contrast. The dashboard uses crisp, 1px borders, high-density layouts, and functional color coding. Pure utility. Zero fluff. Color is used exclusively for state indicators and data hierarchy, not decoration. The overall vibe is 'authority and clarity'.",
+  "colors": {
+    "background": "#F8FAFC",
+    "surface": "#FFFFFF",
+    "primary": "#0F172A",
+    "secondary": "#334155",
+    "accent": "#2563EB",
+    "states": {
+      "success": "#059669",
+      "warning": "#D97706",
+      "danger": "#DC2626",
+      "info": "#0284C7"
+    },
+    "text": {
+      "primary": "#0F172A",
+      "secondary": "#475569",
+      "tertiary": "#94A3B8"
+    },
+    "border": "#E2E8F0"
+  },
+  "typography": {
+    "fonts": {
+      "heading": "Cabinet Grotesk, sans-serif",
+      "body": "IBM Plex Sans, sans-serif",
+      "mono": "JetBrains Mono, monospace"
+    },
+    "hierarchy": {
+      "h1": "text-4xl font-black tracking-tighter leading-tight text-slate-900",
+      "h2": "text-2xl font-bold tracking-tight leading-snug text-slate-900",
+      "h3": "text-lg font-semibold tracking-tight text-slate-800",
+      "h4": "text-base font-semibold tracking-tight text-slate-800",
+      "body": "text-sm font-normal text-slate-600 leading-relaxed",
+      "small": "text-xs font-medium text-slate-500 uppercase tracking-widest",
+      "label": "text-xs font-semibold text-slate-700 uppercase tracking-widest"
+    }
+  },
+  "spacing_and_layout": {
+    "philosophy": "Dense and compact. The 'Control Room' grid. Every pixel is utilized for scanability. The layout relies on 1px borders rather than shadows to define structure.",
+    "container": "max-w-[1600px] mx-auto",
+    "sidebar": "w-64 border-r border-slate-200 bg-white h-screen fixed left-0 top-0",
+    "main_content": "ml-64 p-6 md:p-8 min-h-screen bg-slate-50",
+    "widget_container": "bg-white border border-slate-200 rounded-sm p-4 md:p-6",
+    "gap_system": "gap-4 md:gap-6",
+    "radius": "rounded-sm"
+  },
+  "components": {
+    "button_primary": "bg-slate-900 text-white hover:bg-slate-800 hover:text-white px-4 py-2 rounded-sm text-sm font-semibold transition-colors focus:ring-2 focus:ring-slate-400 focus:outline-none",
+    "button_secondary": "bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 hover:text-slate-900 px-4 py-2 rounded-sm text-sm font-semibold transition-colors focus:ring-2 focus:ring-slate-200 focus:outline-none",
+    "badge_hot": "bg-red-50 text-red-700 border border-red-200 px-2 py-0.5 rounded-sm text-xs font-semibold",
+    "badge_pending": "bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-sm text-xs font-semibold",
+    "badge_won": "bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-sm text-xs font-semibold",
+    "input": "border border-slate-300 rounded-sm text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all bg-white",
+    "kanban_column": "bg-slate-100/50 rounded-sm p-3 min-h-[500px] border border-slate-200 border-dashed flex flex-col gap-3",
+    "kanban_card": "bg-white border border-slate-200 rounded-sm p-3 hover:border-slate-400 hover:shadow-sm transition-all cursor-grab active:cursor-grabbing",
+    "table_header": "bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase tracking-widest text-left p-3",
+    "table_cell": "p-3 text-sm text-slate-700 border-b border-slate-100"
+  },
+  "motion": {
+    "hover_state": "transition-all duration-150 ease-in-out",
+    "kanban_drag": "Layout animations via Framer Motion for smooth drag-and-drop feedback.",
+    "list_stagger": "Staggered fade-in (y: 10, opacity: 0 to 1) for list items and table rows on initial load.",
+    "rules": "Strict adherence to prefers-reduced-motion. Animations should be snappier (e.g., 150ms-200ms) to feel highly responsive."
+  },
+  "icons_and_assets": {
+    "icon_library": "@phosphor-icons/react",
+    "icon_weight": "regular",
+    "image_urls": [
+      {
+        "url": "https://images.unsplash.com/photo-1560250097-0b93528c311a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2Mzl8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBidXNpbmVzcyUyMHBvcnRyYWl0fGVufDB8fHx8MTc4MTY4ODY2NXww&ixlib=rb-4.1.0&q=85",
+        "description": "Sales Leader avatar profile",
+        "category": "user_avatar"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2Mzl8MHwxfHNlYXJjaHwyfHxwcm9mZXNzaW9uYWwlMjBidXNpbmVzcyUyMHBvcnRyYWl0fGVufDB8fHx8MTc4MTY4ODY2NXww&ixlib=rb-4.1.0&q=85",
+        "description": "Sales Agent avatar profile",
+        "category": "user_avatar"
+      }
+    ],
+    "illustration_style": "Minimal to none. Rely entirely on typography and data visualization (charts). Use clean Phosphor icons for actions."
+  },
+  "accessibility_and_testing": {
+    "contrast": "Ensure all text against colored badges passes WCAG AA. Primary buttons must have high contrast.",
+    "testing_attributes": "All key elements MUST include a data-testid attribute in kebab-case. Examples: `data-testid=\"nav-pipeline-link\"`, `data-testid=\"lead-kanban-card-{id}\"`, `data-testid=\"new-meeting-btn\"`."
+  },
+  "instructions_to_main_agent": [
+    "Prioritize the 'F-pattern' reading direction. Place the primary KPI (e.g., Target vs Closed Revenue) in the top-left widget.",
+    "DO NOT use generic Shadcn Card component. Use raw divs with `bg-white border border-slate-200 rounded-sm` to maintain the strict 'Grid Borders / Technical' look.",
+    "Ensure the context sidebar (Account details before meeting) is collapsible or uses progressive disclosure.",
+    "Kanban columns should look structural (light grey with dashed borders) while active task cards should be pure white.",
+    "Add 'Cabinet Grotesk' and 'IBM Plex Sans' to your global CSS imports or Next.js layout.",
+    "Use Phosphor icons. Example: `yarn add @phosphor-icons/react`.",
+    "All form interactions (assigning lead, creating campaign) should use heavily customized Shadcn components (Dialog, Select, Input) matching the crisp, square, border-driven aesthetic.",
+    "Do not use box-shadows except for the very lightest `shadow-sm` on card hover.",
+    "Create a robust set of UI elements with explicit `data-testid` properties to allow reliable testing.",
+    "Design files must use .js or .jsx if there are constraints, avoiding .tsx."
+  ]
+}
