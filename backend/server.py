@@ -252,7 +252,7 @@ async def me(user: dict = Depends(get_current_user)):
 # ----------------------------------------------------------------------------
 @api.get("/team")
 async def list_team(user: dict = Depends(get_current_user)):
-    members = await db.users.find({}).to_list(1000)
+    members = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(1000)
     return [clean(m) for m in members]
 
 @api.post("/team")
@@ -296,7 +296,7 @@ async def list_leads(request: Request, user: dict = Depends(get_current_user)):
             {"email": {"$regex": search, "$options": "i"}},
             {"company": {"$regex": search, "$options": "i"}},
         ]
-    leads = await db.leads.find(q).sort("updated_at", -1).to_list(2000)
+    leads = await db.leads.find(q, {"_id": 0, "notes": 0, "ownership_history": 0}).sort("updated_at", -1).to_list(2000)
     return [clean(l) for l in leads]
 
 @api.post("/leads")
@@ -740,9 +740,9 @@ async def dashboard(user: dict = Depends(get_current_user)):
     meeting_filter = {} if is_admin else {"agent_id": user["id"]}
     pay_filter = {} if is_admin else {"agent_id": user["id"]}
 
-    leads = await db.leads.find(lead_filter).to_list(5000)
-    meetings = await db.meetings.find(meeting_filter).to_list(5000)
-    payments = await db.payments.find(pay_filter).to_list(5000)
+    leads = await db.leads.find(lead_filter, {"_id": 0, "id": 1, "stage": 1, "priority": 1, "owner_id": 1}).to_list(5000)
+    meetings = await db.meetings.find(meeting_filter, {"_id": 0, "id": 1, "lead_id": 1, "lead_name": 1, "agent_id": 1, "agent_name": 1, "scheduled_at": 1, "completed_at": 1, "status": 1, "source": 1, "booking_driver": 1, "duration": 1}).to_list(5000)
+    payments = await db.payments.find(pay_filter, {"_id": 0, "amount": 1, "amount_usd": 1, "payment_status": 1, "agent_id": 1}).to_list(5000)
 
     stage_counts = {s: 0 for s in PIPELINE_STAGES}
     for l in leads:
@@ -831,9 +831,9 @@ async def update_settings(body: SettingsIn, admin: dict = Depends(require_admin)
 
 @api.get("/coverage")
 async def coverage(admin: dict = Depends(require_admin)):
-    leads = await db.leads.find({}).to_list(5000)
-    meetings = await db.meetings.find({}).to_list(5000)
-    paid = await db.payments.find({"payment_status": "paid"}).to_list(5000)
+    leads = await db.leads.find({}, {"_id": 0, "id": 1, "owner_id": 1, "stage": 1, "monthly_spend": 1, "lifetime_value": 1, "region": 1, "created_at": 1, "won_at": 1, "ownership_history": 1}).to_list(5000)
+    meetings = await db.meetings.find({}, {"_id": 0, "lead_id": 1}).to_list(5000)
+    paid = await db.payments.find({"payment_status": "paid"}, {"_id": 0, "lead_id": 1, "amount": 1, "amount_usd": 1}).to_list(5000)
 
     met_ids = {m["lead_id"] for m in meetings}
     rev_by_lead = {}
