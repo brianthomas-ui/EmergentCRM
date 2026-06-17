@@ -903,6 +903,29 @@ async def coverage(admin: dict = Depends(require_admin)):
         for k in ("total", "assigned", "met", "advanced", "won", "revenue_usd"):
             totals[k] += g[k]
 
+    # Persist today's coverage snapshot (lazy daily capture) so the burn-up
+    # reflects real historical progress over time, not a single point.
+    snap_today = datetime.now(timezone.utc).date().isoformat()
+    await db.coverage_snapshots.update_one(
+        {"id": snap_today},
+        {"$set": {
+            "id": snap_today, "date": snap_today,
+            "total": totals["total"], "assigned": totals["assigned"], "met": totals["met"],
+            "advanced": totals["advanced"], "won": totals["won"], "revenue_usd": totals["revenue_usd"],
+            "updated_at": now_iso(),
+        }},
+        upsert=True,
+    )
+
+    # Build the burn-up from stored daily snapshots (real history).
+    snaps = await db.coverage_snapshots.find({}, {"_id": 0}).sort("date", 1).to_list(400)
+    if snaps:
+        burnup = [
+            {"week": s["date"], "date": s["date"], "total": s.get("total", 0),
+             "covered": s.get("assigned", 0), "won": s.get("won", 0)}
+            for s in snaps
+        ]
+
     return {
         "tiers": tier_order, "regions": REGIONS,
         "by_tier_spend": by_tier_spend, "by_tier_ltv": by_tier_ltv,
@@ -1013,6 +1036,26 @@ async def seed():
                 "no_show_reason": "", "reschedule_status": "", "outcome_notes": "", "created_at": now_iso(),
             })
 
+    # Seed ~1 week of coverage history so the burn-up chart shows a real trend
+    if await db.coverage_snapshots.count_documents({}) == 0:
+        base_day = datetime.now(timezone.utc).date()
+        ramp = [
+            (7, 3, 1, 0, 0.0),
+            (6, 4, 2, 0, 0.0),
+            (5, 5, 2, 0, 0.0),
+            (4, 6, 3, 0, 0.0),
+            (3, 7, 4, 1, 2500.0),
+            (2, 8, 4, 1, 2500.0),
+            (1, 8, 5, 1, 2500.0),
+        ]
+        for days_ago, total, assigned, won, rev in ramp:
+            d = (base_day - timedelta(days=days_ago)).isoformat()
+            await db.coverage_snapshots.insert_one({
+                "id": d, "date": d, "total": total, "assigned": assigned,
+                "met": max(0, assigned - 1), "advanced": won, "won": won,
+                "revenue_usd": rev, "updated_at": now_iso(),
+            })
+
 @app.on_event("startup")
 async def startup():
     await db.users.create_index("email", unique=True)
@@ -1020,6 +1063,7 @@ async def startup():
     await db.leads.create_index("stage")
     await db.meetings.create_index("agent_id")
     await db.payments.create_index("session_id")
+    await db.coverage_snapshots.create_index("date")
     await seed()
     logger.info("CRM startup complete")
 
