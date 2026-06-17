@@ -14,6 +14,7 @@ import {
   fmtDateTime,
   timeAgo,
   BOOKING_DRIVERS,
+  REGIONS,
 } from "@/components/helpers";
 import Modal, { Field, inputCls, btnPrimary, btnSecondary } from "@/components/Modal";
 import {
@@ -27,6 +28,7 @@ import {
   Activity,
   StickyNote,
   CheckCircle2,
+  RefreshCw,
 } from "lucide-react";
 
 const trendIcon = { rising: TrendingUp, declining: TrendingDown, stable: Minus };
@@ -39,10 +41,13 @@ export default function LeadDetail() {
   const [noteType, setNoteType] = useState("Note");
   const [payModal, setPayModal] = useState(false);
   const [meetModal, setMeetModal] = useState(false);
+  const [reopenModal, setReopenModal] = useState(false);
+  const [reopenForm, setReopenForm] = useState({ type: "Upsell", reason: "" });
   const [packages, setPackages] = useState({});
 
   const [payForm, setPayForm] = useState({ provider: "stripe", package_id: "", amount: "", currency: "usd", description: "" });
   const [meetForm, setMeetForm] = useState({ scheduled_at: "", duration: 30, source: "Calendly", booking_driver: "Support" });
+  const [fxRate, setFxRate] = useState(85);
 
   const load = () => client.get(`/leads/${id}`).then((r) => setData(r.data));
 
@@ -66,6 +71,22 @@ export default function LeadDetail() {
     await client.put(`/leads/${id}`, { priority });
     toast.success("Priority updated");
     load();
+  };
+  const updateRegion = async (region) => {
+    await client.put(`/leads/${id}`, { region });
+    toast.success("Region updated");
+    load();
+  };
+  const doReopen = async () => {
+    try {
+      await client.post(`/leads/${id}/reopen`, reopenForm);
+      toast.success(`New ${reopenForm.type} routed to ${lead.owner_name}`);
+      setReopenModal(false);
+      setReopenForm({ type: "Upsell", reason: "" });
+      load();
+    } catch (e) {
+      toast.error(apiError(e));
+    }
   };
   const addNote = async () => {
     if (!note.trim()) return;
@@ -136,9 +157,17 @@ export default function LeadDetail() {
             <Badge className={stageClass(lead.stage)}>{lead.stage}</Badge>
             <Badge className={priorityClass(lead.priority)}>{lead.priority}</Badge>
             <span className="text-xs text-slate-400">Owner: {lead.owner_name || "Unassigned"}</span>
+            {lead.owner_locked && (
+              <Badge className="bg-slate-900 text-white border-slate-900">🔒 Locked to owner</Badge>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {(lead.stage === "Won" || lead.stage === "Lost") && (
+            <button className={btnSecondary} onClick={() => setReopenModal(true)} data-testid="reopen-btn">
+              <RefreshCw className="w-4 h-4 inline mr-1.5 -mt-0.5" /> Reopen for Upsell
+            </button>
+          )}
           <button className={btnSecondary} onClick={() => setMeetModal(true)} data-testid="book-meeting-btn">
             <CalendarPlus className="w-4 h-4 inline mr-1.5 -mt-0.5" /> Book Meeting
           </button>
@@ -187,9 +216,22 @@ export default function LeadDetail() {
                 )}
               </div>
             </div>
-            <div className="mt-4 pt-4 border-t border-slate-100 text-xs text-slate-400">
-              Source: <span className="text-slate-600 font-medium">{lead.source}</span>
+            <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between text-xs">
+              <span className="text-slate-400">Region: <span className="text-slate-600 font-medium">{lead.region || "—"}</span></span>
+              <span className="text-slate-400">Source: <span className="text-slate-600 font-medium">{lead.source}</span></span>
             </div>
+            {(lead.total_revenue_usd > 0 || lead.deals_won > 0) && (
+              <div className="mt-3 rounded-xl bg-emerald-50 border border-emerald-100 p-3 flex items-center justify-between" data-testid="lifetime-revenue">
+                <div>
+                  <div className="text-[10px] uppercase tracking-widest text-emerald-700 font-semibold">Lifetime Revenue</div>
+                  <div className="text-lg font-bold text-emerald-700 font-mono">{money(lead.total_revenue_usd)}</div>
+                </div>
+                <div className="text-right text-[11px] text-emerald-700">
+                  <div>{lead.deals_won || 0} deal{(lead.deals_won || 0) === 1 ? "" : "s"} won</div>
+                  <div>{lead.upsell_cycles || 0} upsell cycle{(lead.upsell_cycles || 0) === 1 ? "" : "s"}</div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Stage & priority controls */}
@@ -203,6 +245,11 @@ export default function LeadDetail() {
             <Field label="Priority Tag">
               <select data-testid="priority-select" className={inputCls} value={lead.priority} onChange={(e) => updatePriority(e.target.value)}>
                 {PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </Field>
+            <Field label="Region">
+              <select data-testid="region-select" className={inputCls} value={lead.region || "Other"} onChange={(e) => updateRegion(e.target.value)}>
+                {REGIONS.map((r) => <option key={r} value={r}>{r}</option>)}
               </select>
             </Field>
           </div>
@@ -384,6 +431,28 @@ export default function LeadDetail() {
         <p className="text-[11px] text-slate-400 mt-3 flex items-center gap-1">
           <CheckCircle2 className="w-3 h-3" /> Link copied to clipboard automatically. Stripe is live (test mode).
         </p>
+      </Modal>
+
+      {/* Reopen for Upsell Modal */}
+      <Modal open={reopenModal} onClose={() => setReopenModal(false)} title="Reopen for Upsell / Cross-sell" testid="reopen-modal">
+        <p className="text-xs text-slate-500 mb-3">
+          Starts a new opportunity and keeps ownership with{" "}
+          <span className="font-semibold text-slate-700">{lead.owner_name}</span>.
+        </p>
+        <Field label="Opportunity Type">
+          <select className={inputCls} value={reopenForm.type} onChange={(e) => setReopenForm({ ...reopenForm, type: e.target.value })} data-testid="reopen-type">
+            <option>Upsell</option>
+            <option>Cross-sell</option>
+            <option>Renewal</option>
+          </select>
+        </Field>
+        <Field label="Reason / Context">
+          <textarea className={`${inputCls} min-h-[80px]`} value={reopenForm.reason} onChange={(e) => setReopenForm({ ...reopenForm, reason: e.target.value })} placeholder="e.g. wants analytics add-on, renewal coming up…" />
+        </Field>
+        <div className="flex justify-end gap-2 mt-2">
+          <button className={btnSecondary} onClick={() => setReopenModal(false)}>Cancel</button>
+          <button className={btnPrimary} onClick={doReopen} data-testid="confirm-reopen-btn">Reopen</button>
+        </div>
       </Modal>
 
       {/* Meeting Modal */}

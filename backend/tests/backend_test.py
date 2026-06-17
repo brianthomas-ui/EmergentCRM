@@ -376,3 +376,162 @@ def test_audit_logs_include_fx_update(admin_token, agent_token):
     actions = {l.get("action") for l in logs}
     # update_fx_rate should appear since we changed it above
     assert "update_fx_rate" in actions, f"actions: {actions}"
+
+
+
+# -------- Iteration 3: Coverage / Sticky ownership / Reopen / Region --------
+
+def test_coverage_admin_only(admin_token, agent_token):
+    r = requests.get(f"{API}/coverage", headers=H(agent_token))
+    assert r.status_code == 403
+    r = requests.get(f"{API}/coverage", headers=H(admin_token))
+    assert r.status_code == 200
+    data = r.json()
+    for k in ("by_tier_spend", "by_tier_ltv", "by_region", "burnup", "totals", "tiers", "regions"):
+        assert k in data, f"missing key {k}"
+
+
+def test_coverage_totals_seed(admin_token):
+    # Ensure at least one APAC Won lead exists (creates one if seed was consumed)
+    _make_won_lead(admin_token)
+    r = requests.get(f"{API}/coverage", headers=H(admin_token))
+    assert r.status_code == 200
+    d = r.json()
+    t = d["totals"]
+    # totals iterate over by_region which covers ALL leads (region defaults to Other)
+    # NOTE: backend tests may have created extra TEST_ leads -> total >= 8
+    assert t["total"] >= 8, f"total={t['total']}"
+    assert t["won"] >= 1, f"won={t['won']}"
+    assert t["revenue_usd"] >= 100.0
+    # tiers/regions are present
+    assert len(d["by_region"]) == len(d["regions"])
+    assert len(d["by_tier_spend"]) == len(d["tiers"])
+    # APAC should have at least 1 Won
+    apac = next(r for r in d["by_region"] if r["label"] == "APAC")
+    assert apac["won"] >= 1
+    assert apac["revenue_usd"] >= 100.0
+    # burnup not empty
+    assert isinstance(d["burnup"], list) and len(d["burnup"]) >= 1
+    last = d["burnup"][-1]
+    for k in ("week", "total", "covered", "won"):
+        assert k in last
+
+
+def test_lead_region_create_and_update(admin_token):
+    payload = {
+        "name": "TEST Region",
+        "email": f"TEST_region_{datetime.utcnow().timestamp()}@example.com",
+        "company": "TestRegion", "monthly_spend": 100, "lifetime_value": 500,
+        "region": "Europe",
+    }
+    r = requests.post(f"{API}/leads", json=payload, headers=H(admin_token))
+    assert r.status_code == 200, r.text
+    lead = r.json()
+    assert lead["region"] == "Europe"
+    lid = lead["id"]
+    # update region
+    r = requests.put(f"{API}/leads/{lid}", json={"region": "APAC"}, headers=H(admin_token))
+    assert r.status_code == 200 and r.json()["region"] == "APAC"
+    # persisted on GET
+    r = requests.get(f"{API}/leads/{lid}", headers=H(admin_token))
+    assert r.json()["lead"]["region"] == "APAC"
+
+
+def _make_won_lead(admin_token):
+    """Helper: create a TEST lead, assign owner, simulate paid -> Won + locked."""
+    payload = {
+        "name": "TEST Sticky",
+        "email": f"TEST_sticky_{datetime.utcnow().timestamp()}@example.com",
+        "region": "APAC", "monthly_spend": 200, "lifetime_value": 1000,
+    }
+    lead = requests.post(f"{API}/leads", json=payload, headers=H(admin_token)).json()
+    team = requests.get(f"{API}/team", headers=H(admin_token)).json()
+    agent = next(m for m in team if m["role"] == "agent")
+    requests.put(f"{API}/leads/{lead['id']}/assign", json={"agent_id": agent["id"]}, headers=H(admin_token))
+    requests.put(f"{API}/settings", json={"inr_per_usd": 85.0}, headers=H(admin_token))
+    pay = requests.post(f"{API}/payments/link", json={
+        "lead_id": lead["id"], "provider": "razorpay", "amount": 8500.0, "currency": "inr",
+        "origin_url": BASE_URL,
+    }, headers=H(admin_token)).json()
+    requests.post(f"{API}/payments/simulate/{pay['session_id']}", headers=H(admin_token))
+    final = requests.get(f"{API}/leads/{lead['id']}", headers=H(admin_token)).json()["lead"]
+    assert final["stage"] == "Won" and final["owner_locked"]
+    return final
+
+
+def test_sticky_ownership_won_locks_and_routes(admin_token):
+    # Create our own Won+locked lead so this test is repeatable
+    lead = _make_won_lead(admin_token)
+    lid = lead["id"]
+    owner_id = lead["owner_id"]
+    # Round-robin must be blocked
+    r = requests.post(f"{API}/leads/{lid}/round-robin", headers=H(admin_token))
+    assert r.status_code == 400
+    assert "lock" in r.json().get("detail", "").lower()
+    # Creating a meeting WITHOUT agent_id must route to existing owner
+    sched = (datetime.now(timezone.utc) + timedelta(hours=5)).isoformat()
+    r = requests.post(f"{API}/meetings", json={
+        "lead_id": lid, "scheduled_at": sched, "source": "Manual",
+        "booking_driver": "Renewal",
+    }, headers=H(admin_token))
+    assert r.status_code == 200, r.text
+    m = r.json()
+    assert m["agent_id"] == owner_id, f"sticky failed: meeting agent={m['agent_id']} owner={owner_id}"
+
+
+def test_reopen_lead_for_upsell(admin_token):
+    lead = _make_won_lead(admin_token)
+    lid = lead["id"]
+    owner_id_before = lead["owner_id"]
+    cycles_before = lead.get("upsell_cycles", 0)
+    r = requests.post(f"{API}/leads/{lid}/reopen", json={"type": "Cross-sell", "reason": "TEST reopen"},
+                      headers=H(admin_token))
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["stage"] == "Follow-up Later"
+    assert out["owner_id"] == owner_id_before
+    assert out["upsell_cycles"] == cycles_before + 1
+    # audit log must contain reopen_lead
+    logs = requests.get(f"{API}/audit-logs", headers=H(admin_token)).json()
+    assert any(l.get("action") == "reopen_lead" for l in logs)
+
+
+def test_reopen_requires_owner(admin_token):
+    # New lead with no owner -> reopen should 400
+    payload = {
+        "name": "TEST NoOwner",
+        "email": f"TEST_noowner_{datetime.utcnow().timestamp()}@example.com",
+        "monthly_spend": 0, "lifetime_value": 0,
+    }
+    lead = requests.post(f"{API}/leads", json=payload, headers=H(admin_token)).json()
+    r = requests.post(f"{API}/leads/{lead['id']}/reopen", json={"type": "Upsell"},
+                      headers=H(admin_token))
+    assert r.status_code == 400
+
+
+def test_payment_complete_sets_locked_and_revenue(admin_token):
+    # Create a fresh lead, INR razorpay link, simulate paid, lead Won + owner_locked + revenue increments by amount/85
+    payload = {
+        "name": "TEST PaymentLock",
+        "email": f"TEST_paylock_{datetime.utcnow().timestamp()}@example.com",
+        "region": "APAC", "monthly_spend": 200, "lifetime_value": 1000,
+    }
+    lead = requests.post(f"{API}/leads", json=payload, headers=H(admin_token)).json()
+    lid = lead["id"]
+    # assign owner first so meeting/lead is owned
+    team = requests.get(f"{API}/team", headers=H(admin_token)).json()
+    agent = next(m for m in team if m["role"] == "agent")
+    requests.put(f"{API}/leads/{lid}/assign", json={"agent_id": agent["id"]}, headers=H(admin_token))
+    requests.put(f"{API}/settings", json={"inr_per_usd": 85.0}, headers=H(admin_token))
+    pay = requests.post(f"{API}/payments/link", json={
+        "lead_id": lid, "provider": "razorpay", "amount": 8500.0, "currency": "inr",
+        "origin_url": BASE_URL,
+    }, headers=H(admin_token)).json()
+    assert pay["amount_usd"] == 100.0
+    requests.post(f"{API}/payments/simulate/{pay['session_id']}", headers=H(admin_token))
+    final = requests.get(f"{API}/leads/{lid}", headers=H(admin_token)).json()["lead"]
+    assert final["stage"] == "Won"
+    assert final["owner_locked"] is True
+    assert final["payment_status"] == "paid"
+    assert final["total_revenue_usd"] == 100.0
+    assert final["deals_won"] == 1

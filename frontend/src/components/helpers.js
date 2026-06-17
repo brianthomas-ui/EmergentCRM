@@ -25,6 +25,8 @@ export const BOOKING_DRIVERS = [
   "Other",
 ];
 
+export const REGIONS = ["North America", "Europe", "APAC", "LATAM", "MEA", "Other"];
+
 export function money(n, currency = "usd") {
   const v = Number(n || 0);
   const sym = currency?.toLowerCase() === "inr" ? "₹" : "$";

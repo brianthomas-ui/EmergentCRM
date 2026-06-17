@@ -11,6 +11,7 @@ import {
   UserCog,
   ScrollText,
   LogOut,
+  Target,
 } from "lucide-react";
 
 const navItems = [
@@ -19,6 +20,7 @@ const navItems = [
   { to: "/pipeline", label: "Pipeline", icon: KanbanSquare, testid: "nav-pipeline", admin: false },
   { to: "/meetings", label: "Meetings", icon: CalendarClock, testid: "nav-meetings", admin: false },
   { to: "/payments", label: "Payments", icon: CreditCard, testid: "nav-payments", admin: false },
+  { to: "/coverage", label: "Coverage", icon: Target, testid: "nav-coverage", admin: true },
   { to: "/campaigns", label: "Campaigns", icon: Megaphone, testid: "nav-campaigns", admin: true },
   { to: "/team", label: "Team", icon: UserCog, testid: "nav-team", admin: true },
   { to: "/audit", label: "Audit Log", icon: ScrollText, testid: "nav-audit", admin: true },

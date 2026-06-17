@@ -9,6 +9,7 @@ import LeadDetail from "@/pages/LeadDetail";
 import Pipeline from "@/pages/Pipeline";
 import Meetings from "@/pages/Meetings";
 import Payments from "@/pages/Payments";
+import Coverage from "@/pages/Coverage";
 import Campaigns from "@/pages/Campaigns";
 import Team from "@/pages/Team";
 import AuditLog from "@/pages/AuditLog";
@@ -40,6 +41,7 @@ function App() {
             <Route path="/pipeline" element={<Protected><Pipeline /></Protected>} />
             <Route path="/meetings" element={<Protected><Meetings /></Protected>} />
             <Route path="/payments" element={<Protected><Payments /></Protected>} />
+            <Route path="/coverage" element={<Protected adminOnly><Coverage /></Protected>} />
             <Route path="/payment-return" element={<Protected><PaymentReturn /></Protected>} />
             <Route path="/campaigns" element={<Protected adminOnly><Campaigns /></Protected>} />
             <Route path="/team" element={<Protected adminOnly><Team /></Protected>} />

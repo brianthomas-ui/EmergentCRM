@@ -48,6 +48,26 @@ BOOKING_DRIVERS = [
     "Pricing / Upgrade", "Feature Request", "Renewal", "Onboarding Help", "Other",
 ]
 
+# Usage tiers (by spend or LTV) and regions for coverage analytics
+USAGE_TIERS = [
+    ("Free–$20", 0, 20),
+    ("$21–100", 21, 100),
+    ("$101–500", 101, 500),
+    ("$501–1k", 501, 1000),
+    ("$1k–2k", 1001, 2000),
+    ("$2k–5k", 2001, 5000),
+    ("$5k–15k", 5001, 15000),
+    ("$15k+", 15001, 10**12),
+]
+REGIONS = ["North America", "Europe", "APAC", "LATAM", "MEA", "Other"]
+
+def tier_label(value) -> str:
+    v = float(value or 0)
+    for label, lo, hi in USAGE_TIERS:
+        if lo <= v <= hi:
+            return label
+    return USAGE_TIERS[-1][0]
+
 PRESET_PACKAGES = {
     "upsell_pro": {"name": "Pro Upgrade", "amount": 1000.0, "currency": "usd"},
     "upsell_scale": {"name": "Scale Plan", "amount": 2500.0, "currency": "usd"},
@@ -150,6 +170,7 @@ class LeadIn(BaseModel):
     usage_trend: Optional[str] = "stable"
     product_history: List[str] = []
     source: Optional[str] = "Manual Entry"
+    region: Optional[str] = "Other"
     priority: str = "None"
 
 class LeadUpdate(BaseModel):
@@ -160,8 +181,13 @@ class LeadUpdate(BaseModel):
     monthly_spend: Optional[float] = None
     lifetime_value: Optional[float] = None
     usage_trend: Optional[str] = None
+    region: Optional[str] = None
     priority: Optional[str] = None
     stage: Optional[str] = None
+
+class ReopenIn(BaseModel):
+    type: str = "Upsell"  # Upsell, Cross-sell, Renewal
+    reason: Optional[str] = ""
 
 class StageIn(BaseModel):
     stage: str
@@ -282,6 +308,7 @@ async def create_lead(body: LeadIn, user: dict = Depends(get_current_user)):
     doc["email"] = body.email.lower()
     doc.update({
         "id": new_id(), "stage": "New Booking", "owner_id": None, "owner_name": None,
+        "owner_locked": False, "total_revenue_usd": 0.0, "deals_won": 0, "upsell_cycles": 0,
         "notes": [], "ownership_history": [], "payment_status": "none",
         "last_meeting_at": None, "next_meeting_at": None,
         "created_at": now_iso(), "updated_at": now_iso(),
@@ -329,7 +356,7 @@ async def update_stage(lead_id: str, body: StageIn, user: dict = Depends(get_cur
     await db.leads.update_one({"id": lead_id}, {"$set": {"stage": body.stage, "updated_at": now_iso()}})
     await log_activity(lead_id, "stage", f"Moved to {body.stage}", user["name"])
     if body.stage == "Won":
-        await db.leads.update_one({"id": lead_id}, {"$set": {"won_at": now_iso()}})
+        await db.leads.update_one({"id": lead_id}, {"$set": {"won_at": now_iso(), "owner_locked": True}})
     lead = await db.leads.find_one({"id": lead_id})
     return clean(lead)
 
@@ -375,11 +402,34 @@ async def round_robin_assign(lead_id: str, admin: dict = Depends(require_admin))
     lead = await db.leads.find_one({"id": lead_id})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
+    if lead.get("owner_locked"):
+        raise HTTPException(status_code=400, detail=f"Lead is locked to {lead.get('owner_name')}. Reassign manually if needed.")
     agent = await _round_robin_agent()
     if not agent:
         raise HTTPException(status_code=400, detail="No active agents available")
     await _assign_lead(lead, agent, f"{admin['name']} (round-robin)")
     await log_audit("round_robin", admin["name"], lead["name"], f"-> {agent['name']}")
+    lead = await db.leads.find_one({"id": lead_id})
+    return clean(lead)
+
+@api.post("/leads/{lead_id}/reopen")
+async def reopen_lead(lead_id: str, body: ReopenIn, user: dict = Depends(get_current_user)):
+    lead = await db.leads.find_one({"id": lead_id})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    if not lead.get("owner_id"):
+        raise HTTPException(status_code=400, detail="Lead has no owner to route the new opportunity to")
+    if user["role"] == "agent" and lead["owner_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Only the owning agent or admin can reopen this lead")
+    await db.leads.update_one({"id": lead_id}, {
+        "$set": {"stage": "Follow-up Later", "priority": "Follow-up This Week",
+                 "payment_status": "none", "updated_at": now_iso()},
+        "$inc": {"upsell_cycles": 1},
+    })
+    await log_activity(lead_id, "reopen",
+                       f"{body.type} cycle opened — routed to owner {lead['owner_name']}. {body.reason}".strip(),
+                       user["name"])
+    await log_audit("reopen_lead", user["name"], lead["name"], f"{body.type} -> {lead['owner_name']}")
     lead = await db.leads.find_one({"id": lead_id})
     return clean(lead)
 
@@ -461,9 +511,11 @@ async def create_meeting(body: MeetingIn, user: dict = Depends(get_current_user)
     lead = await db.leads.find_one({"id": body.lead_id})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
-    # round robin if no agent specified
+    # sticky ownership: route to the existing owner; round-robin only if unowned
     if body.agent_id:
         agent = await db.users.find_one({"id": body.agent_id})
+    elif lead.get("owner_id"):
+        agent = await db.users.find_one({"id": lead["owner_id"]})
     else:
         agent = await _round_robin_agent()
     if not agent:
@@ -653,9 +705,12 @@ async def _apply_payment_status(record: dict, status: str, payment_status: str):
     update = {"status": status, "payment_status": payment_status, "updated_at": now_iso()}
     await db.payments.update_one({"id": record["id"]}, {"$set": update})
     if payment_status == "paid":
-        await db.leads.update_one({"id": record["lead_id"]}, {"$set": {
-            "stage": "Won", "payment_status": "paid", "priority": "None",
-            "won_at": now_iso(), "updated_at": now_iso()}})
+        amt_usd = record.get("amount_usd", record["amount"])
+        await db.leads.update_one({"id": record["lead_id"]}, {
+            "$set": {"stage": "Won", "payment_status": "paid", "priority": "None",
+                     "owner_locked": True, "won_at": now_iso(), "updated_at": now_iso()},
+            "$inc": {"total_revenue_usd": amt_usd, "deals_won": 1},
+        })
         await log_activity(record["lead_id"], "payment",
                            f"Payment completed: {record['currency'].upper()} {record['amount']:.0f} (~${record.get('amount_usd', record['amount']):.0f}) 🎉",
                            record["agent_name"])
@@ -774,6 +829,86 @@ async def update_settings(body: SettingsIn, admin: dict = Depends(require_admin)
     await log_audit("update_fx_rate", admin["name"], "INR/USD", f"{body.inr_per_usd} INR per USD")
     return {"inr_per_usd": float(body.inr_per_usd)}
 
+@api.get("/coverage")
+async def coverage(admin: dict = Depends(require_admin)):
+    leads = await db.leads.find({}).to_list(5000)
+    meetings = await db.meetings.find({}).to_list(5000)
+    paid = await db.payments.find({"payment_status": "paid"}).to_list(5000)
+
+    met_ids = {m["lead_id"] for m in meetings}
+    rev_by_lead = {}
+    for p in paid:
+        rev_by_lead[p["lead_id"]] = rev_by_lead.get(p["lead_id"], 0.0) + p.get("amount_usd", p["amount"])
+
+    def blank(label):
+        return {"label": label, "total": 0, "assigned": 0, "met": 0, "advanced": 0, "won": 0, "revenue_usd": 0.0}
+
+    def group_stats(group_fn, order):
+        groups = {o: blank(o) for o in order}
+        for l in leads:
+            label = group_fn(l)
+            g = groups.get(label)
+            if g is None:
+                g = blank(label)
+                groups[label] = g
+            g["total"] += 1
+            if l.get("owner_id"):
+                g["assigned"] += 1
+            if l["id"] in met_ids:
+                g["met"] += 1
+            if l.get("stage") in ("Payment Link Sent", "Won"):
+                g["advanced"] += 1
+            if l.get("stage") == "Won":
+                g["won"] += 1
+            g["revenue_usd"] += rev_by_lead.get(l["id"], 0.0)
+        return [groups[o] for o in order]
+
+    tier_order = [t[0] for t in USAGE_TIERS]
+    by_tier_spend = group_stats(lambda l: tier_label(l.get("monthly_spend", 0)), tier_order)
+    by_tier_ltv = group_stats(lambda l: tier_label(l.get("lifetime_value", 0)), tier_order)
+    by_region = group_stats(lambda l: l.get("region") or "Other", REGIONS)
+
+    # burn-up: weekly cumulative scope(total) vs covered(assigned) vs won
+    def week_start(iso):
+        d = datetime.fromisoformat(iso).astimezone(timezone.utc)
+        return (d - timedelta(days=d.weekday())).date()
+
+    from collections import Counter
+    created = [week_start(l["created_at"]) for l in leads if l.get("created_at")]
+    assigned_weeks = []
+    for l in leads:
+        if l.get("ownership_history"):
+            assigned_weeks.append(week_start(l["ownership_history"][0]["at"]))
+        elif l.get("owner_id") and l.get("created_at"):
+            assigned_weeks.append(week_start(l["created_at"]))
+    won_weeks = [week_start(l["won_at"]) for l in leads if l.get("won_at")]
+
+    burnup = []
+    if created:
+        c_created, c_assigned, c_won = Counter(created), Counter(assigned_weeks), Counter(won_weeks)
+        wk = min(created)
+        end = datetime.now(timezone.utc).date()
+        cum_t = cum_a = cum_w = 0
+        guard = 0
+        while wk <= end and guard < 104:
+            cum_t += c_created.get(wk, 0)
+            cum_a += c_assigned.get(wk, 0)
+            cum_w += c_won.get(wk, 0)
+            burnup.append({"week": wk.isoformat(), "total": cum_t, "covered": cum_a, "won": cum_w})
+            wk = wk + timedelta(days=7)
+            guard += 1
+
+    totals = blank("All")
+    for g in by_region:
+        for k in ("total", "assigned", "met", "advanced", "won", "revenue_usd"):
+            totals[k] += g[k]
+
+    return {
+        "tiers": tier_order, "regions": REGIONS,
+        "by_tier_spend": by_tier_spend, "by_tier_ltv": by_tier_ltv,
+        "by_region": by_region, "burnup": burnup, "totals": totals,
+    }
+
 @api.get("/audit-logs")
 async def audit_logs(admin: dict = Depends(require_admin)):
     logs = await db.audit_logs.find({}).sort("created_at", -1).to_list(500)
@@ -821,33 +956,48 @@ async def seed():
     if await db.leads.count_documents({}) == 0:
         agents = await db.users.find({"role": "agent"}).to_list(100)
         sample = [
-            ("Acme Analytics", "Dana Whitfield", "dana@acmeanalytics.io", "Pro $99/mo", 99, 1200, "rising", "Hot", "Q3 Power User Outreach"),
-            ("Nimbus Labs", "Owen Carter", "owen@nimbuslabs.dev", "Pro $149/mo", 149, 2100, "rising", "Payment Pending", "Q3 Power User Outreach"),
-            ("BrightForge", "Lena Ortiz", "lena@brightforge.com", "Starter $49/mo", 49, 600, "stable", "Follow-up This Week", "Manual Entry"),
-            ("DataPeak", "Ravi Menon", "ravi@datapeak.ai", "Pro $199/mo", 199, 3400, "rising", "Hot", "Q3 Power User Outreach"),
-            ("Loopline", "Greta Hofmann", "greta@loopline.co", "Pro $129/mo", 129, 1500, "declining", "None", "CSV Import"),
-            ("Vertex IO", "Sam Patel", "sam@vertex.io", "Pro $99/mo", 99, 950, "stable", "Follow-up This Week", "CSV Import"),
-            ("Quantli", "Mia Tanaka", "mia@quantli.com", "Starter $59/mo", 59, 720, "rising", "Hot", "Manual Entry"),
-            ("Northstar", "Leo Becker", "leo@northstar.app", "Pro $179/mo", 179, 2800, "rising", "Payment Pending", "Q3 Power User Outreach"),
+            ("Acme Analytics", "Dana Whitfield", "dana@acmeanalytics.io", "Pro $99/mo", 99, 1200, "rising", "Hot", "Q3 Power User Outreach", "North America"),
+            ("Nimbus Labs", "Owen Carter", "owen@nimbuslabs.dev", "Pro $149/mo", 149, 2100, "rising", "Payment Pending", "Q3 Power User Outreach", "Europe"),
+            ("BrightForge", "Lena Ortiz", "lena@brightforge.com", "Starter $49/mo", 49, 600, "stable", "Follow-up This Week", "Manual Entry", "LATAM"),
+            ("DataPeak", "Ravi Menon", "ravi@datapeak.ai", "Pro $199/mo", 199, 3400, "rising", "Hot", "Q3 Power User Outreach", "APAC"),
+            ("Loopline", "Greta Hofmann", "greta@loopline.co", "Pro $129/mo", 129, 1500, "declining", "None", "CSV Import", "Europe"),
+            ("Vertex IO", "Sam Patel", "sam@vertex.io", "Pro $99/mo", 99, 950, "stable", "Follow-up This Week", "CSV Import", "APAC"),
+            ("Quantli", "Mia Tanaka", "mia@quantli.com", "Starter $59/mo", 59, 720, "rising", "Hot", "Manual Entry", "APAC"),
+            ("Northstar", "Leo Becker", "leo@northstar.app", "Pro $179/mo", 179, 2800, "rising", "Payment Pending", "Q3 Power User Outreach", "MEA"),
         ]
         stages = ["New Booking", "Assigned", "Meeting Scheduled", "Meeting Completed", "Payment Link Sent", "Won", "Follow-up Later", "Assigned"]
-        for i, (company, name, email, plan, spend, ltv, trend, priority, source) in enumerate(sample):
+        for i, (company, name, email, plan, spend, ltv, trend, priority, source, region) in enumerate(sample):
             owner = agents[i % len(agents)] if i % 3 != 0 else None
             stage = stages[i]
+            is_won = stage == "Won"
             doc = {
                 "id": new_id(), "name": name, "email": email, "company": company,
                 "phone": f"+1 555 01{i:02d}", "plan": plan, "monthly_spend": float(spend),
                 "lifetime_value": float(ltv), "usage_trend": trend, "product_history": ["API", "Dashboard"],
-                "source": source, "priority": priority, "stage": stage,
+                "source": source, "region": region, "priority": "None" if is_won else priority, "stage": stage,
                 "owner_id": owner["id"] if owner else None,
                 "owner_name": owner["name"] if owner else None,
-                "notes": [], "ownership_history": [], "payment_status": "none",
+                "owner_locked": bool(is_won and owner),
+                "total_revenue_usd": 2500.0 if (is_won and owner) else 0.0,
+                "deals_won": 1 if (is_won and owner) else 0, "upsell_cycles": 0,
+                "notes": [], "ownership_history": [], "payment_status": "paid" if (is_won and owner) else "none",
                 "last_meeting_at": None, "next_meeting_at": None,
+                "won_at": now_iso() if (is_won and owner) else None,
                 "created_at": now_iso(), "updated_at": now_iso(),
             }
             await db.leads.insert_one(doc)
             if owner:
                 await log_activity(doc["id"], "assignment", f"Assigned to {owner['name']} (seed)", "System")
+            if is_won and owner:
+                await db.payments.insert_one({
+                    "id": new_id(), "lead_id": doc["id"], "lead_name": name,
+                    "agent_id": owner["id"], "agent_name": owner["name"],
+                    "provider": "stripe", "amount": 2500.0, "currency": "usd",
+                    "amount_usd": 2500.0, "fx_rate": 85.0, "description": "Scale Plan",
+                    "status": "complete", "payment_status": "paid",
+                    "session_id": f"seed_{new_id()[:10]}", "payment_link": None,
+                    "created_at": now_iso(), "updated_at": now_iso(),
+                })
 
         # a few meetings today with booking drivers
         leads = await db.leads.find({"owner_id": {"$ne": None}}).to_list(100)

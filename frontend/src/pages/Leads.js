@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import client, { apiError } from "@/api";
 import { useAuth } from "@/context/AuthContext";
-import { money, Badge, stageClass, priorityClass, STAGES, PRIORITIES } from "@/components/helpers";
+import { money, Badge, stageClass, priorityClass, STAGES, PRIORITIES, REGIONS } from "@/components/helpers";
 import Modal, { Field, inputCls, btnPrimary, btnSecondary } from "@/components/Modal";
 import { Plus, Upload, Search, Users as UsersIcon, ArrowRight } from "lucide-react";
 
@@ -18,6 +18,7 @@ const empty = {
   usage_trend: "stable",
   priority: "None",
   source: "Manual Entry",
+  region: "Other",
 };
 
 export default function Leads() {
@@ -227,6 +228,11 @@ export default function Leads() {
           <Field label="Priority">
             <select className={inputCls} value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}>
               {PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </Field>
+          <Field label="Region">
+            <select className={inputCls} value={form.region} onChange={(e) => setForm({ ...form, region: e.target.value })} data-testid="lead-region">
+              {REGIONS.map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
           </Field>
           <Field label="Source"><input className={inputCls} value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} /></Field>
