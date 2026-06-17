@@ -37,7 +37,21 @@ Web CRM for an inside sales team (4–10 agents + 1 sales head) to convert exist
 - P1: Live FX feed option (auto-refresh rate) alongside manual override.
 - P2: Lead scoring by usage/spend; AI meeting summaries; mobile notifications; advanced campaign A/B analytics; pagination on list endpoints; modularize server.py into routers.
 
+## Design System (Emergent rebrand — Jun 2026)
+Clean, minimal "Emergent" identity. Blueprint at `/app/design_guidelines.json`. Key rules:
+- **Monochrome zinc/black/white**, NO gradients anywhere (removed `bg-gradient-brand` / `text-gradient`). Single accent = emerald only for positive money/won signals; rose/amber for danger/warning status.
+- Tokens in `index.css`: `--radius: 0.5rem` (→ rounded-md 6px, rounded-lg 8px), `--ring`/`--primary` = near-black. `slate-*` globally replaced with `zinc-*`.
+- **Badges** (helpers.js): outline style — `bg-white` + 1px border + colored TEXT only, `font-mono uppercase tracking-wider` (no filled "rainbow" pills).
+- **Buttons/inputs** (Modal.js): black primary (`bg-zinc-950`), white outline secondary, black focus ring, `rounded-md`, `active:scale-[0.98]`.
+- **Sidebar** (Layout.js): zinc-50 surface, black square "e" logo (no gradient), active nav = white card + border + shadow. Mono "EMERGENT LABS" sublabel.
+- **Login** (Login.js): centered white card, no gradients, mono-uppercase field labels, dashed mono "Demo credentials" box with click-to-fill (`demo-fill-sales-head` / `demo-fill-agent`).
+- **Charts** (Coverage.js): monochrome zinc ramp for stacked bars, monochrome burn-up lines, stark black tooltips.
+
+## Deployment status (as of Jun 2026)
+- Production custom domain **emergentcrm.com** returned platform "Application not found" (router-level) — deployment/domain mapping was torn down (user mentioned an internal "sweep"). NOT an app-code issue; deployment readiness check PASSES. Resolution = redeploy (Deploy → Deploy Now), verify on default `*.emergent.host`, then re-link custom domain via Entri. Earlier production 401 (Atlas seed/login) is moot until redeployed.
+
 ## Test Status
 - iteration_1: 22/22 backend + UI verified.
 - iteration_2: 28/28 backend + UI verified (booking drivers, FX/multi-currency, new team).
 - iteration_3: 35/35 backend + UI verified (coverage analytics, sticky ownership, reopen, region). Fixed a missing fxRate useState in LeadDetail.
+- iteration_4: Frontend regression after Emergent visual rebrand — 100% pass, 0 console errors, no functional regressions (login, nav RBAC, dashboard, leads, lead detail, meetings/outcome modal, payments, coverage charts, team, campaigns, audit).
