@@ -4,6 +4,12 @@
 > The sections below this changelog are LEGACY (pre-redesign, light theme) — defer to the handoff.
 
 ## Changelog
+### 2026-06-19 — Code-review pass #3 (env 8940ca30, re-send)
+- ✅ Fixed empty catch in `AuthContext.js` logout (now `console.warn`, session still cleared) — applied prior round.
+- ✅ **Refactored `_resolve_payment_amount()` (complexity 37 → thin dispatcher)** into `_is_credit_topup()`, `_resolve_credit_topup_amount()`, `_resolve_fixed_amount()`. Behavior-preserving; all 48 backend tests pass.
+- ❌ Re-confirmed FALSE POSITIVES: `backend_test.py:145` is `is not None` (correct); `Deals.js:130` useCallback has correct empty deps (`e` is the inline catch param); zero real literal-`is` comparisons exist; the named hook "missing deps" are vars declared inside the hooks or intentional eslint-disables that prevent infinite loops.
+- ⏭️ Still deferred (large effort / higher regression risk): `dashboard()` (cx 50) refactor, frontend component splits (Deals/Meetings/Campaigns/LeadDetail/Leads), DealDrawer/NewLeadModal/PaymentModal splits, inline-prop memoization.
+
 ### 2026-06-19 — Code-review pass (env 8940ca30)
 - ✅ Fixed 6 array-index React keys → stable keys (Team/Campaigns donut Cells by name, Dashboard recent-activity by id, DealDrawer timeline, Meetings grid slots descriptive keys).
 - ✅ Removed unused `pydantic.Field` import.

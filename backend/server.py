@@ -1877,61 +1877,49 @@ async def list_payments(request: Request, user: dict = Depends(get_current_user)
     payments = await db.payments.find(q).sort("created_at", -1).to_list(1000)
     return [clean(p) for p in payments]
 
-def _resolve_payment_amount(body: "PaymentIn"):
-    """Resolve (amount, currency, description, credits, boost_credits, multiplier) from a
-    preset package and/or custom input. An explicit body.amount ALWAYS wins over the preset
-    price so an agent can discount a deal; credits/boost can likewise be customised.
-
-    Credit Top-Up uses multiplier pricing: credits delivered = round(amount * multiplier),
-    where multiplier is clamped to (1, CREDIT_MULTIPLIER_MAX) and defaults to
-    CREDIT_MULTIPLIER_DEFAULT. Legacy credits_* packages keep their fixed credits/boost."""
-    pkg = PRESET_PACKAGES.get(body.package_id) if body.package_id else None
-
-    # Detect a multiplier-priced Credit Top-Up. A legacy credits_* package with NO
-    # multiplier and NO explicit credits override keeps its fixed-credit behaviour.
-    is_credit_topup = (
+def _is_credit_topup(body: "PaymentIn", pkg: Optional[dict]) -> bool:
+    """A payment is multiplier-priced Credit Top-Up when its package is a Credit Top-Up,
+    a multiplier is supplied, or the package id is a credits_* preset."""
+    return bool(
         (pkg and pkg.get("product_line") == "Credit Top-Up")
         or body.multiplier is not None
-        or bool(body.package_id and body.package_id.startswith("credits"))
-    )
-    legacy_fixed_credit = (
-        is_credit_topup and pkg is not None
-        and body.multiplier is None and body.credits is None
+        or (body.package_id and body.package_id.startswith("credits"))
     )
 
-    if is_credit_topup and not legacy_fixed_credit:
-        # Multiplier pricing path — requires a USD amount (currency defaults to usd).
-        if body.amount and body.amount > 0:
-            amount = float(body.amount)
-        elif pkg and pkg.get("amount"):
-            amount = float(pkg["amount"])
-        else:
-            raise HTTPException(status_code=400, detail="A USD amount is required for a Credit Top-Up")
-        currency = (body.currency or (pkg["currency"] if pkg else "usd")).lower()
 
-        mult = body.multiplier if body.multiplier is not None else CREDIT_MULTIPLIER_DEFAULT
-        # Clamp between 1 and the absolute hard cap (10).
-        mult = max(1.0, min(float(mult), float(CREDIT_MULTIPLIER_MAX)))
+def _resolve_credit_topup_amount(body: "PaymentIn", pkg: Optional[dict]):
+    """Multiplier pricing path. credits = round(amount * multiplier); multiplier clamped to
+    (1, CREDIT_MULTIPLIER_MAX), default CREDIT_MULTIPLIER_DEFAULT. INR amounts convert first."""
+    if body.amount and body.amount > 0:
+        amount = float(body.amount)
+    elif pkg and pkg.get("amount"):
+        amount = float(pkg["amount"])
+    else:
+        raise HTTPException(status_code=400, detail="A USD amount is required for a Credit Top-Up")
+    currency = (body.currency or (pkg["currency"] if pkg else "usd")).lower()
 
-        # Multiplier applies to the USD value; INR links convert first.
-        amount_for_credits = amount
-        if currency == "inr":
-            try:
-                amount_for_credits = amount / float(PRODUCT_LINES["Credit Top-Up"].get("inr_per_credit", 1) or 1)
-            except Exception:
-                amount_for_credits = amount
-        credits = body.credits if body.credits is not None else int(round(amount_for_credits * mult))
-        boost = None
+    mult = body.multiplier if body.multiplier is not None else CREDIT_MULTIPLIER_DEFAULT
+    mult = max(1.0, min(float(mult), float(CREDIT_MULTIPLIER_MAX)))
 
-        if body.description:
-            desc = body.description
-        else:
-            dollar = f"${amount:,.0f}" if currency == "usd" else f"{currency.upper()} {amount:,.0f}"
-            desc = f"Credit Top-Up - {dollar} -> {credits:,} credits ({mult:g}x)"
+    amount_for_credits = amount
+    if currency == "inr":
+        try:
+            amount_for_credits = amount / float(PRODUCT_LINES["Credit Top-Up"].get("inr_per_credit", 1) or 1)
+        except Exception:
+            amount_for_credits = amount
+    credits = body.credits if body.credits is not None else int(round(amount_for_credits * mult))
 
-        return amount, currency, desc, credits, boost, mult
+    if body.description:
+        desc = body.description
+    else:
+        dollar = f"${amount:,.0f}" if currency == "usd" else f"{currency.upper()} {amount:,.0f}"
+        desc = f"Credit Top-Up - {dollar} -> {credits:,} credits ({mult:g}x)"
 
-    # --- Non-credit / legacy fixed-credit path (unchanged behaviour) ---
+    return amount, currency, desc, credits, None, mult
+
+
+def _resolve_fixed_amount(body: "PaymentIn", pkg: Optional[dict]):
+    """Non-credit / legacy fixed-credit path. An explicit body.amount discounts the preset."""
     if body.amount and body.amount > 0:
         amount = float(body.amount)
         currency = (body.currency or (pkg["currency"] if pkg else "usd")).lower()
@@ -1953,6 +1941,22 @@ def _resolve_payment_amount(body: "PaymentIn"):
         desc = "Custom upsell"
 
     return amount, currency, desc, credits, boost, None
+
+
+def _resolve_payment_amount(body: "PaymentIn"):
+    """Resolve (amount, currency, description, credits, boost_credits, multiplier) from a
+    preset package and/or custom input. An explicit body.amount ALWAYS wins over the preset
+    price so an agent can discount a deal; credits/boost can likewise be customised.
+    Dispatches to the Credit Top-Up (multiplier) or fixed-amount helper. A legacy credits_*
+    package with NO multiplier and NO explicit credits keeps its fixed-credit behaviour."""
+    pkg = PRESET_PACKAGES.get(body.package_id) if body.package_id else None
+    legacy_fixed_credit = (
+        pkg is not None and body.multiplier is None and body.credits is None
+        and _is_credit_topup(body, pkg)
+    )
+    if _is_credit_topup(body, pkg) and not legacy_fixed_credit:
+        return _resolve_credit_topup_amount(body, pkg)
+    return _resolve_fixed_amount(body, pkg)
 
 
 async def _create_stripe_link(body, amount, currency, payment_id, user):
