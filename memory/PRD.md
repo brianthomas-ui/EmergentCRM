@@ -4,6 +4,26 @@
 > The sections below this changelog are LEGACY (pre-redesign, light theme) — defer to the handoff.
 
 ## Changelog
+### 2026-06-19 — FULL code-quality refactor batch (user: "Yes full batch")
+Behavior-preserving refactor. Backend 48/48 pytest pass; frontend regression (iter_9) 100% pass, dark theme intact, zero runtime errors.
+**Backend (`server.py`) — complexity reductions:**
+- `_resolve_payment_amount()` (cx 37) → dispatcher + `_is_credit_topup()`, `_resolve_credit_topup_amount()`, `_resolve_fixed_amount()`.
+- `dashboard()` (cx 50) → `_deal_value()`, `_attach_derived_status()`, `_compute_group_counts()`, `_compute_product_revenue()`, `_today_meeting_buckets()`.
+- `create_lead()` (cx 21) → `_maybe_enrich_lead()`, `_resolve_referral()`, `_backfill_package()`.
+- `calendly_webhook()` (cx 19) → `_verify_calendly_signature()`, `_calendly_get_or_create_lead()`, `_calendly_book_meeting()`.
+- Removed unused `pydantic.Field` import.
+**Frontend — component extractions (new files) + size reductions:**
+- DealDrawer.js (cx45) → DealFooter/DealProfile/DealTimeline + buildTimeline helper.
+- LeadModals.js PaymentModal (cx25) → CreditFields/FxNote + lineDefaults/creditPreview helpers.
+- NewLeadModal.js (cx23) → LeadFields/ReferralPicker.
+- Deals.js 453→315 (components/deals/DealsParts.js: DealsSummary/DealsFilters/DealsTable).
+- Leads.js 479→208 (components/leads/LeadsParts.js: KpiCard/TodaysMeetings/RecentNotes/LeadsTable).
+- Campaigns.js 605→123 (components/campaigns/CampaignsParts.js: KPIs/charts/table/sidebar/modal).
+- Meetings.js 751→220 (components/meetings/MeetingsParts.js: TimeGutter/DayColumn/MeetingDrawer/AgentPill + helpers).
+- LeadDetail.js 677→245 (components/lead/LeadDetailPanels.js: LeadProfileHeader/NotesPanel/TasksPanel/OverviewPanel).
+- Inline chart-config props hoisted to module constants in Team.js & Campaigns.js.
+**Note:** review's "undefined vars", "26 `is` comparisons", and most "missing hook deps" were verified FALSE POSITIVES and intentionally not changed.
+
 ### 2026-06-19 — Code-review pass #3 (env 8940ca30, re-send)
 - ✅ Fixed empty catch in `AuthContext.js` logout (now `console.warn`, session still cleared) — applied prior round.
 - ✅ **Refactored `_resolve_payment_amount()` (complexity 37 → thin dispatcher)** into `_is_credit_topup()`, `_resolve_credit_topup_amount()`, `_resolve_fixed_amount()`. Behavior-preserving; all 48 backend tests pass.
