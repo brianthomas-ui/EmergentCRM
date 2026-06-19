@@ -391,11 +391,18 @@ def verify_password(plain: str, hashed: str) -> bool:
         logger.warning(f"verify_password error: {e}")
         return False
 
-def create_token(user: dict) -> str:
+def create_token(user: dict, impersonator: dict = None) -> str:
     payload = {
         "sub": user["id"], "email": user["email"], "role": user["role"],
         "exp": datetime.now(timezone.utc) + timedelta(days=7),
     }
+    if impersonator:
+        # Impersonation claims: effective identity stays the agent (sub/role) so all
+        # existing RBAC works; these extra claims only record who is behind the session.
+        payload["impersonating"] = True
+        payload["imp_by"] = impersonator["id"]
+        payload["imp_name"] = impersonator.get("name") or impersonator.get("email")
+        payload["exp"] = datetime.now(timezone.utc) + timedelta(hours=8)
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGO)
 
 COOKIE_MAX_AGE = 7 * 24 * 3600
@@ -523,13 +530,29 @@ def serialize_meeting(meeting: dict) -> dict:
     m.setdefault("summary", None)
     return m
 
-async def get_current_user(request: Request) -> dict:
-    # Prefer the httpOnly cookie; fall back to the Authorization header for API clients/tests.
+def _raw_token(request: Request) -> str:
+    """Extract the JWT from the httpOnly cookie or the Authorization header."""
     token = request.cookies.get("crm_token")
     if not token:
         auth = request.headers.get("Authorization", "")
         if auth.startswith("Bearer "):
             token = auth[7:]
+    return token or ""
+
+def _token_claims(request: Request) -> dict:
+    """Decode the current token and return its claims (or {} if missing/invalid).
+    Used to read impersonation metadata without re-validating role."""
+    token = _raw_token(request)
+    if not token:
+        return {}
+    try:
+        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
+    except jwt.PyJWTError:
+        return {}
+
+async def get_current_user(request: Request) -> dict:
+    # Prefer the httpOnly cookie; fall back to the Authorization header for API clients/tests.
+    token = _raw_token(request)
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:
@@ -1038,13 +1061,59 @@ async def login(body: LoginIn, request: Request, response: Response):
     return {"token": token, "user": clean(user)}
 
 @api.get("/auth/me", response_model=UserOut)
-async def me(user: dict = Depends(get_current_user)):
+async def me(request: Request, user: dict = Depends(get_current_user)):
+    claims = _token_claims(request)
+    user = dict(user)
+    user["impersonating"] = bool(claims.get("impersonating"))
+    user["impersonator"] = (
+        {"id": claims.get("imp_by"), "name": claims.get("imp_name")}
+        if claims.get("impersonating") else None
+    )
     return user
 
 @api.post("/auth/logout")
 async def logout(response: Response):
     _clear_auth_cookies(response)
     return {"ok": True}
+
+# ----------------------------------------------------------------------------
+# Demo / admin "view-as" impersonation. An admin (sales head) can view the CRM
+# exactly as one of their agents. The minted token's effective identity is the
+# agent (so all RBAC works), with extra claims recording the original admin so
+# we can switch back. Stop-impersonate does NOT use require_admin (the active
+# token is agent-role) — it trusts the signed imp_by claim, re-verified vs DB.
+# ----------------------------------------------------------------------------
+class ImpersonateIn(BaseModel):
+    agent_id: str
+
+@api.post("/demo/impersonate")
+async def impersonate(body: ImpersonateIn, response: Response, admin: dict = Depends(require_admin)):
+    target = await db.users.find_one({"id": body.agent_id})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if target["id"] == admin["id"]:
+        raise HTTPException(status_code=400, detail="You are already yourself")
+    token = create_token(clean(target), impersonator=admin)
+    _set_auth_cookies(response, token)
+    await log_audit("impersonate", admin["name"], target.get("name") or target["id"])
+    return {
+        "token": token,
+        "user": clean(target),
+        "impersonating": True,
+        "impersonator": {"id": admin["id"], "name": admin["name"]},
+    }
+
+@api.post("/demo/stop-impersonate")
+async def stop_impersonate(request: Request, response: Response):
+    claims = _token_claims(request)
+    if not claims.get("impersonating") or not claims.get("imp_by"):
+        raise HTTPException(status_code=400, detail="Not impersonating")
+    admin = await db.users.find_one({"id": claims["imp_by"]})
+    if not admin or admin.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Original manager no longer available")
+    token = create_token(clean(admin))
+    _set_auth_cookies(response, token)
+    return {"token": token, "user": clean(admin), "impersonating": False, "impersonator": None}
 
 # ----------------------------------------------------------------------------
 # Team / Users
@@ -1583,6 +1652,184 @@ async def import_leads(file: UploadFile = File(...), admin: dict = Depends(requi
         created += 1
     await log_audit("import_leads", admin["name"], file.filename, f"{created} created, {skipped} skipped")
     return {"created": created, "skipped": skipped}
+
+# ----------------------------------------------------------------------------
+# Historical data import (admin). Cleaned CSV backfill for leads / payments /
+# meetings with auto column-mapping, validation, de-duplication and a preview
+# (commit=False) before the real insert (commit=True).
+# ----------------------------------------------------------------------------
+def _norm_key(h: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", (h or "").strip().lower()).strip("_")
+
+def _pick(row: dict, *aliases):
+    for a in aliases:
+        if a in row and str(row[a]).strip() != "":
+            return str(row[a]).strip()
+    return ""
+
+def _parse_amount(v: str) -> float:
+    try:
+        return float(re.sub(r"[^0-9.\-]", "", str(v))) if v else 0.0
+    except Exception:
+        return 0.0
+
+_IMPORT_STATUS_ALIASES = {
+    "new": "New / Needs Review", "needs review": "New / Needs Review",
+    "contacted": "Contacted", "interested": "Interested",
+    "contact in future": "Contact in Future", "future": "Contact in Future",
+    "payment link sent": "Payment Link Sent", "link sent": "Payment Link Sent",
+    "payment link failed": "Payment Link Failed", "failed": "Payment Link Failed",
+    "payment link paid": "Payment Link Paid", "paid": "Payment Link Paid", "won": "Payment Link Paid",
+    "no-show": "No-Show", "no show": "No-Show",
+    "not interested": "Not Interested", "lost": "Not Interested",
+    "changed their mind": "Changed Their Mind",
+}
+
+def _resolve_import_status(raw: str) -> str:
+    return _IMPORT_STATUS_ALIASES.get((raw or "").strip().lower(), "New / Needs Review")
+
+async def _user_lookup():
+    users = await db.users.find({}, {"_id": 0, "id": 1, "name": 1, "email": 1}).to_list(500)
+    by = {}
+    for u in users:
+        by[(u.get("name") or "").strip().lower()] = u
+        by[(u.get("email") or "").strip().lower()] = u
+    return by
+
+class ImportIn(BaseModel):
+    type: str
+    csv_text: str
+    commit: bool = False
+    update_existing: bool = False
+
+@api.post("/import/historical")
+async def import_historical(body: ImportIn, admin: dict = Depends(require_admin)):
+    itype = (body.type or "").strip().lower()
+    if itype not in ("leads", "payments", "meetings"):
+        raise HTTPException(status_code=400, detail="type must be leads, payments or meetings")
+    try:
+        reader = csv.DictReader(io.StringIO(body.csv_text or ""))
+        rows = [{_norm_key(k): v for k, v in r.items()} for r in reader]
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not parse CSV: {e}")
+
+    errors, preview = [], []
+    created = updated = skipped = 0
+    users_by = await _user_lookup()
+    now = now_iso()
+
+    for idx, row in enumerate(rows):
+        line = idx + 2  # account for header line
+        if itype == "leads":
+            email = _pick(row, "email", "e_mail").lower()
+            name = _pick(row, "name", "full_name", "contact", "contact_name")
+            if not email or not name:
+                errors.append({"row": line, "message": "missing name or email"}); skipped += 1; continue
+            status = _resolve_import_status(_pick(row, "status", "stage"))
+            owner = users_by.get(_pick(row, "owner", "owner_name", "agent", "rep").lower())
+            sf = _status_fields(status)
+            pl = _pick(row, "product_line", "product") or PRODUCT_LINE_NAMES[0]
+            doc = {
+                "id": new_id(), "name": name, "email": email,
+                "company": _pick(row, "company", "account", "organization"),
+                "phone": _pick(row, "phone", "mobile", "phone_number"),
+                "plan": _pick(row, "plan", "current_plan"),
+                "monthly_spend": _parse_amount(_pick(row, "monthly_spend", "mrr", "spend")),
+                "lifetime_value": _parse_amount(_pick(row, "lifetime_value", "ltv")),
+                "usage_trend": _pick(row, "usage_trend", "trend") or "stable",
+                "product_history": [], "source": _pick(row, "source") or "Historical Import",
+                "region": _pick(row, "region", "geo") or "Other",
+                "priority": "None",
+                "product_line": pl if pl in PRODUCT_LINE_NAMES else PRODUCT_LINE_NAMES[0],
+                "owner_id": owner["id"] if owner else None,
+                "owner_name": owner["name"] if owner else None,
+                "notes": [], "ownership_history": [],
+                "last_meeting_at": None, "next_meeting_at": None,
+                "created_at": _pick(row, "created_at", "created", "date") or now, "updated_at": now,
+                **sf,
+            }
+            existing = await db.leads.find_one({"email": email})
+            if existing:
+                if body.update_existing:
+                    if body.commit:
+                        upd = {k: v for k, v in doc.items() if k not in ("id", "created_at", "notes", "ownership_history")}
+                        await db.leads.update_one({"id": existing["id"]}, {"$set": upd})
+                    updated += 1
+                else:
+                    skipped += 1
+            else:
+                if body.commit:
+                    await db.leads.insert_one(doc)
+                created += 1
+            if len(preview) < 8:
+                preview.append({"name": name, "email": email, "company": doc["company"],
+                                "status": status, "owner": doc["owner_name"] or "—",
+                                "action": ("update" if existing and body.update_existing else ("skip" if existing else "create"))})
+
+        elif itype == "payments":
+            email = _pick(row, "email", "lead_email", "customer_email").lower()
+            lead = await db.leads.find_one({"email": email}) if email else None
+            if not lead:
+                errors.append({"row": line, "message": f"no lead matched email '{email}'"}); skipped += 1; continue
+            amount = _parse_amount(_pick(row, "amount_usd", "amount", "value"))
+            ps = (_pick(row, "status", "payment_status") or "paid").lower()
+            ps = "paid" if ps in ("paid", "complete", "completed", "won") else ("failed" if "fail" in ps else "pending")
+            owner = users_by.get((lead.get("owner_name") or "").lower())
+            doc = {
+                "id": new_id(), "lead_id": lead["id"], "lead_name": lead["name"],
+                "agent_id": (owner or {}).get("id") or lead.get("owner_id"),
+                "agent_name": lead.get("owner_name"),
+                "provider": _pick(row, "provider") or "manual",
+                "amount": amount, "currency": "usd", "amount_usd": amount, "fx_rate": 85.0,
+                "product_line": _pick(row, "product_line", "product") or lead.get("product_line") or PRODUCT_LINE_NAMES[0],
+                "package_id": lead.get("package_id"), "description": _pick(row, "description") or "Historical import",
+                "status": "complete" if ps == "paid" else "initiated", "payment_status": ps,
+                "session_id": f"import_{new_id()[:10]}", "payment_link": None,
+                "created_at": _pick(row, "created_at", "date", "paid_at") or now, "updated_at": now,
+            }
+            if body.commit:
+                await db.payments.insert_one(doc)
+            created += 1
+            if len(preview) < 8:
+                preview.append({"lead": lead["name"], "amount": amount, "status": ps,
+                                "product_line": doc["product_line"], "action": "create"})
+
+        else:  # meetings
+            email = _pick(row, "email", "lead_email").lower()
+            lead = await db.leads.find_one({"email": email}) if email else None
+            if not lead:
+                errors.append({"row": line, "message": f"no lead matched email '{email}'"}); skipped += 1; continue
+            owner = users_by.get((lead.get("owner_name") or "").lower())
+            mstatus = (_pick(row, "status") or "completed").lower().replace(" ", "_")
+            mstatus = mstatus if mstatus in ("completed", "scheduled", "no_show") else "completed"
+            sched = _pick(row, "scheduled_at", "time", "date", "meeting_time") or now
+            doc = {
+                "id": new_id(), "lead_id": lead["id"], "lead_name": lead["name"],
+                "agent_id": (owner or {}).get("id") or lead.get("owner_id"),
+                "agent_name": lead.get("owner_name"),
+                "scheduled_at": sched, "duration": int(_parse_amount(_pick(row, "duration")) or 30),
+                "status": mstatus, "source": _pick(row, "source") or "Historical Import",
+                "booking_driver": _pick(row, "driver", "booking_driver") or "Renewal",
+                "no_show_reason": "" , "reschedule_status": "",
+                "outcome_notes": _pick(row, "notes", "outcome_notes") or "",
+                "completed_at": sched if mstatus in ("completed", "no_show") else None,
+                "recording_url": None, "summary": None,
+                "created_at": now,
+            }
+            if body.commit:
+                await db.meetings.insert_one(doc)
+            created += 1
+            if len(preview) < 8:
+                preview.append({"lead": lead["name"], "scheduled_at": sched, "status": mstatus, "action": "create"})
+
+    if body.commit:
+        await log_audit("import_historical", admin["name"], itype,
+                        f"{created} created, {updated} updated, {skipped} skipped")
+    return {
+        "type": itype, "total_rows": len(rows), "created": created, "updated": updated,
+        "skipped": skipped, "committed": body.commit, "errors": errors[:20], "preview": preview,
+    }
+
 
 # ----------------------------------------------------------------------------
 # Meetings (Calendly intake simulated)
@@ -2410,19 +2657,35 @@ def _compute_group_counts(win_leads, leads, inr_rate):
 
 
 def _compute_product_revenue(win_payments, leads, inr_rate):
-    """Per product-line cards: won (paid in-window) revenue/count + open pipeline value/count."""
+    """Per product-line cards: won (paid in-window) revenue/count + open pipeline value/count.
+    Robust to payments that never stored product_line: derive it from the lead, then the
+    package, and bucket anything unrecognised into "Other" so the cards reconcile with the
+    total Revenue Closed (this also protects real CRM data, not just the demo seed)."""
+    lead_pl = {l.get("id"): (l.get("product_line") or "") for l in leads}
+    keys = PRODUCT_LINE_NAMES + ["Other"]
     product_revenue = {pl: {"won_revenue": 0.0, "won_count": 0, "pipeline_value": 0.0, "pipeline_count": 0}
-                       for pl in PRODUCT_LINE_NAMES}
+                       for pl in keys}
+
+    def _bucket(raw_pl, lead_id, package_id=None):
+        pl = raw_pl or lead_pl.get(lead_id) or package_product_line(package_id) or ""
+        return pl if pl in product_revenue else "Other"
+
     for p in win_payments:
-        pl = p.get("product_line") or ""
-        if pl in product_revenue and p.get("payment_status") == "paid":
-            product_revenue[pl]["won_revenue"] += p.get("amount_usd", p.get("amount", 0)) or 0
-            product_revenue[pl]["won_count"] += 1
+        if p.get("payment_status") != "paid":
+            continue
+        pl = _bucket(p.get("product_line"), p.get("lead_id"), p.get("package_id"))
+        product_revenue[pl]["won_revenue"] += p.get("amount_usd", p.get("amount", 0)) or 0
+        product_revenue[pl]["won_count"] += 1
     for l in leads:
-        pl = l.get("product_line") or ""
-        if pl in product_revenue and "Active Pipeline" in l["_groups"]:
-            product_revenue[pl]["pipeline_value"] += _deal_value(l, inr_rate)
-            product_revenue[pl]["pipeline_count"] += 1
+        if "Active Pipeline" not in l["_groups"]:
+            continue
+        pl = _bucket(l.get("product_line"), l.get("id"), l.get("package_id"))
+        product_revenue[pl]["pipeline_value"] += _deal_value(l, inr_rate)
+        product_revenue[pl]["pipeline_count"] += 1
+    # Drop the "Other" card when it carries nothing, so the UI stays clean.
+    if (product_revenue["Other"]["won_revenue"] == 0 and product_revenue["Other"]["pipeline_value"] == 0
+            and product_revenue["Other"]["won_count"] == 0 and product_revenue["Other"]["pipeline_count"] == 0):
+        product_revenue.pop("Other")
     return product_revenue
 
 
@@ -2981,82 +3244,225 @@ async def _seed_demo_leads():
     agents = await db.users.find({"role": "agent"}).sort("created_at", 1).to_list(100)
     if not agents:
         return
-    by_name = {a["name"]: a for a in agents}
+    # Diyea (admin / sales head) also carries a book of business, so she's in the rotation.
+    admin = await db.users.find_one(
+        {"role": "admin", "email": os.environ.get("ADMIN_EMAIL", "diyea@emergent.sh").lower()})
+    owners_pool = list(agents)
+    if admin:
+        owners_pool.append(admin)
+    by_name = {o["name"]: o for o in owners_pool}
 
     def pick(name):
-        return by_name.get(name) or agents[0]
+        return by_name.get(name) or owners_pool[0]
 
     now = datetime.now(timezone.utc)
+    products = PRODUCT_LINE_NAMES
+    owner_cycle = ["Brian", "Aryan", "Vinay", "Dipan", "Abhishek", "Diyea"]
 
-    # (company, name, email, plan, spend, ltv, trend, region, product_line, provider, status, owner, next_action, days_ago, referred_by)
-    rows = [
-        ("Acme Analytics",  "Aditya Bansal",  "aditya@acmeanalytics.io", "Pro $99/mo",    99,  1200, "rising",    "North America", "Annual Pro Subscription", "razorpay", "Payment Link Paid",   "Brian",    "View customer / ask for referral", 9,  None),
-        ("Nimbus Labs",     "Nikhil Sharma",  "nikhil@nimbuslabs.dev",   "Team $249/mo",  249, 9000, "rising",    "Europe",        "Lifetime Access",         "razorpay", "Payment Link Paid",   "Vinay",    "Ask for referral",                 12, None),
-        ("BrightForge",     "Ritika Agarwal", "ritika@brightforge.com",  "Pro $149/mo",   149, 2100, "rising",    "APAC",          "Dedicated Support",       "stripe",   "Interested",          "Aryan",    "Send payment link",                3,  None),
-        ("Vertex IO",       "Rohan Kapoor",   "rohan@vertex.io",         "Starter $49/mo",49,  600,  "stable",    "APAC",          "Credit Top-Up",           "razorpay", "Payment Link Sent",   "Dipan",    "Check payment",                    1,  None),
-        ("Loopline",        "Meera Pillai",   "meera@loopline.co",       "Pro $129/mo",   129, 1500, "declining", "MEA",           "Annual Pro Subscription", "razorpay", "Contact in Future",   "Vinay",    "Call tomorrow",                    5,  None),
-        ("DataPeak",        "Deepika Menon",  "deepika@datapeak.ai",     "Pro $199/mo",   199, 3400, "rising",    "North America", "Lifetime Access",         "stripe",   "Payment Link Failed", "Aryan",    "Retry link",                       2,  None),
-        ("Quantli",         "Varun Shah",     "varun@quantli.com",       "Pro $99/mo",    99,  950,  "stable",    "Europe",        "Credit Top-Up",           "manual",   "Payment Link Paid",   "Abhishek", "View customer",                    7,  None),
-        ("Northstar",       "Sandeep Rao",    "sandeep@northstar.app",   "Pro $179/mo",   179, 2800, "rising",    "LATAM",         "Dedicated Support",       "razorpay", "Not Interested",      "Vinay",    "Add loss reason",                  6,  None),
-        ("Skylark",         "Anjali Nair",    "anjali@skylark.io",       "Starter $59/mo",59,  720,  "rising",    "APAC",          "Annual Pro Subscription", "razorpay", "No-Show",             "Dipan",    "Reschedule",                       4,  None),
-        ("Helix Data",      "Pranav Menon",   "pranav@helixdata.com",    "Pro $149/mo",   149, 2000, "steady",    "Europe",        "Dedicated Support",       "stripe",   "Changed Their Mind",  "Brian",    "Recovery task",                    8,  None),
-        ("Cobalt AI",       "Sara Iyer",      "sara@cobaltai.com",       "Pro $129/mo",   129, 1600, "rising",    "North America", "Credit Top-Up",           "stripe",   "New / Needs Review",  None,       "Review and qualify",               0,  None),
-        ("Pinecone Soft",   "Karan Malhotra", "karan@pineconesoft.io",   "Team $299/mo",  299, 5200, "rising",    "APAC",          "Lifetime Access",         "razorpay", "Interested",          "Abhishek", "Send payment link",                3,  "Aditya Bansal"),
-        ("Driftwood",       "Neha Verma",     "neha@driftwood.app",      "Pro $99/mo",    99,  880,  "declining", "MEA",           "Annual Pro Subscription", "razorpay", "Contacted",           "Aryan",    "Book discovery call",              2,  None),
-        ("Lumen Works",     "Arjun Reddy",    "arjun@lumenworks.io",     "Pro $189/mo",   189, 3100, "rising",    "North America", "Dedicated Support",       "stripe",   "Payment Link Sent",   "Brian",    "Check payment",                    1,  None),
-        ("Tide Labs",       "Priya Suresh",   "priya@tidelabs.dev",      "Starter $49/mo",49,  540,  "stable",    "LATAM",         "Credit Top-Up",           "manual",   "Payment Link Paid",   "Dipan",    "View customer",                    10, None),
-        ("Onyx Cloud",      "Vivek Joshi",    "vivek@onyxcloud.com",     "Pro $159/mo",   159, 2600, "rising",    "Europe",        "Annual Pro Subscription", "stripe",   "Contact in Future",   "Vinay",    "Follow up next week",              5,  None),
-        ("Maple Systems",   "Ishaan Gupta",   "ishaan@maplesystems.io",  "Pro $99/mo",    99,  1100, "steady",    "APAC",          "Credit Top-Up",           "razorpay", "No-Show",             "Aryan",    "Reschedule",                       3,  None),
-        ("Crestline",       "Aisha Khan",     "aisha@crestline.app",     "Team $249/mo",  249, 4800, "rising",    "MEA",           "Lifetime Access",         "razorpay", "Interested",          "Abhishek", "Send payment link",                2,  "Nikhil Sharma"),
-        ("Beacon Soft",     "Rahul Nair",     "rahul@beaconsoft.io",     "Pro $129/mo",   129, 1700, "declining", "North America", "Dedicated Support",       "stripe",   "Not Interested",      "Brian",    "Add loss reason",                  9,  None),
-        ("Glide Tech",      "Tanya Bose",     "tanya@glidetech.com",     "Pro $99/mo",    99,  920,  "rising",    "Europe",        "Annual Pro Subscription", "razorpay", "Payment Link Failed", "Vinay",    "Retry link",                       1,  None),
-        ("Vanta Edge",      "Manish Kohli",   "manish@vantaedge.io",     "Starter $59/mo",59,  680,  "stable",    "APAC",          "Credit Top-Up",           "manual",   "Contacted",           "Dipan",    "Book discovery call",              4,  None),
-        ("Halo Analytics",  "Divya Rao",      "divya@haloanalytics.com", "Pro $179/mo",   179, 2900, "rising",    "LATAM",         "Dedicated Support",       "stripe",   "Payment Link Paid",   "Aryan",    "View customer",                    11, None),
-        ("Quartz Labs",     "Sahil Mehta",    "sahil@quartzlabs.dev",    "Pro $149/mo",   149, 2200, "steady",    "North America", "Annual Pro Subscription", "razorpay", "Changed Their Mind",  "Abhishek", "Recovery task",                    6,  None),
-        ("Ember Cloud",     "Ananya Das",     "ananya@embercloud.io",    "Team $299/mo",  299, 5600, "rising",    "Europe",        "Lifetime Access",         "razorpay", "New / Needs Review",  None,       "Review and qualify",               0,  None),
+    # Believable companies / contacts (NO test data). spend = $/mo, ltv = $ lifetime.
+    companies = [
+        ("Northwind Analytics", "Priya Raman",      "priya@northwind.io",        "North America", "Pro $149/mo",   149, 2400, "rising"),
+        ("Cobalt Robotics",     "Daniel Whitfield", "daniel@cobaltrobotics.com", "North America", "Team $299/mo",  299, 5200, "rising"),
+        ("Larkspur Media",      "Sofia Mendez",     "sofia@larkspur.media",      "LATAM",         "Pro $99/mo",    99,  1500, "stable"),
+        ("Aperture Labs",       "Marcus Feld",      "marcus@aperturelabs.dev",   "Europe",        "Pro $199/mo",   199, 3300, "rising"),
+        ("Tidal Commerce",      "Hana Suzuki",      "hana@tidalcommerce.jp",     "APAC",          "Team $249/mo",  249, 4100, "rising"),
+        ("Meridian Health",     "Olu Adeyemi",      "olu@meridianhealth.io",     "MEA",           "Pro $129/mo",   129, 1900, "stable"),
+        ("Bramble & Co",        "Eleanor Hayes",    "eleanor@brambleco.uk",      "Europe",        "Starter $59/mo",59,  720,  "rising"),
+        ("Vela Logistics",      "Tomás Ribeiro",    "tomas@vela.cl",             "LATAM",         "Pro $149/mo",   149, 2200, "declining"),
+        ("Helios Energy",       "Aisha Rahman",     "aisha@helios.energy",       "MEA",           "Team $299/mo",  299, 6100, "rising"),
+        ("Pinecrest Studios",   "Jordan Blake",     "jordan@pinecrest.studio",   "North America", "Pro $99/mo",    99,  1100, "stable"),
+        ("Kestrel Finance",     "Ananya Iyer",      "ananya@kestrel.finance",    "APAC",          "Pro $189/mo",   189, 3000, "rising"),
+        ("Solstice Apparel",    "Rivka Adler",      "rivka@solstice.shop",       "Europe",        "Starter $49/mo",49,  540,  "stable"),
+        ("Orbit Mobility",      "Kenji Watanabe",   "kenji@orbitmobility.jp",    "APAC",          "Pro $159/mo",   159, 2600, "rising"),
+        ("Granite Security",    "Liam O'Connor",    "liam@granitesec.io",        "North America", "Team $299/mo",  299, 5500, "rising"),
+        ("Saffron Foods",       "Neha Kapadia",     "neha@saffronfoods.in",      "APAC",          "Pro $99/mo",    99,  980,  "stable"),
+        ("Cypress Cloud",       "Mateo Alvarez",    "mateo@cypress.cloud",       "LATAM",         "Pro $179/mo",   179, 2900, "rising"),
+        ("Birchwood Legal",     "Grace Thornton",   "grace@birchwoodlegal.com",  "North America", "Pro $149/mo",   149, 2100, "declining"),
+        ("Dunes Travel",        "Yara Haddad",      "yara@dunestravel.ae",       "MEA",           "Starter $59/mo",59,  680,  "rising"),
+        ("Nimbus Robotics",     "Erik Larsson",     "erik@nimbusrobotics.se",    "Europe",        "Team $249/mo",  249, 4800, "rising"),
+        ("Coral Reef Media",    "Isabella Rossi",   "isabella@coralreef.media",  "Europe",        "Pro $129/mo",   129, 1700, "stable"),
+        ("Summit Sportswear",   "Carlos Nunez",     "carlos@summitsports.mx",    "LATAM",         "Pro $99/mo",    99,  1300, "rising"),
+        ("Lighthouse AI",       "Wei Chen",         "wei@lighthouseai.sg",       "APAC",          "Team $299/mo",  299, 5900, "rising"),
+        ("Ferndale Retail",     "Hannah Brooks",    "hannah@ferndale.shop",      "North America", "Pro $99/mo",    99,  1000, "stable"),
+        ("Onyx Trading",        "Dmitri Volkov",    "dmitri@onyxtrading.io",     "Europe",        "Pro $199/mo",   199, 3400, "rising"),
+        ("Palmetto Care",       "Brianna Scott",    "brianna@palmettocare.com",  "North America", "Pro $149/mo",   149, 2300, "rising"),
+        ("Zephyr Audio",        "Noah Bergmann",    "noah@zephyraudio.de",       "Europe",        "Starter $49/mo",49,  600,  "stable"),
+        ("Verdant Farms",       "Lucas Pereira",    "lucas@verdantfarms.br",     "LATAM",         "Pro $129/mo",   129, 1600, "declining"),
+        ("Atlas Freight",       "Fatima Noor",      "fatima@atlasfreight.ae",    "MEA",           "Team $249/mo",  249, 4200, "rising"),
+        ("Quill Publishing",    "Oliver Bennett",   "oliver@quillpub.uk",        "Europe",        "Pro $99/mo",    99,  900,  "stable"),
+        ("Beacon Robotics",     "Mina Park",        "mina@beaconrobotics.kr",    "APAC",          "Pro $179/mo",   179, 2800, "rising"),
+        ("Cedar Park Dental",   "Ryan Mitchell",    "ryan@cedarparkdental.com",  "North America", "Starter $59/mo",59,  640,  "rising"),
+        ("Halcyon Travel",      "Amara Okafor",     "amara@halcyontravel.ng",    "MEA",           "Pro $149/mo",   149, 2000, "stable"),
+        ("Vantage Insurance",   "Sebastian Cruz",   "sebastian@vantageins.com",  "LATAM",         "Team $299/mo",  299, 5000, "rising"),
+        ("Maplewood Edtech",    "Chloe Dubois",     "chloe@maplewood.edu",       "Europe",        "Pro $129/mo",   129, 1800, "rising"),
+        ("Ironclad Devices",    "Arjun Mehta",      "arjun@ironclad.dev",        "APAC",          "Pro $199/mo",   199, 3600, "rising"),
+        ("Willowbrook Spa",     "Emma Larsen",      "emma@willowbrook.spa",      "North America", "Pro $99/mo",    99,  1050, "stable"),
     ]
 
-    name_to_id = {}
+    status_plan = (
+        ["New / Needs Review"] * 7 +
+        ["Contacted"] * 6 +
+        ["Interested"] * 6 +
+        ["Contact in Future"] * 4 +
+        ["Payment Link Sent"] * 4 +
+        ["Payment Link Failed"] * 2 +
+        ["Payment Link Paid"] * 9 +
+        ["No-Show"] * 3 +
+        ["Not Interested"] * 2 +
+        ["Changed Their Mind"] * 2
+    )
+
+    note_templates = {
+        "New / Needs Review": [
+            "Inbound from the pricing page — needs qualification.",
+            "Signed up recently and already hitting credit limits.",
+        ],
+        "Contacted": [
+            "Left a voicemail and sent an intro email. Awaiting reply.",
+            "Connected briefly — booking a discovery call this week.",
+        ],
+        "Interested": [
+            "Great call. Wants annual plan pricing in writing.",
+            "Loves the product; comparing Pro vs Team tier.",
+        ],
+        "Contact in Future": [
+            "Budget opens next quarter — follow up in a few weeks.",
+            "Champion is on leave; reconnect later this month.",
+        ],
+        "Payment Link Sent": [
+            "Sent the payment link for the annual plan, awaiting payment.",
+            "Following up tomorrow if the link isn't paid.",
+        ],
+        "Payment Link Failed": [
+            "Card was declined — sent a fresh link via another provider.",
+            "Customer retrying payment with a corporate card.",
+        ],
+        "Payment Link Paid": [
+            "Closed! Upgraded to the annual plan. Ask for a referral.",
+            "Paid in full — onboarding call scheduled.",
+        ],
+        "No-Show": [
+            "No-show on the demo — sent a reschedule link.",
+            "Missed the call; trying to re-book for later this week.",
+        ],
+        "Not Interested": [
+            "Going with a competitor for now. Logged the loss reason.",
+            "Too early stage — not a fit this cycle.",
+        ],
+        "Changed Their Mind": [
+            "Was ready to buy but paused after internal review.",
+            "Cooled off on the upgrade; set a recovery task.",
+        ],
+    }
+
+    next_action_map = {
+        "New / Needs Review": "Review and qualify",
+        "Contacted": "Book a discovery call",
+        "Interested": "Send payment link",
+        "Contact in Future": "Follow up next cycle",
+        "Payment Link Sent": "Check payment status",
+        "Payment Link Failed": "Resend payment link",
+        "Payment Link Paid": "Ask for a referral",
+        "No-Show": "Reschedule the meeting",
+        "Not Interested": "Add loss reason",
+        "Changed Their Mind": "Run recovery task",
+    }
+
+    import random as _random
+    rng = _random.Random(42)  # deterministic so the demo is stable across reseeds
+
+    n = min(len(companies), len(status_plan))
     won_meeting_targets = []
-    for i, r in enumerate(rows):
-        (company, name, email, plan, spend, ltv, trend, region, product_line,
-         provider, status, owner_name, next_action, days_ago, referred_by) = r
+
+    for i in range(n):
+        company, name, email, region, plan, spend, ltv, trend = companies[i]
+        status = status_plan[i]
+        product_line = products[i % len(products)]
+        owner_name = None if (status == "New / Needs Review" and i % 3 == 0) else owner_cycle[i % len(owner_cycle)]
         owner = pick(owner_name) if owner_name else None
         sf = _status_fields(status)
         pkg_id, amount, currency = _SEED_PRODUCT[product_line]
+        provider = ["razorpay", "stripe", "manual"][i % 3]
         is_paid = status == "Payment Link Paid"
-        created = (now - timedelta(days=days_ago, hours=(i % 6))).isoformat()
-        ref_id = name_to_id.get(referred_by) if referred_by else None
+
+        # created_at spread: new leads recent, won spread across weeks/months (≈ half this month).
+        if is_paid:
+            days_ago = rng.randint(1, 16) if (i % 2 == 0) else rng.randint(28, 110)
+        else:
+            ranges = {
+                "New / Needs Review": (0, 6), "Contacted": (2, 16), "Interested": (3, 22),
+                "Contact in Future": (8, 40), "Payment Link Sent": (1, 8), "Payment Link Failed": (2, 10),
+                "No-Show": (3, 18), "Not Interested": (10, 60), "Changed Their Mind": (6, 45),
+            }
+            lo, hi = ranges.get(status, (1, 20))
+            days_ago = rng.randint(lo, hi)
+        created_dt = now - timedelta(days=days_ago, hours=rng.randint(0, 9))
+        created = created_dt.isoformat()
+
+        # Conversation history (notes).
+        tmpl = note_templates.get(status, ["Touched base with the customer."])
+        note_count = 1 if status == "New / Needs Review" else 2
+        notes = []
+        for j in range(min(note_count, len(tmpl))):
+            note_dt = created_dt + timedelta(days=j + 1, hours=rng.randint(1, 8))
+            if note_dt > now:
+                note_dt = now - timedelta(hours=rng.randint(1, 20))
+            notes.append({
+                "id": new_id(), "text": tmpl[j],
+                "type": "Call Outcome" if j == 0 else "Note",
+                "author": (owner["name"] if owner else "System"),
+                "created_at": note_dt.isoformat(),
+            })
+        last_contacted = max([created] + [nn["created_at"] for nn in notes])
+
+        # A few active leads look stale (no recent touch) to populate "Needs attention".
+        last_activity = last_contacted
+        if status in ("Contacted", "Interested") and i % 7 == 0:
+            notes = notes[:1]
+            last_activity = created
+            last_contacted = created
+
+        # Next follow-up: some overdue (feed "Follow-ups due"), some upcoming.
+        next_followup = None
+        if status in ("Contact in Future", "Interested", "Payment Link Sent", "No-Show"):
+            delta = timedelta(days=rng.randint(1, 3))
+            next_followup = ((now - delta) if (i % 4 == 0) else (now + delta)).isoformat()
+
+        priority = ("Payment Pending" if status in ("Payment Link Sent", "Payment Link Failed")
+                    else ("Hot" if status == "Interested" else "None"))
+
         doc = {
             "id": new_id(), "name": name, "email": email.lower(), "company": company,
-            "phone": f"+1 555 0{100 + i}", "plan": plan, "monthly_spend": float(spend),
+            "phone": f"+1 555 0{100 + i:03d}", "plan": plan, "monthly_spend": float(spend),
             "lifetime_value": float(ltv), "usage_trend": trend, "product_history": ["API", "Dashboard"],
-            "source": "Referral" if ref_id else "Q3 Power User Outreach",
-            "region": region, "priority": "None",
+            "source": rng.choice(["Q3 Power User Outreach", "Inbound - Pricing Page",
+                                   "Product Qualified Lead", "Webinar Follow-up"]),
+            "region": region, "priority": priority,
             "owner_id": owner["id"] if owner else None,
             "owner_name": owner["name"] if owner else None,
             "owner_locked": bool(is_paid and owner),
             "total_revenue_usd": amount if is_paid else 0.0,
             "deals_won": 1 if is_paid else 0, "upsell_cycles": 0,
-            "notes": [], "ownership_history": [],
+            "notes": notes, "ownership_history": [],
             "product_line": product_line, "package_id": pkg_id, "amount": amount, "currency": currency,
             "provider": provider,
-            "next_action": next_action, "next_action_at": None, "loss_reason": "",
-            "referred_by_lead_id": ref_id,
-            "referred_by_name": referred_by or "",
+            "next_action": next_action_map.get(status, "Review and qualify"),
+            "next_action_at": next_followup, "next_followup_at": next_followup,
+            "last_contacted_at": last_contacted,
+            "loss_reason": ("Chose a competitor" if status == "Not Interested" else ""),
+            "referred_by_lead_id": None, "referred_by_name": "",
             "last_meeting_at": None, "next_meeting_at": None,
             "won_at": created if is_paid else None,
-            "last_activity": created,
-            "created_at": created, "updated_at": created,
+            "last_activity": last_activity,
+            "created_at": created, "updated_at": last_activity,
             **sf,
         }
         await db.leads.insert_one(doc)
-        name_to_id[name] = doc["id"]
         if owner:
-            await log_activity(doc["id"], "assignment", f"Assigned to {owner['name']} (seed)", "System")
-        if ref_id:
-            await log_activity(doc["id"], "referral", f"Referred by {referred_by}", "System")
-        # Paid leads get a paid payment record (feeds Won revenue + product cards).
+            await log_activity(doc["id"], "assignment", f"Assigned to {owner['name']}", "System")
+        for nn in notes:
+            await log_activity(doc["id"], "note", f"{nn['type']}: {nn['text'][:80]}", nn["author"])
+
         if is_paid and owner:
             await db.payments.insert_one({
                 "id": new_id(), "lead_id": doc["id"], "lead_name": doc["name"],
@@ -3068,7 +3474,6 @@ async def _seed_demo_leads():
                 "session_id": f"seed_{new_id()[:10]}", "payment_link": None,
                 "created_at": created, "updated_at": created,
             })
-        # Link-sent / failed leads get a pending/failed payment record so /payments is alive.
         elif status in ("Payment Link Sent", "Payment Link Failed") and owner:
             ps = "failed" if status == "Payment Link Failed" else "pending"
             await db.payments.insert_one({
@@ -3081,9 +3486,9 @@ async def _seed_demo_leads():
                 "session_id": f"seed_{new_id()[:10]}", "payment_link": f"https://pay.demo/{new_id()[:8]}",
                 "created_at": created, "updated_at": created,
             })
-        # Meetings: Interested/No-Show/Changed-Their-Mind/Paid leads have a meeting; a few
-        # carry a Circleback recording + summary so the Meetings view looks alive.
-        if owner and status in ("Interested", "No-Show", "Changed Their Mind", "Payment Link Paid", "Contact in Future"):
+
+        if owner and status in ("Interested", "No-Show", "Changed Their Mind",
+                                 "Payment Link Paid", "Contact in Future"):
             won_meeting_targets.append((doc, owner, status, created))
 
     await _seed_demo_meetings(won_meeting_targets, now)
@@ -3180,6 +3585,183 @@ async def _migrate_to_sales_status_model():
         logger.warning(f"sales-status migration failed (continuing): {e}")
 
 
+# ----------------------------------------------------------------------------
+# Secure integration key storage (encrypted at rest, masked on read) + per-user
+# keys. Org keys are admin-managed; agents can store their own (e.g. Calendly).
+# ----------------------------------------------------------------------------
+from cryptography.fernet import Fernet as _Fernet
+import base64 as _b64, hashlib as _hashlib
+
+def _fernet():
+    key = _b64.urlsafe_b64encode(_hashlib.sha256(JWT_SECRET.encode()).digest())
+    return _Fernet(key)
+
+def _enc(v: str) -> str:
+    return _fernet().encrypt(v.encode()).decode() if v else ""
+
+def _dec(v: str) -> str:
+    try:
+        return _fernet().decrypt(v.encode()).decode() if v else ""
+    except Exception:
+        return ""
+
+def _mask_secret(v: str) -> str:
+    if not v:
+        return ""
+    return ("•" * 6) + v[-4:] if len(v) > 4 else "••••"
+
+ORG_INTEGRATION_FIELDS = [
+    "stripe_secret_key", "stripe_publishable_key", "razorpay_key_id",
+    "razorpay_key_secret", "calendly_token", "circleback_api_key", "sendgrid_api_key",
+]
+MY_INTEGRATION_FIELDS = ["calendly_link", "calendly_token"]
+# Non-secret fields are echoed back in full; everything else is masked.
+_NON_SECRET = {"stripe_publishable_key", "razorpay_key_id", "calendly_link"}
+
+async def _read_integration_doc(doc_id: str) -> dict:
+    return await db.integrations.find_one({"id": doc_id}) or {}
+
+def _present_integrations(doc: dict, fields: list) -> dict:
+    out = {}
+    for f in fields:
+        raw = _dec(doc.get(f, ""))
+        out[f] = {"configured": bool(raw), "masked": (raw if f in _NON_SECRET else _mask_secret(raw))}
+    return out
+
+async def _save_integrations(doc_id: str, fields: list, body: dict):
+    update = {}
+    for f in fields:
+        if f in body and body[f] is not None:
+            val = str(body[f]).strip()
+            update[f] = _enc(val) if val else ""
+    if update:
+        update["updated_at"] = now_iso()
+        await db.integrations.update_one({"id": doc_id}, {"$set": {"id": doc_id, **update}}, upsert=True)
+
+@api.get("/settings/integrations")
+async def get_org_integrations(admin: dict = Depends(require_admin)):
+    doc = await _read_integration_doc("org")
+    return {"fields": _present_integrations(doc, ORG_INTEGRATION_FIELDS)}
+
+@api.put("/settings/integrations")
+async def put_org_integrations(body: dict, admin: dict = Depends(require_admin)):
+    await _save_integrations("org", ORG_INTEGRATION_FIELDS, body)
+    await log_audit("update_integrations", admin["name"], "Org API keys")
+    doc = await _read_integration_doc("org")
+    return {"fields": _present_integrations(doc, ORG_INTEGRATION_FIELDS)}
+
+@api.get("/settings/my-integrations")
+async def get_my_integrations(user: dict = Depends(get_current_user)):
+    doc = await _read_integration_doc(f"user:{user['id']}")
+    return {"fields": _present_integrations(doc, MY_INTEGRATION_FIELDS)}
+
+@api.put("/settings/my-integrations")
+async def put_my_integrations(body: dict, user: dict = Depends(get_current_user)):
+    await _save_integrations(f"user:{user['id']}", MY_INTEGRATION_FIELDS, body)
+    doc = await _read_integration_doc(f"user:{user['id']}")
+    return {"fields": _present_integrations(doc, MY_INTEGRATION_FIELDS)}
+
+# ----------------------------------------------------------------------------
+# Agent workspace ("My Work"): everything an agent needs to track active leads
+# and conversations. Scoped to the signed-in user (the manager sees her own book
+# since she also sells; the team rollup lives on the Dashboard).
+# ----------------------------------------------------------------------------
+@api.get("/workspace")
+async def workspace(user: dict = Depends(get_current_user)):
+    uid = user["id"]
+    now = datetime.now(timezone.utc)
+    now_s = now.isoformat()
+    today = now.date().isoformat()
+
+    leads_raw = await db.leads.find({"owner_id": uid}, {"_id": 0}).sort("updated_at", -1).to_list(5000)
+    sl = [serialize_lead(l) for l in leads_raw]
+    meetings_raw = await db.meetings.find({"agent_id": uid}, {"_id": 0}).sort("scheduled_at", 1).to_list(5000)
+    payments = await db.payments.find({"agent_id": uid, "payment_status": "paid"}, {"_id": 0}).to_list(5000)
+
+    def _active(l):
+        return "Active Pipeline" in (l.get("status_groups") or [])
+
+    today_meetings = [serialize_meeting(m) for m in meetings_raw
+                      if (m.get("scheduled_at") or "").startswith(today) and m.get("status") == "scheduled"]
+    upcoming = [serialize_meeting(m) for m in meetings_raw
+                if m.get("status") == "scheduled" and (m.get("scheduled_at") or "") > now_s][:8]
+
+    payment_pending = [l for l in sl if l.get("status") in ("Payment Link Sent", "Payment Link Failed")]
+
+    def _due(l):
+        for k in ("next_followup_at", "next_action_at"):
+            v = l.get(k)
+            if v and v <= now_s:
+                return True
+        return False
+    followups_due = [l for l in sl if _due(l) and _active(l)]
+
+    cutoff = (now - timedelta(days=7)).isoformat()
+    stale = [l for l in sl if _active(l) and (l.get("last_activity") or l.get("updated_at") or "") < cutoff]
+
+    notes = []
+    for l in leads_raw:
+        for n in (l.get("notes") or []):
+            notes.append({**n, "lead_id": l.get("id"), "lead_name": l.get("name")})
+    notes.sort(key=lambda n: n.get("created_at") or "", reverse=True)
+
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    week_start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    revenue_month = sum(p.get("amount_usd", p.get("amount", 0)) or 0
+                        for p in payments if (p.get("created_at") or "") >= month_start)
+    won_month = sum(1 for l in sl if l.get("status") == "Payment Link Paid" and (l.get("won_at") or "") >= month_start)
+    meetings_week = sum(1 for m in meetings_raw if (m.get("scheduled_at") or "") >= week_start)
+
+    return {
+        "user": {"id": uid, "name": user["name"]},
+        "stats": {
+            "open_leads": sum(1 for l in sl if _active(l)),
+            "won_this_month": won_month,
+            "revenue_this_month": round(revenue_month, 2),
+            "meetings_this_week": meetings_week,
+            "followups_due": len(followups_due),
+            "payment_pending": len(payment_pending),
+        },
+        "today_meetings": today_meetings,
+        "upcoming_meetings": upcoming,
+        "followups_due": followups_due[:20],
+        "payment_pending": payment_pending[:20],
+        "needs_attention": stale[:20],
+        "recent_conversations": notes[:15],
+    }
+
+# ----------------------------------------------------------------------------
+# Demo data reset (admin) — wipe + reseed the believable demo dataset on demand.
+# ----------------------------------------------------------------------------
+async def _wipe_demo_data():
+    for coll in ("leads", "payments", "meetings", "activities", "coverage_snapshots"):
+        await db[coll].delete_many({})
+
+async def reset_demo_data():
+    await _wipe_demo_data()
+    await _seed_demo_leads()
+    await _seed_coverage_history()
+
+@api.post("/demo/reset")
+async def demo_reset(admin: dict = Depends(require_admin)):
+    await reset_demo_data()
+    await log_audit("reset_demo_data", admin["name"], "Demo dataset")
+    return {
+        "ok": True,
+        "leads": await db.leads.count_documents({}),
+        "payments": await db.payments.count_documents({}),
+        "meetings": await db.meetings.count_documents({}),
+    }
+
+async def _migrate_clean_reseed_v3():
+    """One-time: wipe the test-polluted demo data and reseed the believable dataset."""
+    key = "clean_reseed_believable_v4"
+    if await db.migrations.find_one({"key": key}):
+        return
+    await reset_demo_data()
+    await db.migrations.update_one({"key": key}, {"$set": {"key": key, "done_at": now_iso()}}, upsert=True)
+    logger.info("migrate: wiped test data + reseeded believable demo dataset")
+
 async def seed():
     await db.settings.update_one({"id": "settings"}, {"$setOnInsert": {"id": "settings", "inr_per_usd": 85.0}}, upsert=True)
     await _migrate_meeting_scheduled_to_assigned()
@@ -3190,6 +3772,7 @@ async def seed():
     await _migrate_reset_passwords()
     await _seed_demo_leads()
     await _seed_coverage_history()
+    await _migrate_clean_reseed_v3()
 
 async def _run_startup():
     # Wait for the database (Atlas can be slow to accept the first connection on cold start).

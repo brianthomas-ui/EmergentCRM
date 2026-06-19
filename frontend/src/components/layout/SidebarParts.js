@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { LogOut, KeyRound, Compass } from "lucide-react";
+import { LogOut, KeyRound, Compass, Sun, Moon } from "lucide-react";
 import { AvatarUpload } from "@/components/dark/Avatar";
 
 // Sidebar navigation list. `items` is already filtered/memoized by the parent.
@@ -27,14 +27,14 @@ export function SidebarNav({ items }) {
             className={({ isActive }) =>
               `flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                 isActive
-                  ? "bg-emerald-500/10 text-emerald-300 border border-emerald-500/20"
+                  ? "bg-emerald-500/10 text-[var(--accent-text)] border border-emerald-500/20"
                   : "text-[var(--text-muted)] border border-transparent hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
               }`
             }
           >
             {({ isActive }) => (
               <>
-                <Icon className={`w-4 h-4 ${isActive ? "text-emerald-400" : ""}`} strokeWidth={2} />
+                <Icon className={`w-4 h-4 ${isActive ? "text-[var(--accent-text)]" : ""}`} strokeWidth={2} />
                 {item.label}
               </>
             )}
@@ -45,16 +45,20 @@ export function SidebarNav({ items }) {
   );
 }
 
-// Bottom-of-sidebar account card: avatar upload, logout, password + tour shortcuts.
+// Bottom-of-sidebar account card: avatar, logout, password, theme + tour.
 export function SidebarUserCard({
   user,
   isAdmin,
   savingAvatar,
+  theme,
   onAvatarUpload,
   onLogout,
   onChangePassword,
+  onToggleTheme,
   onTakeTour,
 }) {
+  const action =
+    "flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-medium text-[var(--text-muted)] border border-[var(--border)] hover:bg-[var(--surface-2)] hover:text-[var(--text)] transition-colors";
   return (
     <div className="p-3 border-t border-[var(--border)]">
       <div
@@ -84,21 +88,16 @@ export function SidebarUserCard({
         </button>
       </div>
 
-      {/* Quick account actions */}
-      <div className="mt-2 grid grid-cols-2 gap-1.5">
-        <button
-          onClick={onChangePassword}
-          data-testid="change-password-btn"
-          className="flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-medium text-[var(--text-muted)] border border-[var(--border)] hover:bg-[var(--surface-2)] hover:text-[var(--text)] transition-colors"
-        >
+      <div className="mt-2 grid grid-cols-3 gap-1.5">
+        <button onClick={onChangePassword} data-testid="change-password-btn" className={action}>
           <KeyRound className="w-3.5 h-3.5" /> Password
         </button>
-        <button
-          onClick={onTakeTour}
-          data-testid="take-tour-btn"
-          className="flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-medium text-[var(--text-muted)] border border-[var(--border)] hover:bg-[var(--surface-2)] hover:text-[var(--text)] transition-colors"
-        >
-          <Compass className="w-3.5 h-3.5" /> Take a tour
+        <button onClick={onToggleTheme} data-testid="theme-toggle-btn" className={action}>
+          {theme === "light" ? <Moon className="w-3.5 h-3.5" /> : <Sun className="w-3.5 h-3.5" />}
+          {theme === "light" ? "Dark" : "Light"}
+        </button>
+        <button onClick={onTakeTour} data-testid="take-tour-btn" className={action}>
+          <Compass className="w-3.5 h-3.5" /> Tour
         </button>
       </div>
 

@@ -40,10 +40,30 @@ export function AuthProvider({ children }) {
     return data;
   }, []);
 
+  // Admin "view as": become the selected agent (server swaps the session cookie).
+  const startImpersonation = useCallback(async (agentId) => {
+    await client.post("/demo/impersonate", { agent_id: agentId });
+    const { data } = await client.get("/auth/me");
+    setUser(data);
+    return data;
+  }, []);
+
+  // Return to the original manager session.
+  const stopImpersonation = useCallback(async () => {
+    await client.post("/demo/stop-impersonate");
+    const { data } = await client.get("/auth/me");
+    setUser(data);
+    return data;
+  }, []);
+
   // Memoized so the context value keeps a stable reference between renders.
   const value = useMemo(
-    () => ({ user, login, logout, refreshUser, isAdmin: user?.role === "admin" }),
-    [user, login, logout, refreshUser]
+    () => ({
+      user, login, logout, refreshUser, startImpersonation, stopImpersonation,
+      isAdmin: user?.role === "admin",
+      impersonating: !!user?.impersonating,
+    }),
+    [user, login, logout, refreshUser, startImpersonation, stopImpersonation]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

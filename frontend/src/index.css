@@ -28,6 +28,7 @@
   --amber: #F5B547;
   --rose: #FB7185;
   --info: #5EB4F5;
+  --accent-text: #34D399;   /* emerald text accent (dark default) */
 }
 
 * {
@@ -116,6 +117,50 @@ h1, h2, h3, h4, .font-heading {
 }
 
 /* ----------------------------------------------------------------------------
+   LIGHT THEME — clean, airy light tokens. Opt-in via <html data-theme="light">.
+   Dark stays the default. The dark-safety pass below is disabled in light, so
+   the original light utility classes (bg-white, text-zinc-*) render correctly.
+---------------------------------------------------------------------------- */
+html[data-theme="light"] {
+  --bg: #F6F8FA;
+  --surface-1: #FFFFFF;
+  --surface-2: #F1F4F8;
+  --surface-3: #E9EDF2;
+  --border: #E2E7EE;
+  --border-strong: #CBD2DB;
+  --text: #0E141B;
+  --text-muted: #586273;
+  --text-faint: #8A93A1;
+  --emerald: #059669;
+  --emerald-dim: rgba(5, 150, 105, 0.10);
+  --emerald-border: rgba(5, 150, 105, 0.28);
+  --amber: #D97706;
+  --rose: #E11D48;
+  --info: #2563EB;
+  --accent-text: #047857;
+
+  /* shadcn/ui tokens (HSL). --border/--input intentionally omitted to avoid
+     clobbering the raw hex --border that components use directly. */
+  --background: 210 25% 98%;
+  --foreground: 213 35% 9%;
+  --card: 0 0% 100%;
+  --card-foreground: 213 35% 9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 213 35% 9%;
+  --primary: 213 35% 12%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 214 28% 93%;
+  --secondary-foreground: 213 35% 12%;
+  --muted: 214 28% 93%;
+  --muted-foreground: 215 16% 42%;
+  --accent: 156 64% 36%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 351 80% 50%;
+  --destructive-foreground: 0 0% 100%;
+  --ring: 156 64% 40%;
+}
+
+/* ----------------------------------------------------------------------------
    DARK-SAFETY PASS
    Existing pages (Leads / Meetings / Campaigns / Team / Dashboard etc.) were
    written with light literal utility classes (bg-white, text-zinc-900, ...).
@@ -126,34 +171,62 @@ h1, h2, h3, h4, .font-heading {
 ---------------------------------------------------------------------------- */
 @layer utilities {
   /* surfaces */
-  .bg-white { background-color: var(--surface-1) !important; }
-  .bg-zinc-50, .bg-zinc-100\/60, .bg-zinc-100\/80, .bg-zinc-100 { background-color: var(--surface-2) !important; }
-  .bg-zinc-50\/70 { background-color: var(--surface-1) !important; }
+  html:not([data-theme="light"]) .bg-white { background-color: var(--surface-1) !important; }
+  html:not([data-theme="light"]) .bg-zinc-50,
+  html:not([data-theme="light"]) .bg-zinc-100\/60,
+  html:not([data-theme="light"]) .bg-zinc-100\/80,
+  html:not([data-theme="light"]) .bg-zinc-100 { background-color: var(--surface-2) !important; }
+  html:not([data-theme="light"]) .bg-zinc-50\/70 { background-color: var(--surface-1) !important; }
 
   /* primary text */
-  .text-zinc-950, .text-zinc-900, .text-zinc-800 { color: var(--text) !important; }
+  html:not([data-theme="light"]) .text-zinc-950,
+  html:not([data-theme="light"]) .text-zinc-900,
+  html:not([data-theme="light"]) .text-zinc-800 { color: var(--text) !important; }
   /* secondary text */
-  .text-zinc-700, .text-zinc-600 { color: #C4CCD6 !important; }
-  .text-zinc-500 { color: var(--text-muted) !important; }
-  .text-zinc-400, .text-zinc-300 { color: var(--text-faint) !important; }
+  html:not([data-theme="light"]) .text-zinc-700,
+  html:not([data-theme="light"]) .text-zinc-600 { color: #C4CCD6 !important; }
+  html:not([data-theme="light"]) .text-zinc-500 { color: var(--text-muted) !important; }
+  html:not([data-theme="light"]) .text-zinc-400,
+  html:not([data-theme="light"]) .text-zinc-300 { color: var(--text-faint) !important; }
 
   /* borders */
-  .border-zinc-200, .border-zinc-200\/70, .border-zinc-100, .border-zinc-300 {
-    border-color: var(--border) !important;
-  }
-  .border-dashed.border-zinc-300 { border-color: var(--border-strong) !important; }
+  html:not([data-theme="light"]) .border-zinc-200,
+  html:not([data-theme="light"]) .border-zinc-200\/70,
+  html:not([data-theme="light"]) .border-zinc-100,
+  html:not([data-theme="light"]) .border-zinc-300 { border-color: var(--border) !important; }
+  html:not([data-theme="light"]) .border-dashed.border-zinc-300 { border-color: var(--border-strong) !important; }
 
   /* hovers */
-  .hover\:bg-zinc-50:hover, .hover\:bg-zinc-100:hover, .hover\:bg-zinc-100\/80:hover {
-    background-color: var(--surface-3) !important;
-  }
-  .hover\:text-zinc-950:hover, .hover\:text-zinc-900:hover { color: var(--text) !important; }
-  .hover\:border-zinc-400:hover { border-color: var(--border-strong) !important; }
+  html:not([data-theme="light"]) .hover\:bg-zinc-50:hover,
+  html:not([data-theme="light"]) .hover\:bg-zinc-100:hover,
+  html:not([data-theme="light"]) .hover\:bg-zinc-100\/80:hover { background-color: var(--surface-3) !important; }
+  html:not([data-theme="light"]) .hover\:text-zinc-950:hover,
+  html:not([data-theme="light"]) .hover\:text-zinc-900:hover { color: var(--text) !important; }
+  html:not([data-theme="light"]) .hover\:border-zinc-400:hover { border-color: var(--border-strong) !important; }
 
   /* dark primary buttons (zinc-950 fill) become emerald-on-dark for contrast */
-  .bg-zinc-950 { background-color: var(--emerald) !important; color: #06281C !important; }
-  .hover\:bg-zinc-800:hover { background-color: #2CC08A !important; }
-  .text-white { color: inherit; }
+  html:not([data-theme="light"]) .bg-zinc-950 { background-color: var(--emerald) !important; color: #06281C !important; }
+  html:not([data-theme="light"]) .hover\:bg-zinc-800:hover { background-color: #2CC08A !important; }
+  html:not([data-theme="light"]) .text-white { color: inherit; }
+}
+
+/* ----------------------------------------------------------------------------
+   LIGHT-THEME ACCENT PASS — components authored for dark use emerald/slate
+   literals that look too light on white. Remap just those accents in light.
+---------------------------------------------------------------------------- */
+@layer utilities {
+  html[data-theme="light"] .bg-slate-700\/60,
+  html[data-theme="light"] .bg-slate-800,
+  html[data-theme="light"] .bg-slate-700 { background-color: #E5E9EF !important; }
+  html[data-theme="light"] .text-emerald-300,
+  html[data-theme="light"] .text-emerald-400,
+  html[data-theme="light"] .text-emerald-300\/80,
+  html[data-theme="light"] .text-emerald-300\/90,
+  html[data-theme="light"] .text-emerald-400\/80 { color: #047857 !important; }
+  html[data-theme="light"] .text-amber-300,
+  html[data-theme="light"] .text-amber-400 { color: #B45309 !important; }
+  html[data-theme="light"] .text-rose-300,
+  html[data-theme="light"] .text-rose-400 { color: #DC2626 !important; }
 }
 
 /* Inputs in prebuilt forms shouldn't render as bright white boxes */

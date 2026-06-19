@@ -48,7 +48,7 @@ export default function Tour({ run, steps, onClose }) {
   if (!run || !step) return null;
 
   const finish = () => {
-    try { localStorage.setItem("crm_tour_v1_done", "1"); } catch (e) { /* storage blocked */ }
+    try { localStorage.setItem("crm_tour_v2_done", "1"); } catch (e) { /* storage blocked */ }
     onClose?.();
   };
   const next = () => (i >= steps.length - 1 ? finish() : setI(i + 1));
