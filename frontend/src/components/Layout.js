@@ -40,7 +40,11 @@ export default function Layout({ children }) {
   const onAvatarUpload = async (dataUrl) => {
     setSavingAvatar(true);
     try {
-      await client.post("/profile/avatar", { avatar_url: dataUrl });
+      if (dataUrl) {
+        await client.post("/profile/avatar", { data_url: dataUrl });
+      } else {
+        await client.delete("/profile/avatar");
+      }
       await refreshUser?.();
       toast.success(dataUrl ? "Picture updated" : "Picture removed");
     } catch (e) {

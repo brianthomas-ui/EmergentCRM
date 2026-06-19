@@ -2217,6 +2217,38 @@ def _agent_leaderboard(agents, leads, meetings, payments):
     return sorted(rows, key=lambda x: x["revenue"], reverse=True)
 
 
+@api.get("/activities/recent", response_model=List[ActivityOut], response_model_exclude_none=True)
+async def recent_activities(request: Request, user: dict = Depends(get_current_user)):
+    """Global recent-activity feed for the dashboard. Admins see all activity;
+    agents see only activity on the leads they own. Each item is enriched with the
+    lead's display name so the UI can show context."""
+    try:
+        limit = int(request.query_params.get("limit", 20))
+    except (TypeError, ValueError):
+        limit = 20
+    limit = max(1, min(limit, 100))
+
+    lead_filter = {}
+    if user["role"] != "admin":
+        owned = await db.leads.find({"owner_id": user["id"]}, {"_id": 0, "id": 1}).to_list(5000)
+        lead_filter = {"lead_id": {"$in": [l["id"] for l in owned]}}
+
+    activities = await db.activities.find(lead_filter).sort("created_at", -1).to_list(limit)
+
+    lead_ids = list({a.get("lead_id") for a in activities if a.get("lead_id")})
+    name_map = {}
+    if lead_ids:
+        named = await db.leads.find({"id": {"$in": lead_ids}}, {"_id": 0, "id": 1, "name": 1}).to_list(len(lead_ids))
+        name_map = {l["id"]: l.get("name") for l in named}
+
+    out = []
+    for a in activities:
+        a = clean(a)
+        a["lead_name"] = name_map.get(a.get("lead_id"), "")
+        out.append(a)
+    return out
+
+
 @api.get("/dashboard", response_model=DashboardOut, response_model_exclude_none=True)
 async def dashboard(request: Request, user: dict = Depends(get_current_user)):
     is_admin = user["role"] == "admin"
@@ -2241,6 +2273,9 @@ async def dashboard(request: Request, user: dict = Depends(get_current_user)):
     win_leads = [l for l in leads if _in_window(l.get("created_at"), win_start, win_end)]
     win_payments = [p for p in payments if _in_window(p.get("created_at"), win_start, win_end)]
 
+    # Admin-managed FX rate (INR per USD) so per-deal INR amounts roll up correctly.
+    inr_rate = await get_inr_rate()
+
     # Attach the derived status to each lead so all rollups use one source of truth.
     # (Applied to the full set so both windowed and current-state rollups can read it.)
     for l in leads:
@@ -2255,7 +2290,7 @@ async def dashboard(request: Request, user: dict = Depends(get_current_user)):
     def _deal_val(l):
         val = float(l.get("amount") or 0)
         if (l.get("currency") or "usd") == "inr" and val:
-            val = round(val / 85.0, 2)
+            val = round(val / inr_rate, 2)
         if not val:
             val = float(l.get("monthly_spend") or 0)
         return val
@@ -3025,7 +3060,7 @@ async def _run_startup():
     except Exception as e:
         logger.error(f"seed() failed (app will still serve): {e}", exc_info=True)
 
-CSRF_EXEMPT_PATHS = {"/api/auth/login", "/api/webhook/stripe", "/api/webhook/calendly"}
+CSRF_EXEMPT_PATHS = {"/api/auth/login", "/api/webhook/stripe", "/api/webhook/razorpay", "/api/webhook/calendly"}
 
 @app.middleware("http")
 async def csrf_protect(request: Request, call_next):

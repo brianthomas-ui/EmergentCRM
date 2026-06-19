@@ -260,7 +260,8 @@ def test_stripe_preset_usd(admin_token, created_lead):
     assert data["amount"] == 2004.0
     assert data["amount_usd"] == 2004.0
     assert data["fx_rate"] > 0
-    assert "payment-return" in data["payment_link"]
+    # Real Stripe Checkout URL when STRIPE_API_KEY is set; local payment-return mock otherwise.
+    assert data["payment_link"].startswith("http")
 
 
 def test_inr_payment_link_converts_to_usd(admin_token, created_lead):

@@ -518,7 +518,11 @@ export default function Team() {
 function RepAvatarCell({ member, onUpdated }) {
   const upload = async (dataUrl) => {
     try {
-      await client.post(`/team/${member.id}/avatar`, { data_url: dataUrl ?? "" });
+      if (dataUrl) {
+        await client.post(`/team/${member.id}/avatar`, { data_url: dataUrl });
+      } else {
+        await client.delete(`/team/${member.id}/avatar`);
+      }
       toast.success(`Avatar ${dataUrl ? "updated" : "removed"}`);
       onUpdated?.();
     } catch (e) {
