@@ -3,6 +3,7 @@
 // Manager/admin: agent color-coded toggle. Agent role: own calendar only.
 // API: GET /api/calendar?date=YYYY-MM-DD (one call per visible date range).
 import { useEffect, useState, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import client, { apiError } from "@/api";
 import { useAuth } from "@/context/AuthContext";
@@ -25,12 +26,14 @@ import {
 
 export default function Meetings() {
   const { isAdmin } = useAuth();
+  const navigate = useNavigate();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
   const [view, setView] = useState("week"); // "week" | "day"
   const [anchorDate, setAnchorDate] = useState(today);
   const [selectedMeeting, setSelectedMeeting] = useState(null);
+  const [actionBusy, setActionBusy] = useState(false);
 
   const [meetings, setMeetings] = useState([]);
   const [agents, setAgents] = useState([]);
@@ -101,6 +104,46 @@ export default function Meetings() {
   const shiftPeriod = (delta) => setAnchorDate((prev) => addDays(prev, view === "day" ? delta : delta * 7));
   const goToday = () => setAnchorDate(new Date());
 
+  // Meeting outcome + reschedule + open-lead handlers (drawer actions).
+  const updateOutcome = async (status, notes) => {
+    if (!selectedMeeting) return;
+    setActionBusy(true);
+    try {
+      await client.put(`/meetings/${selectedMeeting.id}/outcome`, {
+        status,
+        no_show_reason: status === "no_show" ? (notes || "") : "",
+        outcome_notes: notes || "",
+        reschedule_status: "",
+      });
+      toast.success(status === "no_show" ? "Marked as no-show" : "Marked as completed");
+      setSelectedMeeting(null);
+      load();
+    } catch (e) {
+      toast.error(apiError(e));
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const reschedule = async (localValue) => {
+    if (!selectedMeeting || !localValue) return;
+    setActionBusy(true);
+    try {
+      await client.put(`/meetings/${selectedMeeting.id}/reschedule`, {
+        scheduled_at: new Date(localValue).toISOString(),
+      });
+      toast.success("Meeting rescheduled");
+      setSelectedMeeting(null);
+      load();
+    } catch (e) {
+      toast.error(apiError(e));
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const viewLead = (leadId) => navigate(`/leads/${leadId}`);
+
   const visibleMeetings = meetings.filter((m) =>
     agentFilter === "all" ? true : String(m.agent_id) === agentFilter
   );
@@ -118,12 +161,12 @@ export default function Meetings() {
   }).length;
 
   return (
-    <div className="flex flex-col h-full min-h-0" style={{ height: "calc(100vh - 64px)" }}>
+    <div className="flex flex-col gap-4">
       {/* Header */}
-      <div className="flex-none px-5 pt-5 pb-3 border-b border-[var(--border)] space-y-3">
+      <div className="space-y-3">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
-            <h1 className="font-heading text-2xl font-bold tracking-tight text-[var(--text)]">Meetings</h1>
+            <h1 className="font-heading text-2xl font-bold tracking-tight text-[var(--text)]" data-tour="meetings-title">Meetings</h1>
             <p className="text-xs text-[var(--text-faint)] mt-0.5">
               {loading ? "Loading…" : `${totalShown} meeting${totalShown !== 1 ? "s" : ""}`}
               {usedDemo && " · demo data"}
@@ -194,27 +237,37 @@ export default function Meetings() {
         )}
       </div>
 
-      {/* Calendar grid */}
-      <div className="flex-1 overflow-auto min-h-0">
-        <div className="flex h-full min-w-[640px]">
-          <TimeGutter />
-          <div className="flex-1 flex min-w-0">
-            {displayDates.map((date) => (
-              <DayColumn
-                key={toDateStr(date)}
-                date={date}
-                dayMeetings={meetingsByDate[toDateStr(date)] || []}
-                agentColorMap={agentColorMap}
-                agents={agents}
-                view={view}
-                onSelect={setSelectedMeeting}
-              />
-            ))}
+      {/* Calendar grid — bounded height with internal scroll so the header is never clipped */}
+      <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] overflow-hidden">
+        <div className="overflow-auto h-[calc(100vh-260px)] min-h-[440px]">
+          <div className="flex min-w-[640px]">
+            <TimeGutter />
+            <div className="flex-1 flex min-w-0">
+              {displayDates.map((date) => (
+                <DayColumn
+                  key={toDateStr(date)}
+                  date={date}
+                  dayMeetings={meetingsByDate[toDateStr(date)] || []}
+                  agentColorMap={agentColorMap}
+                  agents={agents}
+                  view={view}
+                  onSelect={setSelectedMeeting}
+                />
+              ))}
+            </div>
           </div>
         </div>
       </div>
 
-      <MeetingDrawer meeting={selectedMeeting} onClose={() => setSelectedMeeting(null)} agentColorMap={agentColorMap} />
+      <MeetingDrawer
+        meeting={selectedMeeting}
+        onClose={() => setSelectedMeeting(null)}
+        agentColorMap={agentColorMap}
+        onViewLead={viewLead}
+        onOutcome={updateOutcome}
+        onReschedule={reschedule}
+        busy={actionBusy}
+      />
     </div>
   );
 }

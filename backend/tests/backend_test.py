@@ -22,8 +22,8 @@ if not BASE_URL:
 BASE_URL = BASE_URL.rstrip('/')
 API = f"{BASE_URL}/api"
 
-ADMIN = {"email": "diyea@emergent.sh", "password": "leader123"}
-AGENT = {"email": "aryan.f@emergent.sh", "password": "agent123"}
+ADMIN = {"email": "diyea@emergent.sh", "password": "emergent@12345"}
+AGENT = {"email": "aryan.f@emergent.sh", "password": "emergent@12345"}
 
 
 def H(t):
@@ -85,7 +85,7 @@ def test_team_has_new_members(admin_token):
 
 def test_all_agent_logins():
     for email in ["aryan.f@emergent.sh", "dipan@emergent.sh", "vinay.p@emergent.sh", "brian@emergent.sh"]:
-        r = requests.post(f"{API}/auth/login", json={"email": email, "password": "agent123"})
+        r = requests.post(f"{API}/auth/login", json={"email": email, "password": "emergent@12345"})
         assert r.status_code == 200, f"{email} login failed: {r.text}"
 
 

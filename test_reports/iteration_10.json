@@ -1,0 +1,33 @@
+{
+  "summary": "Iteration 10 — Frontend-only regression for the 7 user-requested changes on the preview URL. Tested via Playwright with real demo (admin) login (demo@emergent.sh/demo12345) and verified diyea login with new password. ALL 7 features PASS end-to-end. No console errors beyond expected /api/auth/me 401 pre-auth and two /api/leads/notes/recent 400s (carry-over from iter_8/9 — silently handled).",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      { "flow": "Leads recent notes", "issue": "/api/leads/notes/recent returns 400 (was 404 in iter_9). Silently handled, no UI crash, carry-over low-priority.", "affected_selectors": [] }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_10.json"],
+  "action_items": [
+    "(Low / carry-over) /api/leads/notes/recent now returns 400 instead of 404 — either implement endpoint properly or stop calling it from Leads.js."
+  ],
+  "critical_code_review_comments": [
+    "All 7 requested changes implemented correctly and verified end-to-end. Tour overlay correctly persists localStorage flag crm_tour_v1_done='1' on finish/skip and skips auto-start on reload while still being replay-able via take-tour-btn.",
+    "Change-password modal correctly REJECTS wrong current password with toast/error message and ACCEPTS correct current+new (>=8 chars) — confirmed by changing demo12345→tempnewpw12345 and back successfully.",
+    "Meetings page title 'Meetings' fully visible at BOTH 1920x800 (y=32) and 1440x768 (y=32). Calendar day headers (SUN 14, MON 15…SAT 20) and time gutter (12pm-5pm) all fully visible — chopped-top fix confirmed.",
+    "Meeting drawer (Owen Carter, 02:00 PM · Dipan) opens with title fully visible (y=16) and EXPOSES full action UI: mark-show-btn, mark-noshow-btn, meeting-notes-input, reschedule-input, reschedule-btn, meeting-view-lead-btn — all present. Reschedule to 2026-12-15T14:30 produced 'Meeting rescheduled' toast. View-lead navigated correctly to /leads/552474b7-5d3d-4cd1-ae82-edcb92d0cb87.",
+    "Payments → new-payment-link-btn → lead-picker-modal with lead-picker-search returned 25 lead-picker-option-* matches; selecting one opened payment-modal with generate-payment-btn; clicking it produced a success toast (Stripe test-mode link generated). Full custom-link flow verified.",
+    "Demo login page shows ONLY demo@emergent.sh (no diyea/aryan quick-login). Old leader123 password correctly REJECTED for diyea; new emergent@12345 password correctly ACCEPTED.",
+    "Admin nav visibility verified (nav-campaigns, nav-team, nav-audit all present for demo account).",
+    "No JS errors, no missing-export crashes after the latest refactor. Dark theme intact across all touched pages (Login, Dashboard, Meetings, Payments, Lead Detail)."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "skipped per request (main agent reports 48/48 pytest pass)", "frontend": "100% — all 7 features and the regression checks pass" },
+  "test_credentials": "Demo (admin): demo@emergent.sh / demo12345 (auto-healed each boot). Manager: diyea@emergent.sh / emergent@12345. Agents: *.f@emergent.sh / emergent@12345.",
+  "seed_data_creation": "Rescheduled one existing real meeting (Owen Carter @ Dipan) to 2026-12-15 14:30. Generated one Stripe test-mode payment link for a randomly picked lead. Demo password was briefly changed to tempnewpw12345 then reverted back to demo12345 (also auto-heals on backend reboot).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Use ONLY demo@emergent.sh/demo12345 for admin flows on the login page (the other accounts exist but are not advertised). To dismiss the auto-start tour quickly in scripts, set localStorage.crm_tour_v1_done='1' BEFORE login OR click [data-testid=tour-skip]. Real (non-demo) meetings are clickable via 'div.cursor-pointer.group' inside the calendar — first one in week 14-20 June 2026 is Owen Carter (real, owner Dipan) — works for show/no-show/reschedule/view-lead testing. Payment link generation actually creates a Stripe test-mode link, so don't spam it.",
+  "rca of the issue": "N/A — no regressions. /api/leads/notes/recent 400 is a pre-existing minor issue, silently handled in UI."
+}

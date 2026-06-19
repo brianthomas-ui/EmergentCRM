@@ -10,8 +10,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from server import hash_password, verify_password, _safe_insert, db  # noqa: E402
 
 BASE = "http://localhost:8001/api"
-ADMIN = {"email": "diyea@emergent.sh", "password": "leader123"}
-AGENT = {"email": "aryan.f@emergent.sh", "password": "agent123"}
+ADMIN = {"email": "diyea@emergent.sh", "password": "emergent@12345"}
+AGENT = {"email": "aryan.f@emergent.sh", "password": "emergent@12345"}
 
 
 # ---------- bcrypt unit tests ----------

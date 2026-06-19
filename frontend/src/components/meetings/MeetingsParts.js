@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from "react";
 import { Drawer, btnGhost, btnEmerald, StatusBadge } from "@/components/dark/Primitives";
 import {
   ExternalLink, Video, Calendar, Clock, User, Link2, FileText,
+  ArrowUpRight, XCircle, RefreshCcw, CheckCircle2,
 } from "lucide-react";
 
 // 12:00 (noon) → 24:00 = slot 0..47 (each = 30 min). We show 12:00–24:00.
@@ -139,10 +140,26 @@ function DetailRow({ icon, label, children }) {
   );
 }
 
-export function MeetingDrawer({ meeting, onClose, agentColorMap }) {
+function toLocalInput(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const off = d.getTimezoneOffset();
+  return new Date(d.getTime() - off * 60000).toISOString().slice(0, 16);
+}
+
+export function MeetingDrawer({ meeting, onClose, agentColorMap, onViewLead, onOutcome, onReschedule, busy }) {
+  const [rescheduleAt, setRescheduleAt] = useState("");
+  const [notes, setNotes] = useState("");
+  useEffect(() => {
+    setRescheduleAt(meeting ? toLocalInput(meeting.scheduled_at) : "");
+    setNotes("");
+  }, [meeting]);
+
   if (!meeting) return null;
   const color = agentColorMap[meeting.agent_id] || AGENT_COLORS[0];
   const hasRecording = meeting.recording_url || meeting.circleback_url;
+  const isDemo = String(meeting.id || "").startsWith("demo-");
+  const canView = meeting.lead_id && onViewLead;
   const statusCls = {
     scheduled: "text-sky-300 border-sky-500/30 bg-sky-500/10",
     completed: "text-emerald-300 border-emerald-500/30 bg-emerald-500/10",
@@ -165,7 +182,23 @@ export function MeetingDrawer({ meeting, onClose, agentColorMap }) {
             {meeting.status?.replace("_", "-")}
           </span>
           {meeting.stage && <StatusBadge status={meeting.stage} tone={meeting.stage_tone} />}
+          {meeting.reschedule_status && (
+            <span className="text-[11px] text-amber-300/90">· {meeting.reschedule_status}</span>
+          )}
         </div>
+
+        {/* Quick link to the full lead record */}
+        {canView && (
+          <button
+            type="button"
+            onClick={() => onViewLead(meeting.lead_id)}
+            data-testid="meeting-view-lead-btn"
+            className={`${btnGhost} w-full justify-between`}
+          >
+            <span className="flex items-center gap-2"><User className="w-4 h-4" /> View {meeting.lead_name || "lead"}</span>
+            <ArrowUpRight className="w-3.5 h-3.5 opacity-70" />
+          </button>
+        )}
 
         <div className="space-y-3">
           <DetailRow icon={<Calendar className="w-3.5 h-3.5" />} label="When">
@@ -196,9 +229,45 @@ export function MeetingDrawer({ meeting, onClose, agentColorMap }) {
           <div className="rounded-lg border border-rose-500/20 bg-rose-500/[0.06] p-3">
             <p className="text-[10px] font-mono uppercase tracking-widest text-rose-400/70 mb-1">No-Show Reason</p>
             <p className="text-sm text-rose-300/90">{meeting.no_show_reason}</p>
-            {meeting.reschedule_status && (
-              <p className="text-xs text-[var(--text-faint)] mt-1">Reschedule: {meeting.reschedule_status.replace("_", " ")}</p>
-            )}
+          </div>
+        )}
+
+        {/* Outcome + reschedule controls */}
+        {isDemo ? (
+          <p className="text-[11px] text-[var(--text-faint)] border-t border-[var(--border)] pt-3">
+            Demo meeting — outcome &amp; reschedule actions are available on real bookings.
+          </p>
+        ) : (
+          <div className="space-y-3 border-t border-[var(--border)] pt-4" data-testid="meeting-actions">
+            <p className="text-[10px] font-mono uppercase tracking-widest text-[var(--text-faint)]">Update outcome</p>
+            <textarea
+              className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--text)] resize-none min-h-[60px] outline-none focus:border-emerald-500/40"
+              placeholder="Notes / no-show reason (optional)…"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              data-testid="meeting-notes-input"
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <button className={`${btnEmerald} justify-center`} disabled={busy} onClick={() => onOutcome("completed", notes)} data-testid="mark-show-btn">
+                <CheckCircle2 className="w-4 h-4" /> Mark Show
+              </button>
+              <button className={`${btnGhost} justify-center`} disabled={busy} onClick={() => onOutcome("no_show", notes)} data-testid="mark-noshow-btn">
+                <XCircle className="w-4 h-4 text-rose-400" /> No-Show
+              </button>
+            </div>
+            <p className="text-[10px] font-mono uppercase tracking-widest text-[var(--text-faint)] pt-1">Reschedule</p>
+            <div className="flex items-center gap-2">
+              <input
+                type="datetime-local"
+                value={rescheduleAt}
+                onChange={(e) => setRescheduleAt(e.target.value)}
+                className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-emerald-500/40 [color-scheme:dark]"
+                data-testid="reschedule-input"
+              />
+              <button className={btnGhost} disabled={busy || !rescheduleAt} onClick={() => onReschedule(rescheduleAt)} data-testid="reschedule-btn">
+                <RefreshCcw className="w-4 h-4" /> Reschedule
+              </button>
+            </div>
           </div>
         )}
 
@@ -214,13 +283,6 @@ export function MeetingDrawer({ meeting, onClose, agentColorMap }) {
             <a href={meeting.recording_url || meeting.circleback_url} target="_blank" rel="noopener noreferrer" className={`${btnGhost} justify-center`}>
               <Video className="w-4 h-4 text-[var(--text-muted)]" />
               {meeting.circleback_url ? "Circleback Recording" : "Recording"}
-              <ExternalLink className="w-3.5 h-3.5 opacity-70" />
-            </a>
-          )}
-          {meeting.summary_url && (
-            <a href={meeting.summary_url} target="_blank" rel="noopener noreferrer" className={`${btnGhost} justify-center`}>
-              <FileText className="w-4 h-4 text-[var(--text-muted)]" />
-              Meeting Summary
               <ExternalLink className="w-3.5 h-3.5 opacity-70" />
             </a>
           )}

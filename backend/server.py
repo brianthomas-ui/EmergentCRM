@@ -1131,6 +1131,23 @@ async def clear_my_avatar(user: dict = Depends(get_current_user)):
     updated = await db.users.find_one({"id": user["id"]})
     return clean(updated)
 
+class ChangePasswordIn(BaseModel):
+    current_password: str
+    new_password: str
+
+@api.post("/profile/password")
+async def change_my_password(body: ChangePasswordIn, user: dict = Depends(get_current_user)):
+    """Self-service password change: verify the current password, then set a new one."""
+    record = await db.users.find_one({"id": user["id"]})
+    if not record or not verify_password(body.current_password, record.get("password_hash", "")):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    if len(body.new_password or "") < 8:
+        raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
+    if verify_password(body.new_password, record.get("password_hash", "")):
+        raise HTTPException(status_code=400, detail="New password must be different from the current one")
+    await db.users.update_one({"id": user["id"]}, {"$set": {"password_hash": hash_password(body.new_password)}})
+    return {"ok": True}
+
 @api.post("/team/{user_id}/avatar", response_model=UserOut)
 async def set_user_avatar(user_id: str, body: AvatarIn, admin: dict = Depends(require_admin)):
     target = await db.users.find_one({"id": user_id})
@@ -1704,6 +1721,35 @@ async def meeting_outcome(meeting_id: str, body: MeetingOutcome, user: dict = De
         rec_txt = " · Circleback recording attached" if (body.recording_url or m_set.get("recording_url")) else ""
         await log_activity(lead["id"], "meeting",
                            f"Meeting {body.status}. {body.outcome_notes or body.no_show_reason}{rec_txt}", user["name"])
+    return serialize_meeting(await db.meetings.find_one({"id": meeting_id}))
+
+
+class RescheduleIn(BaseModel):
+    scheduled_at: str
+    duration: Optional[int] = None
+
+@api.put("/meetings/{meeting_id}/reschedule", response_model=MeetingOut)
+async def reschedule_meeting(meeting_id: str, body: RescheduleIn, user: dict = Depends(get_current_user)):
+    """Move a meeting to a new time: resets it to scheduled, flags it as rescheduled,
+    and advances the lead's next_meeting_at."""
+    meeting = await db.meetings.find_one({"id": meeting_id})
+    if not meeting:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+    m_set = {
+        "scheduled_at": body.scheduled_at,
+        "status": "scheduled",
+        "reschedule_status": "rescheduled",
+        "completed_at": None,
+        "updated_at": now_iso(),
+    }
+    if body.duration:
+        m_set["duration"] = int(body.duration)
+    await db.meetings.update_one({"id": meeting_id}, {"$set": m_set})
+    lead = await db.leads.find_one({"id": meeting["lead_id"]})
+    if lead:
+        await db.leads.update_one({"id": lead["id"]}, {"$set": {
+            "next_meeting_at": body.scheduled_at, "updated_at": now_iso(), "last_activity": now_iso()}})
+        await log_activity(lead["id"], "meeting", f"Meeting rescheduled to {body.scheduled_at[:16].replace('T', ' ')}", user["name"])
     return serialize_meeting(await db.meetings.find_one({"id": meeting_id}))
 
 
@@ -2812,7 +2858,7 @@ async def calendar(request: Request, user: dict = Depends(get_current_user)):
 # ----------------------------------------------------------------------------
 async def _seed_admin():
     admin_email = os.environ.get("ADMIN_EMAIL", "diyea@emergent.sh").lower()
-    admin_password = os.environ.get("ADMIN_PASSWORD", "leader123")
+    admin_password = os.environ.get("ADMIN_PASSWORD", "emergent@12345")
     admin = await db.users.find_one({"email": admin_email})
     if not admin:
         created = await _safe_insert(db.users, {
@@ -2823,9 +2869,40 @@ async def _seed_admin():
             "monthly_target": 0, "weekly_target": 0, "active": True, "created_at": now_iso(),
         })
         logger.info(f"seed: admin {'created' if created else 'already present (race)'} -> {admin_email}")
-    elif not verify_password(admin_password, admin.get("password_hash", "")):
-        await db.users.update_one({"email": admin_email}, {"$set": {"password_hash": hash_password(admin_password)}})
-        logger.info(f"seed: admin password self-healed -> {admin_email}")
+    # NOTE: no per-boot password self-heal — so a user's self-service password change persists.
+
+
+async def _seed_demo_account():
+    """Single advertised demo login. Admin role so it showcases ALL demo data. Its password
+    is self-healed to demo12345 on every boot (it's a demo account, not a real user)."""
+    demo_email = "demo@emergent.sh"
+    demo_password = "demo12345"
+    demo = await db.users.find_one({"email": demo_email})
+    if not demo:
+        await _safe_insert(db.users, {
+            "id": new_id(), "name": "Demo Manager", "email": demo_email,
+            "password_hash": hash_password(demo_password), "role": "admin",
+            "avatar_url": "", "monthly_target": 0, "weekly_target": 0,
+            "active": True, "created_at": now_iso(),
+        })
+        logger.info(f"seed: demo account created -> {demo_email}")
+    elif not verify_password(demo_password, demo.get("password_hash", "")):
+        await db.users.update_one({"email": demo_email}, {"$set": {"password_hash": hash_password(demo_password)}})
+
+
+async def _migrate_reset_passwords():
+    """One-time: reset every real team account (admin + agents, excluding the demo account)
+    to emergent@12345. Guarded by the migrations collection so it runs exactly once and never
+    fights a user who later changes their own password."""
+    key = "reset_team_passwords_emergent12345_v1"
+    if await db.migrations.find_one({"key": key}):
+        return
+    res = await db.users.update_many(
+        {"role": {"$in": ["admin", "agent"]}, "email": {"$ne": "demo@emergent.sh"}},
+        {"$set": {"password_hash": hash_password("emergent@12345")}},
+    )
+    await db.migrations.update_one({"key": key}, {"$set": {"key": key, "done_at": now_iso()}}, upsert=True)
+    logger.info(f"migrate: reset {res.modified_count} team passwords -> emergent@12345")
 
 
 async def _seed_agents():
@@ -2843,7 +2920,7 @@ async def _seed_agents():
         # Empty avatar by default -> UI falls back to initials until one is uploaded.
         await _safe_insert(db.users, {
             "id": new_id(), "name": name, "email": email.lower(),
-            "password_hash": hash_password("agent123"), "role": "agent",
+            "password_hash": hash_password("emergent@12345"), "role": "agent",
             "avatar_url": "", "monthly_target": 25000.0,
             "weekly_target": 6250.0, "active": True, "created_at": now_iso(),
         })
@@ -3089,6 +3166,8 @@ async def seed():
     await _migrate_to_sales_status_model()
     await _seed_admin()
     await _seed_agents()
+    await _seed_demo_account()
+    await _migrate_reset_passwords()
     await _seed_demo_leads()
     await _seed_coverage_history()
 
