@@ -90,7 +90,7 @@ export function TargetBar({ data, isAdmin }) {
 }
 
 export function StageFunnel({ counts }) {
-  const order = ["New Booking", "Assigned", "Meeting Scheduled", "Meeting Completed", "Payment Link Sent", "Won"];
+  const order = ["New Booking", "Assigned", "Meeting Completed", "Payment Link Sent", "Won"];
   const max = Math.max(1, ...order.map((s) => counts[s] || 0));
   return (
     <div className="bg-white border border-zinc-200 rounded-lg p-5">

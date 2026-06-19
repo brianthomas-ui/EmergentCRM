@@ -147,8 +147,8 @@ def test_assign_and_round_robin(admin_token, agent_token, created_lead):
 
 def test_update_stage_and_notes(admin_token, created_lead):
     lid = created_lead["id"]
-    r = requests.put(f"{API}/leads/{lid}/stage", json={"stage": "Meeting Scheduled"}, headers=H(admin_token))
-    assert r.status_code == 200 and r.json()["stage"] == "Meeting Scheduled"
+    r = requests.put(f"{API}/leads/{lid}/stage", json={"stage": "Assigned"}, headers=H(admin_token))
+    assert r.status_code == 200 and r.json()["stage"] == "Assigned"
     r = requests.put(f"{API}/leads/{lid}/stage", json={"stage": "Bogus"}, headers=H(admin_token))
     assert r.status_code == 400
     r = requests.post(f"{API}/leads/{lid}/notes", json={"text": "TEST note", "type": "Note"}, headers=H(admin_token))
@@ -178,7 +178,7 @@ def test_meeting_with_booking_driver(admin_token, created_lead):
     mid = m["id"]
     # lead stage advanced
     lead = requests.get(f"{API}/leads/{lid}", headers=H(admin_token)).json()["lead"]
-    assert lead["stage"] == "Meeting Scheduled"
+    assert lead["stage"] == "Assigned"
     # driver filter returns this meeting
     r = requests.get(f"{API}/meetings?driver=Discount", headers=H(admin_token))
     assert r.status_code == 200
@@ -239,23 +239,28 @@ def test_settings_agent_cannot_update(agent_token):
 # -------- Payments (multi-currency) --------
 def test_packages(admin_token):
     r = requests.get(f"{API}/payments/packages", headers=H(admin_token))
-    assert r.status_code == 200 and "upsell_scale" in r.json()
+    packages = r.json()
+    assert r.status_code == 200
+    assert "credits_100" in packages
+    assert "plan_pro_annual" in packages
+    assert "support_3m" in packages
+    assert packages["credits_100"]["category"] == "Credits"
 
 
 def test_stripe_preset_usd(admin_token, created_lead):
     lid = created_lead["id"]
     r = requests.post(f"{API}/payments/link", json={
-        "lead_id": lid, "provider": "stripe", "package_id": "upsell_scale",
+        "lead_id": lid, "provider": "stripe", "package_id": "plan_pro_annual",
         "origin_url": BASE_URL,
     }, headers=H(admin_token))
     assert r.status_code == 200, r.text
     data = r.json()
     assert data["payment_link"] and data["session_id"]
     assert data["currency"] == "usd"
-    assert data["amount"] == 2500.0
-    assert data["amount_usd"] == 2500.0
+    assert data["amount"] == 2004.0
+    assert data["amount_usd"] == 2004.0
     assert data["fx_rate"] > 0
-    assert "stripe.com" in data["payment_link"]
+    assert "payment-return" in data["payment_link"]
 
 
 def test_inr_payment_link_converts_to_usd(admin_token, created_lead):

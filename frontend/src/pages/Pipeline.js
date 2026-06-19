@@ -1,27 +1,67 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import client from "@/api";
 import { money, Badge, priorityClass, STAGES } from "@/components/helpers";
 
-const COLUMNS = STAGES.filter((s) => s !== "Lost").concat(["Lost"]);
+const FALLBACK_COLUMNS = STAGES;
+
+const POLL_MS = 20_000;
 
 export default function Pipeline() {
   const [leads, setLeads] = useState([]);
+  const [columns, setColumns] = useState(FALLBACK_COLUMNS);
   const [dragId, setDragId] = useState(null);
+  const isDragging = useRef(false);
   const navigate = useNavigate();
 
   const load = () => client.get("/leads").then((r) => setLeads(r.data));
-  useEffect(() => { load(); }, []);
+
+  // Fetch the backend's canonical stage list and fall back silently if unavailable.
+  useEffect(() => {
+    client
+      .get("/meta")
+      .then((r) => {
+        if (Array.isArray(r.data?.stages) && r.data.stages.length > 0) {
+          setColumns(r.data.stages);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Initial load + 20 s auto-refresh (paused while dragging).
+  useEffect(() => {
+    load();
+
+    const interval = setInterval(() => {
+      if (!isDragging.current) {
+        load();
+      }
+    }, POLL_MS);
+
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const onDragStart = (id) => {
+    isDragging.current = true;
+    setDragId(id);
+  };
+
+  const onDragEnd = () => {
+    isDragging.current = false;
+  };
 
   const onDrop = async (stage) => {
+    isDragging.current = false;
     if (!dragId) return;
     const lead = leads.find((l) => l.id === dragId);
+    const prevDragId = dragId;
     setDragId(null);
     if (!lead || lead.stage === stage) return;
-    setLeads((prev) => prev.map((l) => (l.id === dragId ? { ...l, stage } : l)));
+    setLeads((prev) => prev.map((l) => (l.id === prevDragId ? { ...l, stage } : l)));
     try {
-      await client.put(`/leads/${dragId}/stage`, { stage });
+      await client.put(`/leads/${prevDragId}/stage`, { stage });
       toast.success(`${lead.name} → ${stage}`);
     } catch {
       toast.error("Failed to move");
@@ -37,7 +77,7 @@ export default function Pipeline() {
       </div>
 
       <div className="flex gap-3 overflow-x-auto pb-4">
-        {COLUMNS.map((stage) => {
+        {columns.map((stage) => {
           const items = leads.filter((l) => l.stage === stage);
           const colValue = items.reduce((s, l) => s + (l.lifetime_value || 0), 0);
           return (
@@ -53,14 +93,20 @@ export default function Pipeline() {
                 <Badge className="bg-white text-zinc-500 border-zinc-200">{items.length}</Badge>
               </div>
               {colValue > 0 && (
-                <div className="text-[10px] text-zinc-400 px-1 -mt-1 font-mono">{money(colValue)} LTV</div>
+                <div
+                  className="text-[10px] text-zinc-500 px-1 -mt-1 font-mono"
+                  title="Total lifetime value of the leads in this stage"
+                >
+                  {`Total LTV in stage - ${money(colValue)}`}
+                </div>
               )}
               {items.map((l) => (
                 <div
                   key={l.id}
                   data-testid={`kanban-card-${l.id}`}
                   draggable
-                  onDragStart={() => setDragId(l.id)}
+                  onDragStart={() => onDragStart(l.id)}
+                  onDragEnd={onDragEnd}
                   onClick={() => navigate(`/leads/${l.id}`)}
                   className="bg-white border border-zinc-200 rounded-lg p-3 hover:border-zinc-400 hover:shadow-sm transition-all cursor-grab active:cursor-grabbing"
                 >

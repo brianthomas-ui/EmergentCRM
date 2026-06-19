@@ -31,10 +31,17 @@ export function AuthProvider({ children }) {
     setUser(false);
   }, []);
 
+  // Re-fetch the signed-in user (e.g. after the user updates their avatar).
+  const refreshUser = useCallback(async () => {
+    const { data } = await client.get("/auth/me");
+    setUser(data);
+    return data;
+  }, []);
+
   // Memoized so the context value keeps a stable reference between renders.
   const value = useMemo(
-    () => ({ user, login, logout, isAdmin: user?.role === "admin" }),
-    [user, login, logout]
+    () => ({ user, login, logout, refreshUser, isAdmin: user?.role === "admin" }),
+    [user, login, logout, refreshUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -16,7 +16,6 @@ export type Role = "admin" | "agent";
 export type Stage =
   | "New Booking"
   | "Assigned"
-  | "Meeting Scheduled"
   | "Meeting Completed"
   | "Payment Link Sent"
   | "Won"

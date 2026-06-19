@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { useState } from "react";
 import { money, Badge, stageClass, priorityClass, STAGES, PRIORITIES, REGIONS } from "@/components/helpers";
 import Modal, { Field, inputCls, btnPrimary, btnSecondary } from "@/components/Modal";
 import { Search, Users as UsersIcon, ArrowRight } from "lucide-react";
@@ -65,7 +66,14 @@ export function LeadTable({ leads, isAdmin, team, onAssign }) {
                 <Badge className={priorityClass(l.priority)}>{l.priority}</Badge>
               </td>
               <td className="p-3 text-sm text-zinc-700">{l.owner_name || <span className="text-zinc-400">Unassigned</span>}</td>
-              <td className="p-3 text-xs text-zinc-500">{l.source}</td>
+              <td className="p-3 text-xs text-zinc-500">
+                <div>{l.source}</div>
+                {l.referred_by_name && (
+                  <div className="text-zinc-400 mt-0.5" data-testid={`referral-by-${l.id}`}>
+                    via {l.referred_by_name}
+                  </div>
+                )}
+              </td>
               <td className="p-3 text-right">
                 {isAdmin ? (
                   <select
@@ -102,7 +110,46 @@ export function LeadTable({ leads, isAdmin, team, onAssign }) {
   );
 }
 
-export function CreateLeadModal({ open, onClose, form, setForm, onSave, saving }) {
+// Searchable referral picker over a flat customer list.
+function ReferralPicker({ customers, value, onChange }) {
+  const [q, setQ] = useState("");
+  const filtered = q.trim()
+    ? customers.filter((c) =>
+        `${c.name} ${c.company || ""} ${c.email || ""}`.toLowerCase().includes(q.toLowerCase())
+      )
+    : customers;
+
+  return (
+    <div className="space-y-1.5" data-testid="referral-picker">
+      <div className="relative">
+        <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
+        <input
+          className={`${inputCls} pl-8 py-2 text-xs`}
+          placeholder="Filter customers..."
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          data-testid="referral-search"
+        />
+      </div>
+      <select
+        className={`${inputCls} text-sm`}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        size={Math.min(filtered.length + 1, 5)}
+        data-testid="referral-select"
+      >
+        <option value="">None (not a referral)</option>
+        {filtered.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.name}{c.company ? ` - ${c.company}` : ""}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+export function CreateLeadModal({ open, onClose, form, setForm, onSave, saving, customers = [] }) {
   return (
     <Modal open={open} onClose={onClose} title="New Lead" testid="create-lead-modal" wide>
       <div className="grid grid-cols-2 gap-x-4">
@@ -132,10 +179,33 @@ export function CreateLeadModal({ open, onClose, form, setForm, onSave, saving }
         </Field>
         <Field label="Source"><input className={inputCls} value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} /></Field>
       </div>
+      {/* Referral picker spans full width below the 2-col grid. */}
+      <div className="mt-1 border-t border-zinc-100 pt-4">
+        <Field label="Referred by (existing customer) - optional">
+          <ReferralPicker
+            customers={customers}
+            value={form.referred_by_lead_id || ""}
+            onChange={(id) => {
+              const match = customers.find((c) => String(c.id) === String(id));
+              setForm({
+                ...form,
+                referred_by_lead_id: id || null,
+                referred_by_name: match ? match.name : null,
+              });
+            }}
+          />
+          {form.referred_by_lead_id && (
+            <p className="text-[11px] text-zinc-500 mt-1.5" data-testid="referral-preview">
+              Source will be set to <span className="font-semibold text-zinc-700">Referral</span> - referred by{" "}
+              <span className="font-semibold text-zinc-700">{form.referred_by_name}</span>
+            </p>
+          )}
+        </Field>
+      </div>
       <div className="flex justify-end gap-2 mt-4">
-        <button className={btnSecondary} onClick={onClose}>Cancel</button>
-        <button className={btnPrimary} onClick={onSave} disabled={saving} data-testid="save-lead-btn">
-          {saving ? "Saving…" : "Create Lead"}
+        <button type="button" className={btnSecondary} onClick={onClose}>Cancel</button>
+        <button type="button" className={btnPrimary} onClick={onSave} disabled={saving} data-testid="save-lead-btn">
+          {saving ? "Saving..." : "Create Lead"}
         </button>
       </div>
     </Modal>

@@ -7,6 +7,7 @@ import Dashboard from "@/pages/Dashboard";
 import Leads from "@/pages/Leads";
 import LeadDetail from "@/pages/LeadDetail";
 import Pipeline from "@/pages/Pipeline";
+import Deals from "@/pages/Deals";
 import Meetings from "@/pages/Meetings";
 import Payments from "@/pages/Payments";
 import Coverage from "@/pages/Coverage";
@@ -39,6 +40,7 @@ function App() {
             <Route path="/leads" element={<Protected><Leads /></Protected>} />
             <Route path="/leads/:id" element={<Protected><LeadDetail /></Protected>} />
             <Route path="/pipeline" element={<Protected><Pipeline /></Protected>} />
+            <Route path="/deals" element={<Protected><Deals /></Protected>} />
             <Route path="/meetings" element={<Protected><Meetings /></Protected>} />
             <Route path="/payments" element={<Protected><Payments /></Protected>} />
             <Route path="/coverage" element={<Protected adminOnly><Coverage /></Protected>} />

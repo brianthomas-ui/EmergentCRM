@@ -36,18 +36,16 @@ export default function Login() {
   };
 
   return (
-    <div className="relative min-h-screen flex items-center justify-center px-4 overflow-hidden bg-white">
+    <div className="relative min-h-screen flex items-center justify-center px-4 overflow-hidden bg-[var(--bg)]">
       <BackgroundTexture />
 
       <div className="relative z-10 w-full max-w-md">
         {/* Brand lockup */}
         <div className="flex items-center gap-2.5 mb-8">
-          <div className="w-8 h-8 rounded-md bg-zinc-950 flex items-center justify-center">
-            <span className="text-white font-heading font-bold text-base leading-none">e</span>
-          </div>
+          <img src="/emergent-logo.jpeg" alt="Emergent" className="w-9 h-9 rounded-lg object-cover ring-1 ring-[var(--border)]" />
           <div className="leading-tight">
-            <div className="font-heading font-semibold tracking-tight text-sm text-zinc-950">Upsell CRM</div>
-            <div className="label-mono text-[10px] text-zinc-400">Emergent Labs</div>
+            <div className="font-heading font-semibold tracking-tight text-sm text-zinc-950">Emergent CRM</div>
+            <div className="label-mono text-[10px] text-emerald-400/80">Inside Sales</div>
           </div>
         </div>
 

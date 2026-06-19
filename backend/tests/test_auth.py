@@ -48,7 +48,7 @@ def test_safe_insert_tolerates_duplicate():
         finally:
             await db.users.delete_many({"email": email})
 
-    first, second = asyncio.get_event_loop().run_until_complete(run())
+    first, second = asyncio.run(run())
     assert first            # first insert succeeds
     assert not second       # duplicate is swallowed, no exception
 
