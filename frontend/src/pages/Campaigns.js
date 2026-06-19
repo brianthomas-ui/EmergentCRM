@@ -378,8 +378,8 @@ export default function Campaigns() {
                   dataKey="value"
                   stroke="none"
                 >
-                  {channelData.map((_, i) => (
-                    <Cell key={i} fill={CHANNEL_COLORS[i % CHANNEL_COLORS.length]} />
+                  {channelData.map((d, i) => (
+                    <Cell key={d.name} fill={CHANNEL_COLORS[i % CHANNEL_COLORS.length]} />
                   ))}
                 </Pie>
                 <RTooltip content={<DonutTooltip />} />

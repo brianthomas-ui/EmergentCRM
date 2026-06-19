@@ -305,7 +305,7 @@ function RecentActivity({ items }) {
       ) : (
         <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
           {items.map((item, i) => (
-            <div key={i} className="flex items-start gap-2.5">
+            <div key={item.id || `${item.created_at || "a"}-${i}`} className="flex items-start gap-2.5">
               <Avatar name={item.actor || item.agent} size="sm" className="shrink-0 mt-0.5" />
               <div className="min-w-0 flex-1">
                 <p className="text-[11px] text-[var(--text)] leading-snug truncate">

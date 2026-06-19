@@ -481,8 +481,8 @@ export default function Team() {
                   dataKey="value"
                   stroke="none"
                 >
-                  {workloadData.map((_, i) => (
-                    <Cell key={i} fill={REP_COLORS[i % REP_COLORS.length]} />
+                  {workloadData.map((d, i) => (
+                    <Cell key={d.name} fill={REP_COLORS[i % REP_COLORS.length]} />
                   ))}
                 </Pie>
                 <RTooltip content={<DonutTooltip />} />

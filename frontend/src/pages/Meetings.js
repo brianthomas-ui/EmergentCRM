@@ -560,7 +560,7 @@ export default function Meetings() {
                   : "";
                 return (
                   <div
-                    key={i}
+                    key={`slot-label-${i}`}
                     className="absolute w-full flex items-start justify-end pr-2"
                     style={{ top: i * SLOT_H, height: SLOT_H }}
                   >
@@ -647,7 +647,7 @@ export default function Meetings() {
                     {/* Hour/half-hour grid lines */}
                     {Array.from({ length: SLOT_COUNT }).map((_, i) => (
                       <div
-                        key={i}
+                        key={`slot-line-${i}`}
                         className={`absolute w-full ${
                           i % 2 === 0
                             ? "border-t border-[var(--border)]"

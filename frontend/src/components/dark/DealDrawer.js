@@ -232,7 +232,7 @@ export default function DealDrawer({ leadId, open, onClose, meta, onChanged, onS
                 {timeline.slice(0, 20).map((t, i) => {
                   const Icon = activityIcon(t.type);
                   return (
-                    <li key={i} className="ml-4">
+                    <li key={t.id || `${t.at || "t"}-${i}`} className="ml-4">
                       <span className="absolute -left-[7px] mt-1 w-3 h-3 rounded-full bg-[var(--surface-3)] border border-[var(--border)] flex items-center justify-center">
                         <Icon className="w-2 h-2 text-[var(--text-faint)]" />
                       </span>

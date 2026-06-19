@@ -4,6 +4,12 @@
 > The sections below this changelog are LEGACY (pre-redesign, light theme) — defer to the handoff.
 
 ## Changelog
+### 2026-06-19 — Code-review pass (env 8940ca30)
+- ✅ Fixed 6 array-index React keys → stable keys (Team/Campaigns donut Cells by name, Dashboard recent-activity by id, DealDrawer timeline, Meetings grid slots descriptive keys).
+- ✅ Removed unused `pydantic.Field` import.
+- ❌ Declined as FALSE POSITIVES: backend "4 undefined variables" (pyflakes finds none; every `_resolve_payment_amount` return path assigns amount/currency/desc, else-branches raise) and "26 `is` comparisons" (all are correct `is None`/`is not None`; changing to `==` would be wrong).
+- ⏭️ Deferred (high regression risk, no functional benefit): complexity refactors of dashboard()/create_lead()/etc., oversized-component splits (Deals/Meetings/Campaigns/LeadDetail/Leads), the 45 hook-dependency warnings (mostly stable module imports; blanket changes risk infinite render loops), and inline-prop memoization. Available on request.
+
 ### 2026-06-19 — "Fix Everything" batch (this session)
 - 🔴 **P0 FIX — backend was crash-looping on startup**: previous agent's `lifespan` called an undefined `_run_startup()`. Renamed the `@app.on_event("startup")` handler to `_run_startup()` and removed the duplicate `on_event` startup/shutdown handlers (lifespan owns startup + `client.close()`). This was the root cause of the user's "app stops working after sign in" report. Verified login → /auth/me → dashboard now works.
 - 🔴 **P0 FIX — self avatar upload/remove** (`Layout.js`): now POSTs `{data_url}` for upload and `DELETE /profile/avatar` for removal (was sending wrong field `avatar_url` + POSTing null).
