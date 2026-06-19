@@ -4,6 +4,18 @@
 > The sections below this changelog are LEGACY (pre-redesign, light theme) — defer to the handoff.
 
 ## Changelog
+### 2026-06-19 — 7 feature requests (post-production-deploy)
+All verified: frontend regression iter_10 = 100% (7/7), backend 48/48 pytest pass.
+1. **Meetings "chopped top" fixed** — replaced the viewport-locked `height: calc(100vh-64px)` root with a normal-flow header + bounded internal-scroll calendar (`h-[calc(100vh-260px)]`). Header + drawer fully visible at 1920x800 and 1440x768.
+2. **Meeting Show / No-Show / Reschedule** — MeetingDrawer now has Mark Show / No-Show (+ notes) and a datetime Reschedule. Backend: new `PUT /api/meetings/{id}/reschedule`; reuses existing `PUT /meetings/{id}/outcome`.
+3. **Click lead from a meeting** — drawer "View {lead}" button navigates to `/leads/:id`.
+4. **Password reset + self-service change** — all team accounts reset to `emergent@12345` via one-time guarded migration `reset_team_passwords_emergent12345_v1`; removed per-boot password self-heal on team accounts so self-service changes persist; new `POST /api/profile/password` + ChangePasswordModal (sidebar "Password" button).
+5. **Guided tutorial tour** — dependency-free `Tour.js` spotlight tour; auto-starts on first login (localStorage `crm_tour_v1_done`), replay via sidebar "Take a tour".
+6. **Single demo account** — `demo@emergent.sh` / `demo12345` (admin, self-healed each boot, sees all demo data); login page now advertises ONLY this credential (via `REACT_APP_DEMO_LOGINS`).
+7. **Custom payment links from Payments page** — new "New Payment Link" button → lead picker → PaymentModal (custom amount/line). (Backend already supported it; the gap was a missing entry point.)
+ADMIN_PASSWORD env updated to emergent@12345; agent seed default → emergent@12345; test fixtures updated.
+⚠️ PRODUCTION: these are in PREVIEW only — user must REDEPLOY. On redeploy the migration resets prod team passwords to emergent@12345 (once) and creates the demo account.
+
 ### 2026-06-19 — FULL code-quality refactor batch (user: "Yes full batch")
 Behavior-preserving refactor. Backend 48/48 pytest pass; frontend regression (iter_9) 100% pass, dark theme intact, zero runtime errors.
 **Backend (`server.py`) — complexity reductions:**
