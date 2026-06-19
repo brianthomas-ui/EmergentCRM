@@ -4,6 +4,16 @@
 > The sections below this changelog are LEGACY (pre-redesign, light theme) — defer to the handoff.
 
 ## Changelog
+### 2026-06-19 — Code-quality batch #5 (P0/P1 + full P2 refactor)
+Behavior-preserving. Backend 48/48 pytest pass + curl-verified endpoints; frontend regression (iter_11) 100% (8/8 flows), zero regressions.
+- **P0 — demo password externalized**: `server.py:_seed_demo_account` now reads `DEMO_EMAIL`/`DEMO_PASSWORD` from backend `.env` (defaults preserved). No credential literal remains in source. (Note: this is the *advertised* demo login, not a true secret — externalized for cleanliness.)
+- **P1 — Layout perf**: role-filtered sidebar nav is now `useMemo`'d (`visibleNavItems`); the JSX `filter().map()` no longer recomputes every render.
+- **Frontend splits**: `Layout.js` → `components/layout/SidebarParts.js` (`SidebarNav`, `SidebarUserCard`); `Tour.js` → `components/tour/TourParts.js` (`Spotlight`, `TourCard`, `tourCardStyle`). All data-testids preserved exactly.
+- **Backend complexity reductions** (all behavior-preserving): `list_team` → `_team_member_stats`; `list_leads` → `_build_lead_query` + `_apply_lead_status_filters`; `update_lead` → `_apply_lead_update_mappings`; `razorpay_webhook` → `_verify_razorpay_signature` (dedup w/ calendly pattern); `dashboard_drilldown` (cx ~13 if/elif chain) → `_DRILL_HANDLERS` dispatch table + `_drill_prefixed` (status:/group:/stage:).
+- **NOT changed** (re-confirmed false positives): `_calendly_extract`, `NewLeadModal.js`, `DealDrawer.js` were already modularized in prior batches; the linter's "undefined vars", "is vs ==", and "52 missing hook deps" remain intentional/correct.
+- **Non-blocking nits (deferred)**: ChangePasswordModal lacks Escape-to-close; pipeline-by-stage drilldown bar lacks a `data-testid`.
+- **Leaderboard "Add-ons"/"Payment Links Sent" columns**: still PAUSED (user answer was contradictory — to confirm).
+
 ### 2026-06-19 — 7 feature requests (post-production-deploy)
 All verified: frontend regression iter_10 = 100% (7/7), backend 48/48 pytest pass.
 1. **Meetings "chopped top" fixed** — replaced the viewport-locked `height: calc(100vh-64px)` root with a normal-flow header + bounded internal-scroll calendar (`h-[calc(100vh-260px)]`). Header + drawer fully visible at 1920x800 and 1440x768.
