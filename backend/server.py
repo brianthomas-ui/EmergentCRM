@@ -19,8 +19,11 @@ import csv
 import random
 import asyncio
 import secrets
+import time
+import re
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta, date
-from collections import Counter
+from collections import Counter, defaultdict, deque
 
 import bcrypt
 import jwt
@@ -32,14 +35,23 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url, serverSelectionTimeoutMS=10000)
 db = client[os.environ['DB_NAME']]
 
-app = FastAPI(title="Emergent Upsell CRM")
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("crm")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup + graceful shutdown (replaces the deprecated @app.on_event handlers).
+    await _run_startup()
+    yield
+    client.close()
+
+
+app = FastAPI(title="Emergent Upsell CRM", lifespan=lifespan)
 api = APIRouter(prefix="/api")
 
 JWT_SECRET = os.environ["JWT_SECRET"]
 JWT_ALGO = "HS256"
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("crm")
 
 PIPELINE_STAGES = [
     "New Booking", "Assigned", "Meeting Completed",
@@ -466,11 +478,12 @@ def serialize_lead(lead: dict) -> dict:
     return lead
 
 
-def get_circleback_summary(meeting: dict) -> dict:
-    """Behind-keys Circleback hook. The team records meetings via Circleback; when
-    CIRCLEBACK_API_KEY is set this would call the Circleback API to fetch the
-    recording link + AI summary for a meeting. Without a key (demo mode) it returns
-    whatever is already stored on the meeting (mock seed data) and NEVER crashes."""
+async def fetch_circleback_summary(meeting: dict) -> dict:
+    """Behind-keys Circleback hook. When CIRCLEBACK_API_KEY is set, fetch the
+    recording link + AI summary for a meeting; the blocking HTTP call runs in a
+    thread so it never blocks the event loop. Without a key (demo mode) it returns
+    whatever is stored on the meeting and NEVER crashes. Only called for single
+    meeting reads, so it is never an N+1 cost on list endpoints."""
     stored = {
         "recording_url": meeting.get("recording_url") or None,
         "summary": meeting.get("summary") or None,
@@ -478,31 +491,36 @@ def get_circleback_summary(meeting: dict) -> dict:
     api_key = os.environ.get("CIRCLEBACK_API_KEY")
     if not api_key:
         return stored
-    try:
+
+    def _call():
         import urllib.request, json as _json
         cb_id = meeting.get("circleback_id") or meeting.get("id")
         base = os.environ.get("CIRCLEBACK_API_URL", "https://api.circleback.ai/v1/meetings")
         req = urllib.request.Request(f"{base}/{cb_id}")
         req.add_header("Authorization", f"Bearer {api_key}")
         raw = urllib.request.urlopen(req, timeout=10).read()
-        data = _json.loads(raw.decode("utf-8"))
+        return _json.loads(raw.decode("utf-8"))
+
+    try:
+        loop = asyncio.get_event_loop()
+        data = await loop.run_in_executor(None, _call)
         return {
             "recording_url": data.get("recording_url") or stored["recording_url"],
             "summary": data.get("summary") or stored["summary"],
         }
     except Exception as e:
-        logger.warning(f"get_circleback_summary failed for meeting {meeting.get('id')}: {e}")
+        logger.warning(f"fetch_circleback_summary failed for meeting {meeting.get('id')}: {e}")
         return stored
 
 
 def serialize_meeting(meeting: dict) -> dict:
-    """clean() + ensure Circleback recording_url/summary are surfaced (never crash)."""
+    """clean() + surface stored Circleback recording_url/summary. No network here so
+    list/detail/dashboard stay fast; live backfill happens on GET /meetings/{id}."""
     if not meeting:
         return meeting
     m = clean(dict(meeting))
-    cb = get_circleback_summary(m)
-    m["recording_url"] = cb.get("recording_url")
-    m["summary"] = cb.get("summary")
+    m.setdefault("recording_url", None)
+    m.setdefault("summary", None)
     return m
 
 async def get_current_user(request: Request) -> dict:
@@ -796,7 +814,6 @@ class LeadOut(_OutBase):
     total_revenue_usd: Optional[float] = None
     deals_won: Optional[int] = None
     upsell_cycles: Optional[int] = None
-    payment_status: Optional[str] = None
     last_meeting_at: Optional[str] = None
     next_meeting_at: Optional[str] = None
     won_at: Optional[str] = None
@@ -962,22 +979,58 @@ class DashboardOut(_OutBase):
 
 
 # ----------------------------------------------------------------------------
+# Brute-force protection: in-memory sliding-window lockout per (ip + email).
+# Single-process demo store; resets on restart. A successful login clears it.
+# ----------------------------------------------------------------------------
+_LOGIN_FAILS = defaultdict(deque)
+LOGIN_MAX_FAILS = 10
+LOGIN_WINDOW = 300  # seconds
+
+
+def _login_key(request: Request, email: str) -> str:
+    ip = request.client.host if request.client else "?"
+    return f"{ip}:{email}"
+
+
+def _login_blocked(key: str) -> bool:
+    now = time.time()
+    dq = _LOGIN_FAILS[key]
+    while dq and now - dq[0] > LOGIN_WINDOW:
+        dq.popleft()
+    return len(dq) >= LOGIN_MAX_FAILS
+
+
+def _record_login_fail(key: str):
+    _LOGIN_FAILS[key].append(time.time())
+
+
+def _clear_login_fails(key: str):
+    _LOGIN_FAILS.pop(key, None)
+
+
+# ----------------------------------------------------------------------------
 # Auth routes
 # ----------------------------------------------------------------------------
 @api.post("/auth/login")
-async def login(body: LoginIn, response: Response):
+async def login(body: LoginIn, request: Request, response: Response):
     email = body.email.lower()
+    key = _login_key(request, email)
+    if _login_blocked(key):
+        raise HTTPException(status_code=429, detail="Too many failed attempts. Please wait a few minutes and try again.")
     try:
         user = await db.users.find_one({"email": email})
     except Exception as e:
         logger.error(f"login: DB lookup error for {email}: {e}")
         raise HTTPException(status_code=503, detail="Service temporarily unavailable, please retry")
     if not user:
+        _record_login_fail(key)
         logger.warning(f"login failed (user not found): {email}")
         raise HTTPException(status_code=401, detail="Invalid email or password")
     if not verify_password(body.password, user.get("password_hash", "")):
+        _record_login_fail(key)
         logger.warning(f"login failed (password mismatch): {email}")
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    _clear_login_fails(key)
     logger.info(f"login success: {email} (role={user.get('role')})")
     token = create_token(user)
     _set_auth_cookies(response, token)
@@ -1089,6 +1142,16 @@ async def set_user_avatar(user_id: str, body: AvatarIn, admin: dict = Depends(re
     updated = await db.users.find_one({"id": user_id})
     return clean(updated)
 
+@api.delete("/team/{user_id}/avatar", response_model=UserOut)
+async def clear_user_avatar(user_id: str, admin: dict = Depends(require_admin)):
+    target = await db.users.find_one({"id": user_id})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    await db.users.update_one({"id": user_id}, {"$set": {"avatar_url": ""}})
+    await log_audit("clear_avatar", admin["name"], target.get("name") or user_id)
+    updated = await db.users.find_one({"id": user_id})
+    return clean(updated)
+
 # ----------------------------------------------------------------------------
 # Leads
 # ----------------------------------------------------------------------------
@@ -1117,11 +1180,12 @@ async def list_leads(request: Request, user: dict = Depends(get_current_user)):
     if mine == "true" or user["role"] == "agent":
         q["owner_id"] = user["id"]
     if search:
+        rx = re.escape(search)
         q["$or"] = [
-            {"name": {"$regex": search, "$options": "i"}},
-            {"email": {"$regex": search, "$options": "i"}},
-            {"company": {"$regex": search, "$options": "i"}},
-            {"phone": {"$regex": search, "$options": "i"}},
+            {"name": {"$regex": rx, "$options": "i"}},
+            {"email": {"$regex": rx, "$options": "i"}},
+            {"company": {"$regex": rx, "$options": "i"}},
+            {"phone": {"$regex": rx, "$options": "i"}},
         ]
     leads = await db.leads.find(q, {"_id": 0, "notes": 0, "ownership_history": 0}).sort("updated_at", -1).to_list(2000)
     # Optional created-in-window filter. Backward compatible: applied ONLY when a
@@ -1611,6 +1675,23 @@ async def meeting_outcome(meeting_id: str, body: MeetingOutcome, user: dict = De
     return serialize_meeting(await db.meetings.find_one({"id": meeting_id}))
 
 
+@api.get("/meetings/{meeting_id}", response_model=MeetingOut)
+async def get_meeting(meeting_id: str, user: dict = Depends(get_current_user)):
+    meeting = await db.meetings.find_one({"id": meeting_id})
+    if not meeting:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+    if user["role"] == "agent" and meeting.get("agent_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Not your meeting")
+    # Live Circleback backfill (non-blocking) when a key is configured; persisted for reuse.
+    cb = await fetch_circleback_summary(meeting)
+    if cb.get("recording_url") != meeting.get("recording_url") or cb.get("summary") != meeting.get("summary"):
+        await db.meetings.update_one({"id": meeting_id}, {"$set": {
+            "recording_url": cb.get("recording_url"), "summary": cb.get("summary")}})
+        meeting["recording_url"] = cb.get("recording_url")
+        meeting["summary"] = cb.get("summary")
+    return serialize_meeting(meeting)
+
+
 def _calendly_extract(payload: dict) -> dict:
     """Pull name/email/start/join_url out of a Calendly invitee.created webhook body
     (tolerant of the v1/v2 shapes and demo/test payloads)."""
@@ -2058,6 +2139,43 @@ async def stripe_webhook(request: Request):
             await _apply_payment_status(record, "complete", event.payment_status)
     except Exception as e:
         logger.error(f"webhook error: {e}")
+    return {"received": True}
+
+@api.post("/webhook/razorpay")
+async def razorpay_webhook(request: Request):
+    """Razorpay Payment Link webhook. Verifies the signature when
+    RAZORPAY_WEBHOOK_SECRET is set (demo mode accepts unsigned), then marks the
+    matching payment paid/failed. Never crashes."""
+    raw = await request.body()
+    secret = os.environ.get("RAZORPAY_WEBHOOK_SECRET")
+    if secret:
+        try:
+            import hmac, hashlib
+            sig = request.headers.get("X-Razorpay-Signature", "")
+            expected = hmac.new(secret.encode("utf-8"), raw, hashlib.sha256).hexdigest()
+            if not hmac.compare_digest(expected, sig):
+                raise HTTPException(status_code=401, detail="Invalid Razorpay signature")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.warning(f"Razorpay signature verify error: {e}")
+            raise HTTPException(status_code=401, detail="Invalid Razorpay signature")
+    try:
+        import json as _json
+        body = _json.loads(raw.decode("utf-8") or "{}")
+    except Exception:
+        return {"received": True}
+    event = body.get("event") or ""
+    payload = body.get("payload") or {}
+    plink = ((payload.get("payment_link") or {}).get("entity")) or {}
+    payment_ent = ((payload.get("payment") or {}).get("entity")) or {}
+    link_id = plink.get("id") or payment_ent.get("payment_link_id")
+    record = await db.payments.find_one({"session_id": link_id}) if link_id else None
+    if record:
+        if event in ("payment_link.paid", "payment.captured", "order.paid"):
+            await _apply_payment_status(record, "complete", "paid")
+        elif event in ("payment.failed", "payment_link.cancelled", "payment_link.expired"):
+            await _apply_payment_status(record, "failed", "failed")
     return {"received": True}
 
 # ----------------------------------------------------------------------------
@@ -2871,8 +2989,7 @@ async def seed():
     await _seed_demo_leads()
     await _seed_coverage_history()
 
-@app.on_event("startup")
-async def startup():
+async def _run_startup():
     # Wait for the database (Atlas can be slow to accept the first connection on cold start).
     for attempt in range(1, 6):
         try:
@@ -2907,10 +3024,6 @@ async def startup():
         logger.info("CRM startup complete")
     except Exception as e:
         logger.error(f"seed() failed (app will still serve): {e}", exc_info=True)
-
-@app.on_event("shutdown")
-async def shutdown():
-    client.close()
 
 CSRF_EXEMPT_PATHS = {"/api/auth/login", "/api/webhook/stripe", "/api/webhook/calendly"}
 
