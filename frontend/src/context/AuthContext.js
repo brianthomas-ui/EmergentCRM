@@ -25,8 +25,10 @@ export function AuthProvider({ children }) {
   const logout = useCallback(async () => {
     try {
       await client.post("/auth/logout");
-    } catch {
-      /* ignore network/csrf errors on logout */
+    } catch (error) {
+      // Logout must always proceed locally even if the server call fails
+      // (e.g. network/CSRF). Log for diagnostics rather than swallowing silently.
+      console.warn("Logout request failed; clearing session locally anyway:", error);
     }
     setUser(false);
   }, []);
