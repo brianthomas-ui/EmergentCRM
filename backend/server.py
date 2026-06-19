@@ -1268,6 +1268,24 @@ async def create_lead(body: LeadIn, user: dict = Depends(get_current_user)):
                 logger.warning(f"referrer cross-log failed for {ref_id}: {e}")
     return serialize_lead(doc)
 
+@api.get("/leads/notes/recent", response_model=List[NoteOut], response_model_exclude_none=True)
+async def recent_notes(request: Request, user: dict = Depends(get_current_user)):
+    """Recent notes across leads for the Leads sidebar. Admins see all; agents see
+    notes on the leads they own. Each note is enriched with its lead's name."""
+    try:
+        limit = int(request.query_params.get("limit", 10))
+    except (TypeError, ValueError):
+        limit = 10
+    limit = max(1, min(limit, 50))
+    q = {} if user["role"] == "admin" else {"owner_id": user["id"]}
+    leads = await db.leads.find(q, {"_id": 0, "id": 1, "name": 1, "notes": 1}).to_list(5000)
+    notes = []
+    for l in leads:
+        for n in (l.get("notes") or []):
+            notes.append({**n, "lead_id": l.get("id"), "lead_name": l.get("name")})
+    notes.sort(key=lambda n: n.get("created_at") or "", reverse=True)
+    return notes[:limit]
+
 @api.get("/leads/{lead_id}")
 async def get_lead(lead_id: str, user: dict = Depends(get_current_user)):
     lead = await db.leads.find_one({"id": lead_id})

@@ -1,5 +1,24 @@
 # Emergent Labs Upsell CRM — PRD
 
+> ⚠️ AUTHORITATIVE SPEC = `/app/EMERGENT_HANDOFF.md` (dark "Emergent Dark Sales Console").
+> The sections below this changelog are LEGACY (pre-redesign, light theme) — defer to the handoff.
+
+## Changelog
+### 2026-06-19 — "Fix Everything" batch (this session)
+- 🔴 **P0 FIX — backend was crash-looping on startup**: previous agent's `lifespan` called an undefined `_run_startup()`. Renamed the `@app.on_event("startup")` handler to `_run_startup()` and removed the duplicate `on_event` startup/shutdown handlers (lifespan owns startup + `client.close()`). This was the root cause of the user's "app stops working after sign in" report. Verified login → /auth/me → dashboard now works.
+- 🔴 **P0 FIX — self avatar upload/remove** (`Layout.js`): now POSTs `{data_url}` for upload and `DELETE /profile/avatar` for removal (was sending wrong field `avatar_url` + POSTing null).
+- 🔴 **P0 FIX — admin rep-avatar remove** (`Team.js` `RepAvatarCell`): removal now calls `DELETE /team/{id}/avatar` (was POSTing empty string → 400).
+- 🔴 **P0 FIX — `GET /api/activities/recent`** added (dashboard recent-activity feed; was 404). Enriched with actor + lead_name; agent-scoped.
+- 🟠 **`GET /api/leads/notes/recent`** added (Leads sidebar recent-notes; was 404).
+- 🟠 **Dashboard FX accuracy**: `_deal_val` now uses the admin-managed `settings.inr_per_usd` rate instead of hardcoded `/85.0`.
+- 🟠 **CSRF**: added `/api/webhook/razorpay` to `CSRF_EXEMPT_PATHS` (was being blocked).
+- 🟡 **Tech debt**: deleted dead pages `Pipeline.js`, `Coverage.js` + orphaned components (`coverage/CoverageWidgets.js`, `dashboard/DashboardWidgets.js`) and removed their routes from `App.js`.
+- 🟡 **Tests**: fixed `test_stripe_preset_usd` (accepts real Stripe URL when key present). **48/48 backend pytest pass.** Frontend regression (testing agent iter 8): all 7 flows pass, both P0 avatar flows confirmed.
+- ⏸️ **PAUSED (user request)**: Team leaderboard "Add-ons" (won×2) & "Payment Links Sent" (won+leads×0.1) fabricated columns — left as-is pending user clarification.
+
+### Backend fixes already present from prior batch (verified)
+- DELETE avatar routes, Razorpay webhook handler, CORS hardening, brute-force login lockout, regex escaping on lead search.
+
 ## Problem Statement
 Web CRM for an inside sales team (4–10 agents + 1 sales head) to convert existing power users ($50–$200/mo) into $1,000–$5,000 plans. Replaces Google Sheets + Calendly with a centralized system for booked-meeting routing, account context, pipeline tracking, and payment links.
 
