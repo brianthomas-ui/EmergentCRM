@@ -17,44 +17,85 @@ const FIXED_LINE = {
   "Lifetime Access": { package_id: "lifetime_access", amount: 5999 },
 };
 
+// Build the payForm patch for a newly selected product line.
+function lineDefaults(newLine, payForm, mb) {
+  if (newLine === "Credit Top-Up") {
+    return {
+      ...payForm,
+      product_line: newLine,
+      package_id: "",
+      amount: "",
+      currency: payForm.currency || "usd",
+      multiplier: payForm.multiplier != null && payForm.multiplier !== "" ? payForm.multiplier : mb.default,
+      credits: "",
+      boost_credits: "",
+      description: "",
+    };
+  }
+  const fx = FIXED_LINE[newLine] || {};
+  return {
+    ...payForm,
+    product_line: newLine,
+    package_id: fx.package_id || "",
+    amount: fx.amount != null ? String(fx.amount) : "",
+    currency: payForm.currency || "usd",
+    multiplier: "",
+    credits: "",
+    boost_credits: "",
+    description: newLine,
+  };
+}
+
+// Derive live credit values for the Credit Top-Up preview.
+function creditPreview(payForm, mb, fxRate) {
+  const mult = Number(payForm.multiplier) || mb.default;
+  const amt = Number(payForm.amount) || 0;
+  const usdForCredits = payForm.currency === "inr" && fxRate ? amt / fxRate : amt;
+  return { mult, amt, usdForCredits, liveCredits: Math.round(usdForCredits * mult) };
+}
+
+function CreditFields({ payForm, setPayForm, mb, preview }) {
+  const { mult, amt, usdForCredits, liveCredits } = preview;
+  return (
+    <>
+      <Field label={`Multiplier — ${mult}× (max ${mb.max})`}>
+        <div className="flex items-center gap-3">
+          <input
+            type="range"
+            min={mb.min}
+            max={mb.max}
+            step={0.5}
+            value={mult}
+            onChange={(e) => setPayForm({ ...payForm, multiplier: Number(e.target.value) })}
+            className="flex-1"
+            data-testid="pay-multiplier"
+          />
+          <span className="text-sm font-semibold tabular-nums w-12 text-right">{mult}×</span>
+        </div>
+        <div className="text-[11px] text-zinc-400 mt-1">Range {mb.min}–{mb.max} · max 10</div>
+      </Field>
+      <div className="-mt-1 mb-3 text-sm" data-testid="credits-preview">
+        Credits delivered: <span className="font-semibold text-zinc-800">{liveCredits.toLocaleString()}</span>
+        <span className="text-zinc-400"> &nbsp;({amt ? (payForm.currency === "inr" ? `≈$${Math.round(usdForCredits).toLocaleString()}` : `$${amt.toLocaleString()}`) : "—"} × {mult})</span>
+      </div>
+    </>
+  );
+}
+
+function FxNote({ payForm, fxRate }) {
+  if (!(payForm.currency === "inr" && Number(payForm.amount) > 0)) return null;
+  return (
+    <div className="-mt-1 mb-3 text-xs text-zinc-500" data-testid="fx-preview">
+      ≈ <span className="font-semibold text-zinc-800">{money(Number(payForm.amount) / fxRate)}</span> at ₹{fxRate}/$1 · reported in USD
+    </div>
+  );
+}
+
 export function PaymentModal({ open, onClose, payForm, setPayForm, packages, fxRate, meta, onSubmit }) {
   const mb = meta?.credit_multiplier || { min: 6, default: 7.5, max: 10 };
   const line = payForm.product_line || "Credit Top-Up";
   const isCredit = line === "Credit Top-Up";
-
-  const chooseLine = (newLine) => {
-    if (newLine === "Credit Top-Up") {
-      setPayForm({
-        ...payForm,
-        product_line: newLine,
-        package_id: "",
-        amount: "",
-        currency: payForm.currency || "usd",
-        multiplier: payForm.multiplier != null && payForm.multiplier !== "" ? payForm.multiplier : mb.default,
-        credits: "",
-        boost_credits: "",
-        description: "",
-      });
-      return;
-    }
-    const fx = FIXED_LINE[newLine] || {};
-    setPayForm({
-      ...payForm,
-      product_line: newLine,
-      package_id: fx.package_id || "",
-      amount: fx.amount != null ? String(fx.amount) : "",
-      currency: payForm.currency || "usd",
-      multiplier: "",
-      credits: "",
-      boost_credits: "",
-      description: newLine,
-    });
-  };
-
-  const mult = Number(payForm.multiplier) || mb.default;
-  const amt = Number(payForm.amount) || 0;
-  const usdForCredits = payForm.currency === "inr" && fxRate ? amt / fxRate : amt;
-  const liveCredits = Math.round(usdForCredits * mult);
+  const preview = creditPreview(payForm, mb, fxRate);
 
   return (
     <Modal open={open} onClose={onClose} title="Send Payment Link" testid="payment-modal">
@@ -65,7 +106,7 @@ export function PaymentModal({ open, onClose, payForm, setPayForm, packages, fxR
         </select>
       </Field>
       <Field label="Product line">
-        <select className={inputCls} value={line} onChange={(e) => chooseLine(e.target.value)} data-testid="pay-product-line">
+        <select className={inputCls} value={line} onChange={(e) => setPayForm(lineDefaults(e.target.value, payForm, mb))} data-testid="pay-product-line">
           {(meta?.product_lines || PRODUCT_LINES).map((pl) => (
             <option key={pl} value={pl}>{pl}</option>
           ))}
@@ -88,36 +129,9 @@ export function PaymentModal({ open, onClose, payForm, setPayForm, packages, fxR
         </div>
       </div>
 
-      {isCredit && (
-        <>
-          <Field label={`Multiplier — ${mult}× (max ${mb.max})`}>
-            <div className="flex items-center gap-3">
-              <input
-                type="range"
-                min={mb.min}
-                max={mb.max}
-                step={0.5}
-                value={mult}
-                onChange={(e) => setPayForm({ ...payForm, multiplier: Number(e.target.value) })}
-                className="flex-1"
-                data-testid="pay-multiplier"
-              />
-              <span className="text-sm font-semibold tabular-nums w-12 text-right">{mult}×</span>
-            </div>
-            <div className="text-[11px] text-zinc-400 mt-1">Range {mb.min}–{mb.max} · max 10</div>
-          </Field>
-          <div className="-mt-1 mb-3 text-sm" data-testid="credits-preview">
-            Credits delivered: <span className="font-semibold text-zinc-800">{liveCredits.toLocaleString()}</span>
-            <span className="text-zinc-400"> &nbsp;({amt ? (payForm.currency === "inr" ? `≈$${Math.round(usdForCredits).toLocaleString()}` : `$${amt.toLocaleString()}`) : "—"} × {mult})</span>
-          </div>
-        </>
-      )}
+      {isCredit && <CreditFields payForm={payForm} setPayForm={setPayForm} mb={mb} preview={preview} />}
+      <FxNote payForm={payForm} fxRate={fxRate} />
 
-      {payForm.currency === "inr" && Number(payForm.amount) > 0 && (
-        <div className="-mt-1 mb-3 text-xs text-zinc-500" data-testid="fx-preview">
-          ≈ <span className="font-semibold text-zinc-800">{money(Number(payForm.amount) / fxRate)}</span> at ₹{fxRate}/$1 · reported in USD
-        </div>
-      )}
       <Field label="Description (optional)">
         <input className={inputCls} value={payForm.description} onChange={(e) => setPayForm({ ...payForm, description: e.target.value })} placeholder={isCredit ? "Credit Top-Up - $200 -> 1,500 credits (7.5x)" : line} />
       </Field>

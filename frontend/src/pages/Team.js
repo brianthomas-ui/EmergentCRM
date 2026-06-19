@@ -27,6 +27,13 @@ const REP_COLORS = [
   "#34d399", "#7dd3fc", "#c4b5fd", "#fcd34d", "#fb7185",
 ];
 
+// Stable chart-config objects hoisted out of render so child charts don't see new
+// object references on every render (recharts re-render avoidance).
+const BAR_MARGIN = { top: 4, right: 8, left: -20, bottom: 0 };
+const AXIS_TICK = { fontSize: 10, fill: "var(--text-faint)" };
+const LABEL_STYLE = { fontSize: 9, fill: "var(--text-faint)" };
+const BAR_RADIUS = [3, 3, 0, 0];
+
 // ---------------------------------------------------------------------------
 // KPI card.
 // ---------------------------------------------------------------------------
@@ -447,16 +454,16 @@ export default function Team() {
         <Card className="p-4 flex flex-col gap-3">
           <h2 className="text-sm font-semibold text-[var(--text)]">Stage Conversion by Rep</h2>
           <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={stageData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }} barGap={2}>
+            <BarChart data={stageData} margin={BAR_MARGIN} barGap={2}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-              <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text-faint)" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 10, fill: "var(--text-faint)" }} axisLine={false} tickLine={false} unit="%" domain={[0, 100]} />
+              <XAxis dataKey="name" tick={AXIS_TICK} axisLine={false} tickLine={false} />
+              <YAxis tick={AXIS_TICK} axisLine={false} tickLine={false} unit="%" domain={[0, 100]} />
               <RTooltip content={<BarTooltip />} />
-              <Bar dataKey="rate" name="Conversion" fill="#10b981" radius={[3, 3, 0, 0]} maxBarSize={28}>
+              <Bar dataKey="rate" name="Conversion" fill="#10b981" radius={BAR_RADIUS} maxBarSize={28}>
                 <LabelList dataKey="rate" position="top" formatter={(v) => `${v}%`}
-                  style={{ fontSize: 9, fill: "var(--text-faint)" }} />
+                  style={LABEL_STYLE} />
               </Bar>
-              <Bar dataKey="target" name="Target %" fill="#38bdf8" radius={[3, 3, 0, 0]} maxBarSize={28} fillOpacity={0.5} />
+              <Bar dataKey="target" name="Target %" fill="#38bdf8" radius={BAR_RADIUS} maxBarSize={28} fillOpacity={0.5} />
             </BarChart>
           </ResponsiveContainer>
           <div className="flex items-center gap-4 text-[11px] text-[var(--text-faint)]">

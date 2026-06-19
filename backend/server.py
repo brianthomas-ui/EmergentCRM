@@ -1204,14 +1204,8 @@ async def list_leads(request: Request, user: dict = Depends(get_current_user)):
         out = [l for l in out if group in (l.get("status_groups") or [])]
     return out
 
-@api.post("/leads", response_model=LeadOut)
-async def create_lead(body: LeadIn, user: dict = Depends(get_current_user)):
-    existing = await db.leads.find_one({"email": body.email.lower()})
-    if existing:
-        raise HTTPException(status_code=400, detail="A lead with this email already exists")
-    doc = body.model_dump()
-    doc["email"] = body.email.lower()
-    # Enrich usage/LTV/region from the Emergent Users DB when the creator left them blank.
+async def _maybe_enrich_lead(doc: dict):
+    """Backfill usage/LTV/region/plan from the Emergent Users DB when left blank."""
     if not doc.get("monthly_spend") and not doc.get("lifetime_value") and (not doc.get("region") or doc.get("region") == "Other"):
         enr = await enrich_from_emergent(doc["email"])
         doc["monthly_spend"] = enr["monthly_spend"]
@@ -1220,28 +1214,48 @@ async def create_lead(body: LeadIn, user: dict = Depends(get_current_user)):
         doc["usage_trend"] = enr["usage_trend"]
         if not doc.get("plan"):
             doc["plan"] = enr["plan"]
-    # Referral handling: if this lead was referred by an existing customer/lead,
-    # mark the source, store the referrer, and cross-log on both leads (best-effort).
-    referrer = None
+
+
+async def _resolve_referral(doc: dict):
+    """Normalise referral fields on `doc` and return the referrer lead (or None)."""
     ref_id = doc.get("referred_by_lead_id")
-    if ref_id:
-        referrer = await db.leads.find_one({"id": ref_id})
-        doc["source"] = "Referral"
-        if referrer and not doc.get("referred_by_name"):
-            doc["referred_by_name"] = referrer.get("name") or ""
-    else:
+    if not ref_id:
         doc["referred_by_lead_id"] = None
         doc["referred_by_name"] = doc.get("referred_by_name") or ""
-    # If a package was chosen but no product_line/amount, backfill from the catalog.
+        return None
+    referrer = await db.leads.find_one({"id": ref_id})
+    doc["source"] = "Referral"
+    if referrer and not doc.get("referred_by_name"):
+        doc["referred_by_name"] = referrer.get("name") or ""
+    return referrer
+
+
+def _backfill_package(doc: dict):
+    """Fill product_line/amount/currency from the chosen preset package when missing."""
     pkg_id = doc.get("package_id")
-    if pkg_id and PRESET_PACKAGES.get(pkg_id):
-        pkg = PRESET_PACKAGES[pkg_id]
-        if not doc.get("product_line"):
-            doc["product_line"] = pkg.get("product_line", "")
-        if not doc.get("amount"):
-            doc["amount"] = float(pkg["amount"])
-        if not doc.get("currency"):
-            doc["currency"] = pkg.get("currency", "usd")
+    pkg = PRESET_PACKAGES.get(pkg_id) if pkg_id else None
+    if not pkg:
+        return
+    if not doc.get("product_line"):
+        doc["product_line"] = pkg.get("product_line", "")
+    if not doc.get("amount"):
+        doc["amount"] = float(pkg["amount"])
+    if not doc.get("currency"):
+        doc["currency"] = pkg.get("currency", "usd")
+
+
+@api.post("/leads", response_model=LeadOut)
+async def create_lead(body: LeadIn, user: dict = Depends(get_current_user)):
+    existing = await db.leads.find_one({"email": body.email.lower()})
+    if existing:
+        raise HTTPException(status_code=400, detail="A lead with this email already exists")
+    doc = body.model_dump()
+    doc["email"] = body.email.lower()
+
+    await _maybe_enrich_lead(doc)
+    referrer = await _resolve_referral(doc)
+    _backfill_package(doc)
+
     doc.update({
         "id": new_id(), "stage": "New Booking", "owner_id": None, "owner_name": None,
         "owner_locked": False, "total_revenue_usd": 0.0, "deals_won": 0, "upsell_cycles": 0,
@@ -1258,14 +1272,14 @@ async def create_lead(body: LeadIn, user: dict = Depends(get_current_user)):
     doc.setdefault("currency", "usd")
     await db.leads.insert_one(doc)
     await log_activity(doc["id"], "created", f"Lead created by {user['name']}", user["name"])
-    if ref_id:
+    if doc.get("referred_by_lead_id"):
         ref_name = doc.get("referred_by_name") or "a customer"
         await log_activity(doc["id"], "referral", f"Referred by {ref_name}", user["name"])
         if referrer:
             try:
                 await log_activity(referrer["id"], "referral", f"Referred {doc['name']}", user["name"])
             except Exception as e:
-                logger.warning(f"referrer cross-log failed for {ref_id}: {e}")
+                logger.warning(f"referrer cross-log failed for {doc['referred_by_lead_id']}: {e}")
     return serialize_lead(doc)
 
 @api.get("/leads/notes/recent", response_model=List[NoteOut], response_model_exclude_none=True)
@@ -1729,27 +1743,77 @@ def _calendly_extract(payload: dict) -> dict:
     return {"name": name, "email": email, "start": start, "join_url": join_url}
 
 
+def _verify_calendly_signature(raw: bytes, request: Request):
+    """Verify the Calendly-Webhook-Signature HMAC when a signing key is configured.
+    Demo mode (no key) accepts unsigned payloads. Raises 401 on mismatch."""
+    signing_key = os.environ.get("CALENDLY_WEBHOOK_SIGNING_KEY")
+    if not signing_key:
+        return
+    try:
+        import hmac, hashlib
+        header = request.headers.get("Calendly-Webhook-Signature", "")
+        parts = dict(kv.split("=", 1) for kv in header.split(",") if "=" in kv)
+        t, v1 = parts.get("t", ""), parts.get("v1", "")
+        signed = f"{t}.{raw.decode('utf-8')}".encode("utf-8")
+        expected = hmac.new(signing_key.encode("utf-8"), signed, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected, v1):
+            raise HTTPException(status_code=401, detail="Invalid Calendly signature")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"Calendly signature verify error: {e}")
+        raise HTTPException(status_code=401, detail="Invalid Calendly signature")
+
+
+async def _calendly_get_or_create_lead(info: dict) -> dict:
+    """Upsert a lead by email for a Calendly booking; enrich + log when newly created."""
+    lead = await db.leads.find_one({"email": info["email"]})
+    if lead:
+        return lead
+    ldoc = {
+        "id": new_id(), "name": info["name"] or info["email"], "email": info["email"],
+        "company": "", "phone": "", "plan": "", "monthly_spend": 0.0, "lifetime_value": 0.0,
+        "usage_trend": "stable", "product_history": [], "source": "Calendly", "region": "Other",
+        "priority": "None", "stage": "New Booking", "owner_id": None, "owner_name": None,
+        "owner_locked": False, "total_revenue_usd": 0.0, "deals_won": 0, "upsell_cycles": 0,
+        "notes": [], "ownership_history": [], "payment_status": "none",
+        "last_meeting_at": None, "next_meeting_at": None,
+        "created_at": now_iso(), "updated_at": now_iso(),
+    }
+    enr = await enrich_from_emergent(info["email"])
+    ldoc.update({"monthly_spend": enr["monthly_spend"], "lifetime_value": enr["lifetime_value"],
+                 "region": enr["region"], "usage_trend": enr["usage_trend"], "plan": enr["plan"]})
+    await db.leads.insert_one(ldoc)
+    await log_activity(ldoc["id"], "created", "Lead created via Calendly booking", "Calendly")
+    return ldoc
+
+
+async def _calendly_book_meeting(lead: dict, agent: dict, info: dict):
+    """Create the meeting (Google Meet fallback), assign sticky/RR owner, advance the lead."""
+    scheduled_at = info["start"] or now_iso()
+    meeting = {
+        "id": new_id(), "lead_id": lead["id"], "lead_name": lead["name"],
+        "agent_id": agent["id"], "agent_name": agent["name"],
+        "scheduled_at": scheduled_at, "duration": 30,
+        "status": "scheduled", "source": "Calendly", "booking_driver": "",
+        "no_show_reason": "", "reschedule_status": "", "outcome_notes": "",
+        "join_url": info["join_url"] or "", "created_at": now_iso(),
+    }
+    if not meeting["join_url"]:
+        meeting["join_url"] = await create_google_meet(agent, lead, scheduled_at, 30) or ""
+    await db.meetings.insert_one(meeting)
+
+    if not lead.get("owner_id"):
+        await _assign_lead(lead, agent, "Auto (Calendly)")
+    await db.leads.update_one({"id": lead["id"]}, {"$set": {
+        "stage": "Assigned", "next_meeting_at": scheduled_at, "updated_at": now_iso()}})
+    await log_activity(lead["id"], "meeting", f"Calendly meeting booked with {agent['name']}", "Calendly")
+
+
 @api.post("/webhook/calendly")
 async def calendly_webhook(request: Request):
     raw = await request.body()
-    signing_key = os.environ.get("CALENDLY_WEBHOOK_SIGNING_KEY")
-    if signing_key:
-        # Verify Calendly-Webhook-Signature: "t=<ts>,v1=<hmac sha256 of t.body>".
-        try:
-            import hmac, hashlib
-            header = request.headers.get("Calendly-Webhook-Signature", "")
-            parts = dict(kv.split("=", 1) for kv in header.split(",") if "=" in kv)
-            t, v1 = parts.get("t", ""), parts.get("v1", "")
-            signed = f"{t}.{raw.decode('utf-8')}".encode("utf-8")
-            expected = hmac.new(signing_key.encode("utf-8"), signed, hashlib.sha256).hexdigest()
-            if not hmac.compare_digest(expected, v1):
-                raise HTTPException(status_code=401, detail="Invalid Calendly signature")
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.warning(f"Calendly signature verify error: {e}")
-            raise HTTPException(status_code=401, detail="Invalid Calendly signature")
-    # else: demo mode — accept unsigned payloads.
+    _verify_calendly_signature(raw, request)
 
     try:
         import json as _json
@@ -1765,26 +1829,8 @@ async def calendly_webhook(request: Request):
         return {"received": True}
 
     # Upsert lead by email — keep existing owner sticky, else round-robin among agents
-    # (which already excludes the admin/sales-head: round-robin queries role="agent").
-    lead = await db.leads.find_one({"email": info["email"]})
-    if not lead:
-        ldoc = {
-            "id": new_id(), "name": info["name"] or info["email"], "email": info["email"],
-            "company": "", "phone": "", "plan": "", "monthly_spend": 0.0, "lifetime_value": 0.0,
-            "usage_trend": "stable", "product_history": [], "source": "Calendly", "region": "Other",
-            "priority": "None", "stage": "New Booking", "owner_id": None, "owner_name": None,
-            "owner_locked": False, "total_revenue_usd": 0.0, "deals_won": 0, "upsell_cycles": 0,
-            "notes": [], "ownership_history": [], "payment_status": "none",
-            "last_meeting_at": None, "next_meeting_at": None,
-            "created_at": now_iso(), "updated_at": now_iso(),
-        }
-        enr = await enrich_from_emergent(info["email"])
-        ldoc.update({"monthly_spend": enr["monthly_spend"], "lifetime_value": enr["lifetime_value"],
-                     "region": enr["region"], "usage_trend": enr["usage_trend"], "plan": enr["plan"]})
-        await db.leads.insert_one(ldoc)
-        await log_activity(ldoc["id"], "created", "Lead created via Calendly booking", "Calendly")
-        lead = ldoc
-
+    # (round-robin queries role="agent", so the admin/sales-head is excluded).
+    lead = await _calendly_get_or_create_lead(info)
     if lead.get("owner_id"):
         agent = await db.users.find_one({"id": lead["owner_id"]})  # sticky owner
     else:
@@ -1792,25 +1838,7 @@ async def calendly_webhook(request: Request):
     if not agent:
         return {"received": True}
 
-    scheduled_at = info["start"] or now_iso()
-    meeting = {
-        "id": new_id(), "lead_id": lead["id"], "lead_name": lead["name"],
-        "agent_id": agent["id"], "agent_name": agent["name"],
-        "scheduled_at": scheduled_at, "duration": 30,
-        "status": "scheduled", "source": "Calendly", "booking_driver": "",
-        "no_show_reason": "", "reschedule_status": "", "outcome_notes": "",
-        "join_url": info["join_url"] or "", "created_at": now_iso(),
-    }
-    if not meeting["join_url"]:
-        # No Calendly-provided link -> try a real Google Meet on the agent's calendar.
-        meeting["join_url"] = await create_google_meet(agent, lead, scheduled_at, 30) or ""
-    await db.meetings.insert_one(meeting)
-
-    if not lead.get("owner_id"):
-        await _assign_lead(lead, agent, "Auto (Calendly)")
-    await db.leads.update_one({"id": lead["id"]}, {"$set": {
-        "stage": "Assigned", "next_meeting_at": scheduled_at, "updated_at": now_iso()}})
-    await log_activity(lead["id"], "meeting", f"Calendly meeting booked with {agent['name']}", "Calendly")
+    await _calendly_book_meeting(lead, agent, info)
     return {"received": True}
 
 # ----------------------------------------------------------------------------
@@ -2271,6 +2299,83 @@ async def recent_activities(request: Request, user: dict = Depends(get_current_u
     return out
 
 
+def _deal_value(l, inr_rate):
+    """USD deal value of a lead: explicit amount (INR converted at inr_rate), else monthly_spend."""
+    val = float(l.get("amount") or 0)
+    if (l.get("currency") or "usd") == "inr" and val:
+        val = round(val / inr_rate, 2)
+    if not val:
+        val = float(l.get("monthly_spend") or 0)
+    return val
+
+
+def _attach_derived_status(leads):
+    """Attach `_status` (derived visible badge) + `_groups` (reporting groups) to each lead
+    in place, tolerating legacy leads via map_legacy_stage. Single source of truth for rollups."""
+    for l in leads:
+        legacy = map_legacy_stage(l.get("stage", "New Booking"), l.get("payment_status", ""))
+        st = derive_status(
+            l.get("sales_stage") or legacy["stage"],
+            l.get("outcome", "") or legacy["outcome"],
+            l.get("payment_state") or legacy["payment_status"],
+        )
+        l["_status"] = st
+        l["_groups"] = status_group(st)
+
+
+def _compute_group_counts(win_leads, leads, inr_rate):
+    """Funnel stage counts + visible-status counts + windowed/open reporting-group rollups.
+    Requires _attach_derived_status() to have run. Returns
+    (stage_counts, status_counts, win_group_counts, open_group_counts)."""
+    stage_counts = {s: 0 for s in PIPELINE_STAGES}
+    for l in win_leads:
+        key = l.get("stage", "New Booking")
+        stage_counts[key] = stage_counts.get(key, 0) + 1
+
+    status_counts = {s: 0 for s in VISIBLE_STATUSES}
+    win_group_counts = {g: {"count": 0, "value_usd": 0.0} for g in STATUS_GROUPS}
+    for l in win_leads:
+        st = l["_status"]
+        status_counts[st] = status_counts.get(st, 0) + 1
+        for g in l["_groups"]:
+            win_group_counts[g]["count"] += 1
+            win_group_counts[g]["value_usd"] += _deal_value(l, inr_rate)
+
+    # Open-pipeline / recoverable / lost describe CURRENT state across all in-scope leads.
+    open_group_counts = {g: {"count": 0, "value_usd": 0.0} for g in STATUS_GROUPS}
+    for l in leads:
+        for g in l["_groups"]:
+            open_group_counts[g]["count"] += 1
+            open_group_counts[g]["value_usd"] += _deal_value(l, inr_rate)
+    return stage_counts, status_counts, win_group_counts, open_group_counts
+
+
+def _compute_product_revenue(win_payments, leads, inr_rate):
+    """Per product-line cards: won (paid in-window) revenue/count + open pipeline value/count."""
+    product_revenue = {pl: {"won_revenue": 0.0, "won_count": 0, "pipeline_value": 0.0, "pipeline_count": 0}
+                       for pl in PRODUCT_LINE_NAMES}
+    for p in win_payments:
+        pl = p.get("product_line") or ""
+        if pl in product_revenue and p.get("payment_status") == "paid":
+            product_revenue[pl]["won_revenue"] += p.get("amount_usd", p.get("amount", 0)) or 0
+            product_revenue[pl]["won_count"] += 1
+    for l in leads:
+        pl = l.get("product_line") or ""
+        if pl in product_revenue and "Active Pipeline" in l["_groups"]:
+            product_revenue[pl]["pipeline_value"] += _deal_value(l, inr_rate)
+            product_revenue[pl]["pipeline_count"] += 1
+    return product_revenue
+
+
+def _today_meeting_buckets(meetings):
+    """Split meetings into (today, completed_today, no_show_today) by date string prefix."""
+    today = datetime.now(timezone.utc).date().isoformat()
+    meetings_today = [m for m in meetings if (m.get("scheduled_at") or "").startswith(today)]
+    completed_today = [m for m in meetings if (m.get("completed_at") or "").startswith(today) and m["status"] == "completed"]
+    noshow_today = [m for m in meetings if (m.get("completed_at") or "").startswith(today) and m["status"] == "no_show"]
+    return meetings_today, completed_today, noshow_today
+
+
 @api.get("/dashboard", response_model=DashboardOut, response_model_exclude_none=True)
 async def dashboard(request: Request, user: dict = Depends(get_current_user)):
     is_admin = user["role"] == "admin"
@@ -2290,74 +2395,15 @@ async def dashboard(request: Request, user: dict = Depends(get_current_user)):
     meetings = await db.meetings.find(agent_scope, {"_id": 0, "id": 1, "lead_id": 1, "lead_name": 1, "agent_id": 1, "agent_name": 1, "scheduled_at": 1, "completed_at": 1, "status": 1, "source": 1, "booking_driver": 1, "duration": 1}).to_list(5000)
     payments = await db.payments.find(agent_scope, {"_id": 0, "amount": 1, "amount_usd": 1, "payment_status": 1, "agent_id": 1, "product_line": 1, "lead_id": 1, "created_at": 1}).to_list(5000)
 
-    # Window-scoped slices. `leads` keeps the full set for open-pipeline (current
-    # state); `win_leads` is the created-in-window slice for funnel counts.
+    # Window-scoped slices share lead/payment object refs with the full set.
     win_leads = [l for l in leads if _in_window(l.get("created_at"), win_start, win_end)]
     win_payments = [p for p in payments if _in_window(p.get("created_at"), win_start, win_end)]
-
-    # Admin-managed FX rate (INR per USD) so per-deal INR amounts roll up correctly.
     inr_rate = await get_inr_rate()
 
-    # Attach the derived status to each lead so all rollups use one source of truth.
-    # (Applied to the full set so both windowed and current-state rollups can read it.)
-    for l in leads:
-        st = derive_status(
-            l.get("sales_stage") or map_legacy_stage(l.get("stage", "New Booking"), l.get("payment_status", ""))["stage"],
-            l.get("outcome", "") or map_legacy_stage(l.get("stage", "New Booking"), l.get("payment_status", ""))["outcome"],
-            l.get("payment_state") or map_legacy_stage(l.get("stage", "New Booking"), l.get("payment_status", ""))["payment_status"],
-        )
-        l["_status"] = st
-        l["_groups"] = status_group(st)
-
-    def _deal_val(l):
-        val = float(l.get("amount") or 0)
-        if (l.get("currency") or "usd") == "inr" and val:
-            val = round(val / inr_rate, 2)
-        if not val:
-            val = float(l.get("monthly_spend") or 0)
-        return val
-
-    # Funnel counts = leads CREATED in the window (this_month default).
-    stage_counts = {s: 0 for s in PIPELINE_STAGES}
-    for l in win_leads:
-        stage_counts[l.get("stage", "New Booking")] = stage_counts.get(l.get("stage", "New Booking"), 0) + 1
-
-    status_counts = {s: 0 for s in VISIBLE_STATUSES}
-    win_group_counts = {g: {"count": 0, "value_usd": 0.0} for g in STATUS_GROUPS}
-    for l in win_leads:
-        st = l["_status"]
-        status_counts[st] = status_counts.get(st, 0) + 1
-        for g in l["_groups"]:
-            win_group_counts[g]["count"] += 1
-            win_group_counts[g]["value_usd"] += _deal_val(l)
-
-    # Open-pipeline / recoverable / lost describe CURRENT state across all in-scope
-    # leads (not a historical window slice) per the "open pipeline = open leads" rule.
-    open_group_counts = {g: {"count": 0, "value_usd": 0.0} for g in STATUS_GROUPS}
-    for l in leads:
-        for g in l["_groups"]:
-            open_group_counts[g]["count"] += 1
-            open_group_counts[g]["value_usd"] += _deal_val(l)
-
-    # Product-line revenue cards: won (paid in-window) revenue + count, and open
-    # pipeline value (current state).
-    product_revenue = {pl: {"won_revenue": 0.0, "won_count": 0, "pipeline_value": 0.0, "pipeline_count": 0}
-                       for pl in PRODUCT_LINE_NAMES}
-    for p in win_payments:
-        pl = p.get("product_line") or ""
-        if pl in product_revenue and p.get("payment_status") == "paid":
-            product_revenue[pl]["won_revenue"] += p.get("amount_usd", p.get("amount", 0)) or 0
-            product_revenue[pl]["won_count"] += 1
-    for l in leads:
-        pl = l.get("product_line") or ""
-        if pl in product_revenue and "Active Pipeline" in l["_groups"]:
-            product_revenue[pl]["pipeline_value"] += _deal_val(l)
-            product_revenue[pl]["pipeline_count"] += 1
-
-    today = datetime.now(timezone.utc).date().isoformat()
-    meetings_today = [m for m in meetings if (m.get("scheduled_at") or "").startswith(today)]
-    completed_today = [m for m in meetings if (m.get("completed_at") or "").startswith(today) and m["status"] == "completed"]
-    noshow_today = [m for m in meetings if (m.get("completed_at") or "").startswith(today) and m["status"] == "no_show"]
+    _attach_derived_status(leads)
+    stage_counts, status_counts, win_group_counts, open_group_counts = _compute_group_counts(win_leads, leads, inr_rate)
+    product_revenue = _compute_product_revenue(win_payments, leads, inr_rate)
+    meetings_today, completed_today, noshow_today = _today_meeting_buckets(meetings)
     won_lead_ids = {l["id"] for l in leads if l["_status"] == "Payment Link Paid"}
 
     result = {
