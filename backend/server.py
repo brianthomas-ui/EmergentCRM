@@ -1049,6 +1049,31 @@ async def logout(response: Response):
 # ----------------------------------------------------------------------------
 # Team / Users
 # ----------------------------------------------------------------------------
+def _team_member_stats(member, win_leads, win_payments, win_meetings, period_used):
+    """Per-rep KPI rollup for one member within the already-windowed datasets."""
+    uid = member.get("id")
+    m_leads = [l for l in win_leads if l.get("owner_id") == uid]
+    won = 0
+    for l in m_leads:
+        legacy = map_legacy_stage(l.get("stage", "New Booking"), l.get("payment_status", ""))
+        st = derive_status(
+            l.get("sales_stage") or legacy["stage"],
+            l.get("outcome", "") or legacy["outcome"],
+            l.get("payment_state") or legacy["payment_status"],
+        )
+        if st == "Payment Link Paid":
+            won += 1
+    revenue = sum(p.get("amount_usd", p.get("amount", 0)) or 0
+                  for p in win_payments if p.get("agent_id") == uid)
+    return {
+        "period": period_used,
+        "leads": len(m_leads),
+        "won": won,
+        "meetings": len([mt for mt in win_meetings if mt.get("agent_id") == uid]),
+        "revenue": round(revenue, 2),
+        "target": member.get("monthly_target", 0),
+    }
+
 @api.get("/team", response_model=List[UserOut])
 async def list_team(request: Request, user: dict = Depends(get_current_user)):
     members = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(1000)
@@ -1073,27 +1098,7 @@ async def list_team(request: Request, user: dict = Depends(get_current_user)):
                         if _in_window(m.get("scheduled_at") or m.get("created_at"), win_start, win_end)]
 
         for m in members:
-            uid = m.get("id")
-            m_leads = [l for l in win_leads if l.get("owner_id") == uid]
-            won = 0
-            for l in m_leads:
-                st = derive_status(
-                    l.get("sales_stage") or map_legacy_stage(l.get("stage", "New Booking"), l.get("payment_status", ""))["stage"],
-                    l.get("outcome", "") or map_legacy_stage(l.get("stage", "New Booking"), l.get("payment_status", ""))["outcome"],
-                    l.get("payment_state") or map_legacy_stage(l.get("stage", "New Booking"), l.get("payment_status", ""))["payment_status"],
-                )
-                if st == "Payment Link Paid":
-                    won += 1
-            revenue = sum(p.get("amount_usd", p.get("amount", 0)) or 0
-                          for p in win_payments if p.get("agent_id") == uid)
-            m["stats"] = {
-                "period": period_used,
-                "leads": len(m_leads),
-                "won": won,
-                "meetings": len([mt for mt in win_meetings if mt.get("agent_id") == uid]),
-                "revenue": round(revenue, 2),
-                "target": m.get("monthly_target", 0),
-            }
+            m["stats"] = _team_member_stats(m, win_leads, win_payments, win_meetings, period_used)
     return members
 
 @api.post("/team", response_model=UserOut)
@@ -1172,30 +1177,17 @@ async def clear_user_avatar(user_id: str, admin: dict = Depends(require_admin)):
 # ----------------------------------------------------------------------------
 # Leads
 # ----------------------------------------------------------------------------
-@api.get("/leads", response_model=List[LeadOut])
-async def list_leads(request: Request, user: dict = Depends(get_current_user)):
+def _build_lead_query(request: Request, user: dict) -> dict:
+    """Translate list-leads query params into a Mongo filter (RBAC-scoped)."""
     q = {}
-    stage = request.query_params.get("stage")
-    priority = request.query_params.get("priority")
-    owner = request.query_params.get("owner")
-    search = request.query_params.get("search")
-    mine = request.query_params.get("mine")
-    status = request.query_params.get("status")            # visible status (new model)
-    group = request.query_params.get("group")              # reporting group
-    product_line = request.query_params.get("product_line")
-    provider = request.query_params.get("provider")
-    if stage:
-        q["stage"] = stage
-    if priority:
-        q["priority"] = priority
-    if owner:
-        q["owner_id"] = owner
-    if product_line:
-        q["product_line"] = product_line
-    if provider:
-        q["provider"] = provider
-    if mine == "true" or user["role"] == "agent":
+    for param, field in (("stage", "stage"), ("priority", "priority"), ("owner", "owner_id"),
+                         ("product_line", "product_line"), ("provider", "provider")):
+        val = request.query_params.get(param)
+        if val:
+            q[field] = val
+    if request.query_params.get("mine") == "true" or user["role"] == "agent":
         q["owner_id"] = user["id"]
+    search = request.query_params.get("search")
     if search:
         rx = re.escape(search)
         q["$or"] = [
@@ -1204,6 +1196,22 @@ async def list_leads(request: Request, user: dict = Depends(get_current_user)):
             {"company": {"$regex": rx, "$options": "i"}},
             {"phone": {"$regex": rx, "$options": "i"}},
         ]
+    return q
+
+
+def _apply_lead_status_filters(out: list, request: Request) -> list:
+    """Post-filter serialized leads by DERIVED status / reporting group."""
+    status = request.query_params.get("status")
+    group = request.query_params.get("group")
+    if status:
+        out = [l for l in out if l.get("status") == status]
+    if group:
+        out = [l for l in out if group in (l.get("status_groups") or [])]
+    return out
+
+@api.get("/leads", response_model=List[LeadOut])
+async def list_leads(request: Request, user: dict = Depends(get_current_user)):
+    q = _build_lead_query(request, user)
     leads = await db.leads.find(q, {"_id": 0, "notes": 0, "ownership_history": 0}).sort("updated_at", -1).to_list(2000)
     # Optional created-in-window filter. Backward compatible: applied ONLY when a
     # period/from/to query param is explicitly present (no param -> all leads, as before).
@@ -1215,11 +1223,7 @@ async def list_leads(request: Request, user: dict = Depends(get_current_user)):
     out = [serialize_lead(l) for l in leads]
     # Status / reporting-group filters apply to the DERIVED status so they work for
     # both new-model and legacy leads.
-    if status:
-        out = [l for l in out if l.get("status") == status]
-    if group:
-        out = [l for l in out if group in (l.get("status_groups") or [])]
-    return out
+    return _apply_lead_status_filters(out, request)
 
 async def _maybe_enrich_lead(doc: dict):
     """Backfill usage/LTV/region/plan from the Emergent Users DB when left blank."""
@@ -1332,6 +1336,25 @@ async def get_lead(lead_id: str, user: dict = Depends(get_current_user)):
         "payments": [clean(p) for p in payments],
     }
 
+def _apply_lead_update_mappings(updates: dict) -> dict:
+    """Route new-vocabulary stage/payment fields onto the storage model + side-effects.
+    `stage` from SALES_STAGES -> sales_stage; new `payment_status` -> payment_state with
+    legacy mirroring; an outcome of Won locks the owner and sets the legacy Won stage."""
+    if "stage" in updates and updates["stage"] in SALES_STAGES:
+        updates["sales_stage"] = updates.pop("stage")
+    if "payment_status" in updates and updates["payment_status"] in PAYMENT_STATES:
+        updates["payment_state"] = updates.pop("payment_status")
+        if updates["payment_state"] == "Paid":
+            updates["payment_status"] = "paid"
+            updates["outcome"] = "Won"
+        elif updates["payment_state"] == "Link Sent":
+            updates["payment_status"] = "link_sent"
+    if updates.get("outcome") == "Won":
+        updates["won_at"] = now_iso()
+        updates["owner_locked"] = True
+        updates["stage"] = "Won"
+    return updates
+
 @api.put("/leads/{lead_id}")
 async def update_lead(lead_id: str, body: LeadUpdate, user: dict = Depends(get_current_user)):
     lead = await db.leads.find_one({"id": lead_id})
@@ -1339,24 +1362,7 @@ async def update_lead(lead_id: str, body: LeadUpdate, user: dict = Depends(get_c
         raise HTTPException(status_code=404, detail="Lead not found")
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     if updates:
-        # Route the new sales-status fields onto the new model. `stage` from the new
-        # vocabulary (SALES_STAGES) maps to sales_stage; legacy PIPELINE_STAGES values
-        # still write the legacy `stage` for back-compat.
-        if "stage" in updates and updates["stage"] in SALES_STAGES:
-            updates["sales_stage"] = updates.pop("stage")
-        # `payment_status` here is the NEW vocabulary -> store as payment_state and
-        # mirror "Paid" onto the legacy field + revenue side-effects via outcome.
-        if "payment_status" in updates and updates["payment_status"] in PAYMENT_STATES:
-            updates["payment_state"] = updates.pop("payment_status")
-            if updates["payment_state"] == "Paid":
-                updates["payment_status"] = "paid"
-                updates["outcome"] = "Won"
-            elif updates["payment_state"] == "Link Sent":
-                updates["payment_status"] = "link_sent"
-        if updates.get("outcome") == "Won":
-            updates["won_at"] = now_iso()
-            updates["owner_locked"] = True
-            updates["stage"] = "Won"
+        updates = _apply_lead_update_mappings(updates)
         updates["updated_at"] = now_iso()
         updates["last_activity"] = now_iso()
         await db.leads.update_one({"id": lead_id}, {"$set": updates})
@@ -2237,25 +2243,32 @@ async def stripe_webhook(request: Request):
         logger.error(f"webhook error: {e}")
     return {"received": True}
 
+def _verify_razorpay_signature(raw: bytes, request: Request):
+    """Verify X-Razorpay-Signature when RAZORPAY_WEBHOOK_SECRET is set (demo mode
+    accepts unsigned). Raises 401 on mismatch."""
+    secret = os.environ.get("RAZORPAY_WEBHOOK_SECRET")
+    if not secret:
+        return
+    try:
+        import hmac, hashlib
+        sig = request.headers.get("X-Razorpay-Signature", "")
+        expected = hmac.new(secret.encode("utf-8"), raw, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected, sig):
+            raise HTTPException(status_code=401, detail="Invalid Razorpay signature")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"Razorpay signature verify error: {e}")
+        raise HTTPException(status_code=401, detail="Invalid Razorpay signature")
+
+
 @api.post("/webhook/razorpay")
 async def razorpay_webhook(request: Request):
     """Razorpay Payment Link webhook. Verifies the signature when
     RAZORPAY_WEBHOOK_SECRET is set (demo mode accepts unsigned), then marks the
     matching payment paid/failed. Never crashes."""
     raw = await request.body()
-    secret = os.environ.get("RAZORPAY_WEBHOOK_SECRET")
-    if secret:
-        try:
-            import hmac, hashlib
-            sig = request.headers.get("X-Razorpay-Signature", "")
-            expected = hmac.new(secret.encode("utf-8"), raw, hashlib.sha256).hexdigest()
-            if not hmac.compare_digest(expected, sig):
-                raise HTTPException(status_code=401, detail="Invalid Razorpay signature")
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.warning(f"Razorpay signature verify error: {e}")
-            raise HTTPException(status_code=401, detail="Invalid Razorpay signature")
+    _verify_razorpay_signature(raw, request)
     try:
         import json as _json
         body = _json.loads(raw.decode("utf-8") or "{}")
@@ -2717,6 +2730,70 @@ def _payment_row(p: dict) -> dict:
         "payment_status": p.get("payment_status"), "created_at": p.get("created_at"),
     }
 
+async def _drill_revenue_closed(lead_scope, agent_scope, today, win_start, win_end):
+    q = {**agent_scope, "payment_status": "paid"}
+    rows = await db.payments.find(q, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    return "Closed Revenue", [_payment_row(p) for p in rows if _in_window(p.get("created_at"), win_start, win_end)]
+
+
+async def _drill_open_pipeline(lead_scope, agent_scope, today, win_start, win_end):
+    q = {**lead_scope, "stage": {"$in": OPEN_STAGES}}
+    rows = await db.leads.find(q, {"_id": 0}).sort("updated_at", -1).to_list(5000)
+    return "Open Pipeline", [_lead_row(l) for l in rows]
+
+
+async def _drill_meetings_today(lead_scope, agent_scope, today, win_start, win_end):
+    rows = await db.meetings.find(agent_scope, {"_id": 0}).sort("scheduled_at", 1).to_list(5000)
+    return "Meetings Today", [_meeting_row(m) for m in rows if (m.get("scheduled_at") or "").startswith(today)]
+
+
+async def _drill_no_shows_today(lead_scope, agent_scope, today, win_start, win_end):
+    rows = await db.meetings.find({**agent_scope, "status": "no_show"}, {"_id": 0}).to_list(5000)
+    return "No-Shows Today", [_meeting_row(m) for m in rows if (m.get("completed_at") or "").startswith(today)]
+
+
+async def _drill_payment_pending(lead_scope, agent_scope, today, win_start, win_end):
+    q = {**lead_scope, "$or": [{"priority": "Payment Pending"}, {"stage": "Payment Link Sent"}]}
+    rows = await db.leads.find(q, {"_id": 0}).sort("updated_at", -1).to_list(5000)
+    return "Payment Pending", [_lead_row(l) for l in rows]
+
+
+async def _drill_recoverable(lead_scope, agent_scope, today, win_start, win_end):
+    rows = await db.leads.find(lead_scope, {"_id": 0}).sort("updated_at", -1).to_list(5000)
+    return "Recoverable", [r for r in (_lead_row(l) for l in rows) if "Recoverable" in (r.get("status_groups") or [])]
+
+
+async def _drill_payment_failed(lead_scope, agent_scope, today, win_start, win_end):
+    rows = await db.leads.find(lead_scope, {"_id": 0}).sort("updated_at", -1).to_list(5000)
+    return "Payment Link Failed", [r for r in (_lead_row(l) for l in rows) if r.get("status") == "Payment Link Failed"]
+
+
+_DRILL_HANDLERS = {
+    "revenue_closed": _drill_revenue_closed,
+    "open_pipeline": _drill_open_pipeline,
+    "meetings_today": _drill_meetings_today,
+    "no_shows_today": _drill_no_shows_today,
+    "payment_pending": _drill_payment_pending,
+    "recoverable": _drill_recoverable,
+    "payment_failed": _drill_payment_failed,
+}
+
+
+async def _drill_prefixed(metric, lead_scope, win_start, win_end):
+    """status:/group:/stage: drilldowns — leads windowed by created_at."""
+    kind, value = metric.split(":", 1)
+    rows = await db.leads.find(lead_scope, {"_id": 0}).sort("updated_at", -1).to_list(5000)
+    rows = [l for l in rows if _in_window(l.get("created_at"), win_start, win_end)]
+    if kind == "status":
+        return f"Status - {value}", [r for r in (_lead_row(l) for l in rows) if r.get("status") == value]
+    if kind == "group":
+        return f"Group - {value}", [r for r in (_lead_row(l) for l in rows) if value in (r.get("status_groups") or [])]
+    # stage: accept either a legacy PIPELINE_STAGES value OR a new visible status.
+    if value in PIPELINE_STAGES:
+        return f"Stage - {value}", [_lead_row(l) for l in rows if l.get("stage") == value]
+    return f"Stage - {value}", [r for r in (_lead_row(l) for l in rows) if r.get("status") == value]
+
+
 @api.get("/dashboard/drilldown")
 async def dashboard_drilldown(request: Request, user: dict = Depends(get_current_user)):
     """Return the actual records behind a dashboard metric. RBAC scoped like /dashboard."""
@@ -2731,70 +2808,13 @@ async def dashboard_drilldown(request: Request, user: dict = Depends(get_current
     # open-pipeline / today metrics describe current state and ignore it.
     win_start, win_end, period_used = resolve_period(request, default="this_month")
 
-    title, items = metric, []
-
-    if metric == "revenue_closed":
-        title = "Closed Revenue"
-        q = {**agent_scope, "payment_status": "paid"}
-        rows = await db.payments.find(q, {"_id": 0}).sort("created_at", -1).to_list(2000)
-        items = [_payment_row(p) for p in rows if _in_window(p.get("created_at"), win_start, win_end)]
-
-    elif metric == "open_pipeline":
-        title = "Open Pipeline"
-        q = {**lead_scope, "stage": {"$in": OPEN_STAGES}}
-        rows = await db.leads.find(q, {"_id": 0}).sort("updated_at", -1).to_list(5000)
-        items = [_lead_row(l) for l in rows]
-
-    elif metric == "meetings_today":
-        title = "Meetings Today"
-        rows = await db.meetings.find(agent_scope, {"_id": 0}).sort("scheduled_at", 1).to_list(5000)
-        items = [_meeting_row(m) for m in rows if (m.get("scheduled_at") or "").startswith(today)]
-
-    elif metric == "no_shows_today":
-        title = "No-Shows Today"
-        rows = await db.meetings.find({**agent_scope, "status": "no_show"}, {"_id": 0}).to_list(5000)
-        items = [_meeting_row(m) for m in rows if (m.get("completed_at") or "").startswith(today)]
-
-    elif metric == "payment_pending":
-        title = "Payment Pending"
-        q = {**lead_scope, "$or": [{"priority": "Payment Pending"}, {"stage": "Payment Link Sent"}]}
-        rows = await db.leads.find(q, {"_id": 0}).sort("updated_at", -1).to_list(5000)
-        items = [_lead_row(l) for l in rows]
-
-    elif metric == "recoverable":
-        title = "Recoverable"
-        rows = await db.leads.find(lead_scope, {"_id": 0}).sort("updated_at", -1).to_list(5000)
-        items = [r for r in (_lead_row(l) for l in rows) if "Recoverable" in (r.get("status_groups") or [])]
-
-    elif metric == "payment_failed":
-        title = "Payment Link Failed"
-        rows = await db.leads.find(lead_scope, {"_id": 0}).sort("updated_at", -1).to_list(5000)
-        items = [r for r in (_lead_row(l) for l in rows) if r.get("status") == "Payment Link Failed"]
-
-    elif metric.startswith("status:"):
-        status = metric.split(":", 1)[1]
-        title = f"Status - {status}"
-        rows = await db.leads.find(lead_scope, {"_id": 0}).sort("updated_at", -1).to_list(5000)
-        rows = [l for l in rows if _in_window(l.get("created_at"), win_start, win_end)]
-        items = [r for r in (_lead_row(l) for l in rows) if r.get("status") == status]
-
-    elif metric.startswith("group:"):
-        group = metric.split(":", 1)[1]
-        title = f"Group - {group}"
-        rows = await db.leads.find(lead_scope, {"_id": 0}).sort("updated_at", -1).to_list(5000)
-        rows = [l for l in rows if _in_window(l.get("created_at"), win_start, win_end)]
-        items = [r for r in (_lead_row(l) for l in rows) if group in (r.get("status_groups") or [])]
-
-    elif metric.startswith("stage:"):
-        stage = metric.split(":", 1)[1]
-        title = f"Stage - {stage}"
-        # Accept either a legacy PIPELINE_STAGES value OR a new visible status.
-        rows = await db.leads.find(lead_scope, {"_id": 0}).sort("updated_at", -1).to_list(5000)
-        rows = [l for l in rows if _in_window(l.get("created_at"), win_start, win_end)]
-        if stage in PIPELINE_STAGES:
-            items = [_lead_row(l) for l in rows if l.get("stage") == stage]
-        else:
-            items = [r for r in (_lead_row(l) for l in rows) if r.get("status") == stage]
+    handler = _DRILL_HANDLERS.get(metric)
+    if handler:
+        title, items = await handler(lead_scope, agent_scope, today, win_start, win_end)
+    elif ":" in metric and metric.split(":", 1)[0] in ("status", "group", "stage"):
+        title, items = await _drill_prefixed(metric, lead_scope, win_start, win_end)
+    else:
+        title, items = metric, []
 
     return {"title": title, "period": period_used, "items": items}
 
@@ -2875,8 +2895,8 @@ async def _seed_admin():
 async def _seed_demo_account():
     """Single advertised demo login. Admin role so it showcases ALL demo data. Its password
     is self-healed to demo12345 on every boot (it's a demo account, not a real user)."""
-    demo_email = "demo@emergent.sh"
-    demo_password = "demo12345"
+    demo_email = os.environ.get("DEMO_EMAIL", "demo@emergent.sh").lower()
+    demo_password = os.environ.get("DEMO_PASSWORD", "demo12345")
     demo = await db.users.find_one({"email": demo_email})
     if not demo:
         await _safe_insert(db.users, {

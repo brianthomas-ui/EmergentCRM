@@ -1,0 +1,38 @@
+{
+  "summary": "Frontend regression test (Layout/Tour/Sidebar component splits) - All 8 user-facing flows from the review request pass with zero functional regressions. Tested via Playwright against REACT_APP_BACKEND_URL.",
+  "scope": "Frontend-only regression pass after the P0/P1 + P2 refactor (Layout.js -> SidebarParts.js: SidebarNav + SidebarUserCard; Tour.js -> TourParts.js: Spotlight + TourCard; demo password moved to backend .env). Backend already verified independently (48/48 pytest pass).",
+  "verified_flows": [
+    "Demo login (demo@emergent.sh / demo12345) succeeds and lands on Dashboard at /",
+    "First-login tour auto-appears: tour-overlay + tour-card visible, Next advances steps (title changes), Back returns, tour-skip (X) closes overlay, take-tour-btn re-launches",
+    "Tour Finish closes overlay and sets localStorage crm_tour_v1_done=1; refresh does NOT re-show tour",
+    "Sidebar (SidebarNav) renders all 8 admin items: nav-dashboard, nav-leads, nav-campaigns, nav-meetings, nav-deals, nav-team, nav-payments, nav-audit. Each navigates to the correct route.",
+    "Sidebar user card (SidebarUserCard): current-user-name shows 'Demo Manager', change-password-btn opens Change Password modal, take-tour-btn re-launches tour, logout-btn returns to /login",
+    "Leads page loads (90 rows), lead-search input filters live, filter-status applies",
+    "Team page loads with period selector (period-this_week/month etc) working, per-rep content present",
+    "Dashboard KPI drilldowns (kpi-revenue, kpi-pipeline, kpi-meetings) open the drilldown modal with correct titles ('Revenue Closed', 'Open Pipeline', 'Meetings Today') and tabular rows",
+    "Deals page loads and clicking a deal row opens the deal drawer (dialog)"
+  ],
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "observations_non_blocking": [
+    "Change Password modal (data-testid='change-password-modal') does not close on Escape key press; only the X button and Cancel button close it. Not a regression (out of refactor scope) and not in the review checklist, but flagged as minor UX gap.",
+    "Dashboard pipeline-by-stage drilldown bar did not match any [data-testid^='stage-bar-'] selector. The 3 KPI drilldowns (revenue/pipeline/meetings) explicitly named in the review request all work; stage drilldown could not be auto-located via testid but visually present. Main agent may want to add a data-testid to the stage bars for future testability."
+  ],
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "SidebarParts.js and TourParts.js are clean, focused (~110 / ~62 lines respectively), preserve all data-testids exactly, and have no obvious issues.",
+    "Optional enhancement (non-blocking): add a data-testid to the pipeline-by-stage drilldown trigger and add Escape-to-close to ChangePasswordModal for consistency with other modals."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "skipped (verified prior 48/48)", "frontend": "100% (all 8 requested flows pass)"},
+  "test_credentials": "demo@emergent.sh / demo12345 (admin)",
+  "seed_data_creation": "none - used existing seeded data",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Refactor regression pass complete. All data-testids from review request verified present and working: tour-overlay, tour-card, tour-skip, tour-next, tour-back, nav-* (8 items), current-user-name, logout-btn, change-password-btn, take-tour-btn, lead-search, filter-status, filter-product, filter-source, period-*, kpi-revenue, kpi-pipeline, kpi-meetings, deals-search, change-password-modal. localStorage flag crm_tour_v1_done is set correctly on Finish."
+}

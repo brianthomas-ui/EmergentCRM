@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import {
   LayoutDashboard,
@@ -10,15 +10,12 @@ import {
   UserCog,
   CreditCard,
   ScrollText,
-  LogOut,
-  KeyRound,
-  Compass,
 } from "lucide-react";
 import { toast } from "sonner";
 import client, { apiError } from "@/api";
-import { AvatarUpload } from "@/components/dark/Avatar";
 import Tour from "@/components/Tour";
 import ChangePasswordModal from "@/components/ChangePasswordModal";
+import { SidebarNav, SidebarUserCard } from "@/components/layout/SidebarParts";
 
 // Order matches the dark mockup: Dashboard, Leads, Campaigns, Meetings, Deals,
 // Team, then secondary (Payments, Audit) lower in the list. The Meetings tab
@@ -42,6 +39,12 @@ export default function Layout({ children }) {
   const [savingAvatar, setSavingAvatar] = useState(false);
   const [runTour, setRunTour] = useState(false);
   const [pwOpen, setPwOpen] = useState(false);
+
+  // Role-filtered nav list — memoized so the sidebar doesn't recompute every render.
+  const visibleNavItems = useMemo(
+    () => navItems.filter((i) => i.divider || !i.admin || isAdmin),
+    [isAdmin]
+  );
 
   // Guided tour steps. Targets reference the always-present sidebar nav (by test id).
   const tourSteps = useMemo(() => {
@@ -103,96 +106,20 @@ export default function Layout({ children }) {
           </div>
         </div>
 
-        <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
-          {navItems
-            .filter((i) => i.divider || !i.admin || isAdmin)
-            .map((item, idx) => {
-              if (item.divider) {
-                return (
-                  <div
-                    key={`div-${idx}`}
-                    className="px-3.5 pt-4 pb-1.5 text-[10px] font-mono uppercase tracking-[0.14em] text-[var(--text-faint)]"
-                  >
-                    {item.label}
-                  </div>
-                );
-              }
-              const Icon = item.icon;
-              return (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  end={item.to === "/"}
-                  data-testid={item.testid}
-                  className={({ isActive }) =>
-                    `flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                      isActive
-                        ? "bg-emerald-500/10 text-emerald-300 border border-emerald-500/20"
-                        : "text-[var(--text-muted)] border border-transparent hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
-                    }`
-                  }
-                >
-                  {({ isActive }) => (
-                    <>
-                      <Icon className={`w-4 h-4 ${isActive ? "text-emerald-400" : ""}`} strokeWidth={2} />
-                      {item.label}
-                    </>
-                  )}
-                </NavLink>
-              );
-            })}
-        </nav>
+        <SidebarNav items={visibleNavItems} />
 
-        <div className="p-3 border-t border-[var(--border)]">
-          <div data-tour="user-card" className="flex items-center gap-3 px-2.5 py-2.5 rounded-lg bg-[var(--surface-2)] border border-[var(--border)]">
-            <AvatarUpload
-              src={user?.avatar_url}
-              name={user?.name || user?.email}
-              size="md"
-              disabled={savingAvatar}
-              onUpload={onAvatarUpload}
-            />
-            <div className="flex-1 min-w-0 leading-tight">
-              <div className="text-sm font-semibold text-[var(--text)] truncate" data-testid="current-user-name">
-                {user?.name}
-              </div>
-              <div className="text-[11px] text-[var(--text-faint)] truncate">{user?.email}</div>
-            </div>
-            <button
-              data-testid="logout-btn"
-              onClick={() => {
-                logout();
-                navigate("/login");
-              }}
-              className="text-[var(--text-faint)] hover:text-rose-400 hover:bg-[var(--surface-3)] rounded-md p-1.5 transition-colors"
-              title="Log out"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* Quick account actions */}
-          <div className="mt-2 grid grid-cols-2 gap-1.5">
-            <button
-              onClick={() => setPwOpen(true)}
-              data-testid="change-password-btn"
-              className="flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-medium text-[var(--text-muted)] border border-[var(--border)] hover:bg-[var(--surface-2)] hover:text-[var(--text)] transition-colors"
-            >
-              <KeyRound className="w-3.5 h-3.5" /> Password
-            </button>
-            <button
-              onClick={() => setRunTour(true)}
-              data-testid="take-tour-btn"
-              className="flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-medium text-[var(--text-muted)] border border-[var(--border)] hover:bg-[var(--surface-2)] hover:text-[var(--text)] transition-colors"
-            >
-              <Compass className="w-3.5 h-3.5" /> Take a tour
-            </button>
-          </div>
-
-          <div className="text-[10px] text-[var(--text-faint)] text-center mt-2 font-mono uppercase tracking-wider">
-            {isAdmin ? "Sales Head" : "Agent"}
-          </div>
-        </div>
+        <SidebarUserCard
+          user={user}
+          isAdmin={isAdmin}
+          savingAvatar={savingAvatar}
+          onAvatarUpload={onAvatarUpload}
+          onLogout={() => {
+            logout();
+            navigate("/login");
+          }}
+          onChangePassword={() => setPwOpen(true)}
+          onTakeTour={() => setRunTour(true)}
+        />
       </aside>
 
       {/* Main */}
