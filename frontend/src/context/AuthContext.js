@@ -42,7 +42,7 @@ export function AuthProvider({ children }) {
 
   // Admin "view as": become the selected agent (server swaps the session cookie).
   const startImpersonation = useCallback(async (agentId) => {
-    await client.post("/demo/impersonate", { agent_id: agentId });
+    await client.post("/admin/impersonate", { agent_id: agentId });
     const { data } = await client.get("/auth/me");
     setUser(data);
     return data;
@@ -50,7 +50,7 @@ export function AuthProvider({ children }) {
 
   // Return to the original manager session.
   const stopImpersonation = useCallback(async () => {
-    await client.post("/demo/stop-impersonate");
+    await client.post("/admin/stop-impersonate");
     const { data } = await client.get("/auth/me");
     setUser(data);
     return data;

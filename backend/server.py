@@ -53,6 +53,41 @@ api = APIRouter(prefix="/api")
 JWT_SECRET = os.environ["JWT_SECRET"]
 JWT_ALGO = "HS256"
 
+# ----------------------------------------------------------------------------
+# Production mode flag + boot-time config contract.
+# APP_MODE defaults to "demo" (the safe, self-seeding path). Production MUST be
+# opted into explicitly via APP_MODE=production, which also turns OFF every
+# destructive demo path (reseed/wipe, password-reset, demo accounts) and turns
+# ON the strict config asserts below. See docs/GO_LIVE_PLAN.md (M0).
+# ----------------------------------------------------------------------------
+APP_MODE = os.environ.get("APP_MODE", "demo").strip().lower()   # {demo, production}
+IS_PROD = APP_MODE == "production"
+# Integration secrets are encrypted with this key (decoupled from JWT_SECRET so
+# rotating JWT_SECRET never silently invalidates stored integration keys). Falls
+# back to JWT_SECRET in demo so local dev needs no extra env.
+INTEGRATION_ENC_KEY = os.environ.get("INTEGRATION_ENC_KEY", "")
+# Server-side public base URL used to build webhook/success URLs (never trust a
+# client-supplied origin_url for those — see GO_LIVE_PLAN P2-e).
+PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
+
+def _assert_prod_config():
+    problems = []
+    if len(JWT_SECRET or "") < 32:
+        problems.append("JWT_SECRET must be >= 32 chars in production")
+    if not INTEGRATION_ENC_KEY or INTEGRATION_ENC_KEY == JWT_SECRET:
+        problems.append("INTEGRATION_ENC_KEY must be set and distinct from JWT_SECRET in production")
+    _cors = os.environ.get("CORS_ORIGINS", "").strip()
+    if not _cors or _cors == "*":
+        problems.append("CORS_ORIGINS must be an explicit allowlist (not '*' or unset) in production")
+    if not PUBLIC_BASE_URL:
+        problems.append("PUBLIC_BASE_URL must be set in production")
+    if problems:
+        raise RuntimeError("Invalid production configuration: " + "; ".join(problems))
+
+if IS_PROD:
+    _assert_prod_config()
+logger.info(f"APP_MODE={APP_MODE}")
+
 PIPELINE_STAGES = [
     "New Booking", "Assigned", "Meeting Completed",
     "Payment Link Sent", "Won", "Lost", "Follow-up Later",
@@ -1086,7 +1121,7 @@ async def logout(response: Response):
 class ImpersonateIn(BaseModel):
     agent_id: str
 
-@api.post("/demo/impersonate")
+@api.post("/admin/impersonate")
 async def impersonate(body: ImpersonateIn, response: Response, admin: dict = Depends(require_admin)):
     target = await db.users.find_one({"id": body.agent_id})
     if not target:
@@ -1103,7 +1138,7 @@ async def impersonate(body: ImpersonateIn, response: Response, admin: dict = Dep
         "impersonator": {"id": admin["id"], "name": admin["name"]},
     }
 
-@api.post("/demo/stop-impersonate")
+@api.post("/admin/stop-impersonate")
 async def stop_impersonate(request: Request, response: Response):
     claims = _token_claims(request)
     if not claims.get("impersonating") or not claims.get("imp_by"):
@@ -1113,6 +1148,7 @@ async def stop_impersonate(request: Request, response: Response):
         raise HTTPException(status_code=403, detail="Original manager no longer available")
     token = create_token(clean(admin))
     _set_auth_cookies(response, token)
+    await log_audit("stop_impersonate", admin["name"], "Returned to manager view")
     return {"token": token, "user": clean(admin), "impersonating": False, "impersonator": None}
 
 # ----------------------------------------------------------------------------
@@ -3593,7 +3629,10 @@ from cryptography.fernet import Fernet as _Fernet
 import base64 as _b64, hashlib as _hashlib
 
 def _fernet():
-    key = _b64.urlsafe_b64encode(_hashlib.sha256(JWT_SECRET.encode()).digest())
+    # Decoupled from JWT_SECRET (D3.2): rotating the JWT secret must not invalidate
+    # stored integration keys. Falls back to JWT_SECRET in demo (no extra env needed).
+    base = INTEGRATION_ENC_KEY or JWT_SECRET
+    key = _b64.urlsafe_b64encode(_hashlib.sha256(base.encode()).digest())
     return _Fernet(key)
 
 def _enc(v: str) -> str:
@@ -3744,6 +3783,8 @@ async def reset_demo_data():
 
 @api.post("/demo/reset")
 async def demo_reset(admin: dict = Depends(require_admin)):
+    if IS_PROD:
+        raise HTTPException(status_code=403, detail="Demo reset is disabled in production")
     await reset_demo_data()
     await log_audit("reset_demo_data", admin["name"], "Demo dataset")
     return {
@@ -3754,7 +3795,12 @@ async def demo_reset(admin: dict = Depends(require_admin)):
     }
 
 async def _migrate_clean_reseed_v3():
-    """One-time: wipe the test-polluted demo data and reseed the believable dataset."""
+    """One-time: wipe the test-polluted demo data and reseed the believable dataset.
+    DEMO ONLY — short-circuits in production BEFORE any wipe decision (it calls
+    delete_many({}) on real collections; the migration key is absent on a fresh
+    prod DB, so without this guard the first prod boot would wipe real data)."""
+    if IS_PROD:
+        return
     key = "clean_reseed_believable_v4"
     if await db.migrations.find_one({"key": key}):
         return
@@ -3762,17 +3808,30 @@ async def _migrate_clean_reseed_v3():
     await db.migrations.update_one({"key": key}, {"$set": {"key": key, "done_at": now_iso()}}, upsert=True)
     logger.info("migrate: wiped test data + reseeded believable demo dataset")
 
-async def seed():
+async def bootstrap_production():
+    """Always-safe, idempotent bootstrap that runs in EVERY mode: settings, the
+    structural (non-destructive) migrations, and the single admin account. Contains
+    nothing that deletes data or resets passwords."""
     await db.settings.update_one({"id": "settings"}, {"$setOnInsert": {"id": "settings", "inr_per_usd": 85.0}}, upsert=True)
     await _migrate_meeting_scheduled_to_assigned()
     await _migrate_to_sales_status_model()
     await _seed_admin()
+
+async def seed_demo():
+    """DEMO ONLY: the 5 demo agents, the demo account, the one-time team-password
+    reset, the believable demo dataset, and the clean-reseed wipe. None of this runs
+    when APP_MODE=production."""
     await _seed_agents()
     await _seed_demo_account()
     await _migrate_reset_passwords()
     await _seed_demo_leads()
     await _seed_coverage_history()
     await _migrate_clean_reseed_v3()
+
+async def seed():
+    await bootstrap_production()
+    if not IS_PROD:
+        await seed_demo()
 
 async def _run_startup():
     # Wait for the database (Atlas can be slow to accept the first connection on cold start).
@@ -3827,10 +3886,22 @@ async def csrf_protect(request: Request, call_next):
     return await call_next(request)
 
 app.include_router(api)
+
+# CORS fail-closed: cookie auth requires an explicit origin allowlist. In production
+# we refuse to boot with '*'/unset; in demo we fall back to '*' but then DISABLE
+# credentials (the '*' + credentials combo is invalid and browsers reject it — G18).
+_cors_raw = os.environ.get("CORS_ORIGINS", "").strip()
+if IS_PROD and (not _cors_raw or _cors_raw == "*"):
+    raise RuntimeError("CORS_ORIGINS must be an explicit allowlist in production")
+_cors_origins = [o.strip() for o in _cors_raw.split(",") if o.strip()]
+if _cors_origins:
+    _cors_allow_credentials = True
+else:
+    _cors_origins, _cors_allow_credentials = ["*"], False
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_credentials=_cors_allow_credentials,
+    allow_origins=_cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
