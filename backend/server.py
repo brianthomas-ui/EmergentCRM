@@ -4389,7 +4389,12 @@ async def _migrate_purge_test_leads():
     if IS_PROD:
         return
     try:
-        patt = {"name": "T", "email": {"$regex": r"^t_[0-9a-f]+@x\.com$"}}
+        # The live suites create leads on throwaway domains (@x.com / @nobody.test) — real
+        # demo leads never use these — plus the classic name "T". Purge all of them.
+        patt = {"$or": [
+            {"email": {"$regex": r"@(x\.com|nobody\.test)$", "$options": "i"}},
+            {"name": "T"},
+        ]}
         ids = [l["id"] for l in await db.leads.find(patt, {"id": 1}).to_list(5000)]
         if not ids:
             return
