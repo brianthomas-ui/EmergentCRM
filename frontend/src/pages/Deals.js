@@ -189,7 +189,7 @@ export default function Deals() {
       return;
     }
     if (action.kind === "follow_up") {
-      await setStatus(lead.id, "Contact in Future", "Follow-up set");
+      await setLeadStatus(lead.id, "Contact in Future", "Follow-up set");
       return;
     }
     if (action.kind === "reschedule") {
@@ -201,7 +201,7 @@ export default function Deals() {
       return;
     }
     if (action.kind === "mark_interested") {
-      await setStatus(lead.id, "Interested", `${lead.name} → Interested`);
+      await setLeadStatus(lead.id, "Interested", `${lead.name} → Interested`);
       return;
     }
     setSelected(lead);
@@ -218,7 +218,7 @@ export default function Deals() {
   };
 
   // Status changes go through the dedicated /stage endpoint (single-writer model).
-  const setStatus = async (id, status, msg) => {
+  const setLeadStatus = async (id, status, msg) => {
     try {
       await client.put(`/leads/${id}/stage`, { stage: status });
       toast.success(msg || `Status → ${status}`);

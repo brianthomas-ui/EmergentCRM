@@ -250,21 +250,26 @@ PRODUCT_LINE_NAMES = [
 CREDIT_MULTIPLIER_DEFAULT = 7.5
 CREDIT_MULTIPLIER_MIN = 6
 CREDIT_MULTIPLIER_MAX = 10
+# Payment currencies the app supports. USD -> Stripe, INR -> Razorpay (A3 / B4).
+SUPPORTED_CURRENCIES = {"usd", "inr"}
+MAX_PAYMENT_AMOUNT = 1_000_000.0
 
 PRESET_PACKAGES = {
     # --- Credit Top-Up ladder (USD default, ~$0.20/credit, +50% boost free) ---
-    "credits_100":  {"product_line": "Credit Top-Up", "name": "100 Credits",   "amount": 20.0,   "currency": "usd", "category": "Credits", "credits": 100,  "boost_credits": 50},
-    "credits_250":  {"product_line": "Credit Top-Up", "name": "250 Credits",   "amount": 50.0,   "currency": "usd", "category": "Credits", "credits": 250,  "boost_credits": 125},
-    "credits_500":  {"product_line": "Credit Top-Up", "name": "500 Credits",   "amount": 100.0,  "currency": "usd", "category": "Credits", "credits": 500,  "boost_credits": 250},
-    "credits_1250": {"product_line": "Credit Top-Up", "name": "1,250 Credits", "amount": 250.0,  "currency": "usd", "category": "Credits", "credits": 1250, "boost_credits": 625},
-    "credits_2500": {"product_line": "Credit Top-Up", "name": "2,500 Credits", "amount": 500.0,  "currency": "usd", "category": "Credits", "credits": 2500, "boost_credits": 1250},
-    "credits_5000": {"product_line": "Credit Top-Up", "name": "5,000 Credits", "amount": 1000.0, "currency": "usd", "category": "Credits", "credits": 5000, "boost_credits": 2500},
+    # Credit ladder repriced to the 7.5x default (>=6x floor) — boost folded into the
+    # headline credits so the "min 6x" invariant holds for the catalog itself (G14).
+    "credits_100":  {"product_line": "Credit Top-Up", "name": "150 Credits",   "amount": 20.0,   "currency": "usd", "category": "Credits", "credits": 150,  "boost_credits": 0},
+    "credits_250":  {"product_line": "Credit Top-Up", "name": "375 Credits",   "amount": 50.0,   "currency": "usd", "category": "Credits", "credits": 375,  "boost_credits": 0},
+    "credits_500":  {"product_line": "Credit Top-Up", "name": "750 Credits",   "amount": 100.0,  "currency": "usd", "category": "Credits", "credits": 750,  "boost_credits": 0},
+    "credits_1250": {"product_line": "Credit Top-Up", "name": "1,875 Credits", "amount": 250.0,  "currency": "usd", "category": "Credits", "credits": 1875, "boost_credits": 0},
+    "credits_2500": {"product_line": "Credit Top-Up", "name": "3,750 Credits", "amount": 500.0,  "currency": "usd", "category": "Credits", "credits": 3750, "boost_credits": 0},
+    "credits_5000": {"product_line": "Credit Top-Up", "name": "7,500 Credits", "amount": 1000.0, "currency": "usd", "category": "Credits", "credits": 7500, "boost_credits": 0},
     # --- Annual Pro Subscription (fixed placeholder) ---
     "annual_pro":   {"product_line": "Annual Pro Subscription", "name": "Annual Pro Subscription", "amount": 1999.0, "currency": "usd", "category": "Plan", "interval": "year"},
     # --- Dedicated Support (fixed placeholder) ---
     "dedicated_support": {"product_line": "Dedicated Support", "name": "Dedicated Support", "amount": 3499.0, "currency": "usd", "category": "Support"},
     # --- Lifetime Access (fixed placeholder) ---
-    "lifetime_access":   {"product_line": "Lifetime Access", "name": "Lifetime Access", "amount": 5999.0, "currency": "usd", "category": "Lifetime"},
+    "lifetime_access":   {"product_line": "Lifetime Access", "name": "Lifetime Access", "amount": 15000.0, "currency": "usd", "category": "Lifetime"},
     # --- Legacy aliases kept so existing links/tests/serializers never break ---
     "plan_pro_annual":  {"product_line": "Annual Pro Subscription", "name": "Pro Plan (Annual, 750 cr/mo)", "amount": 2004.0, "currency": "usd", "category": "Plan", "interval": "year"},
     "plan_team_annual": {"product_line": "Annual Pro Subscription", "name": "Team Plan (Annual, 1,250 cr/mo)", "amount": 2490.0, "currency": "usd", "category": "Plan", "interval": "year"},
@@ -2304,7 +2309,8 @@ def _resolve_credit_topup_amount(body: "PaymentIn", pkg: Optional[dict]):
     currency = (body.currency or (pkg["currency"] if pkg else "usd")).lower()
 
     mult = body.multiplier if body.multiplier is not None else CREDIT_MULTIPLIER_DEFAULT
-    mult = max(1.0, min(float(mult), float(CREDIT_MULTIPLIER_MAX)))
+    # Floor at the advertised minimum (was 1.0 — A3 bug); cap at the max.
+    mult = max(float(CREDIT_MULTIPLIER_MIN), min(float(mult), float(CREDIT_MULTIPLIER_MAX)))
 
     amount_for_credits = amount
     if currency == "inr":
@@ -2360,31 +2366,61 @@ def _resolve_payment_amount(body: "PaymentIn"):
         and _is_credit_topup(body, pkg)
     )
     if _is_credit_topup(body, pkg) and not legacy_fixed_credit:
-        return _resolve_credit_topup_amount(body, pkg)
-    return _resolve_fixed_amount(body, pkg)
+        result = _resolve_credit_topup_amount(body, pkg)
+    else:
+        result = _resolve_fixed_amount(body, pkg)
+    # Central currency + amount validation (A3): whitelist currency, reject bad amounts.
+    amount = float(result[0] or 0)
+    currency = (result[1] or "usd").lower()
+    if currency not in SUPPORTED_CURRENCIES:
+        raise HTTPException(status_code=400, detail=f"Unsupported currency '{currency}' (USD or INR only)")
+    if amount <= 0 or amount > MAX_PAYMENT_AMOUNT:
+        raise HTTPException(status_code=400, detail="Invalid payment amount")
+    return (amount, currency) + tuple(result[2:])
 
 
-async def _create_stripe_link(body, amount, currency, payment_id, user):
+async def _create_stripe_link(body, amount, currency, payment_id, user, desc=""):
     simulated = (
         f"cs_test_{payment_id[:12]}",
         f"{body.origin_url}/payment-return?session_id=cs_test_{payment_id[:12]}&pid={payment_id}",
     )
-    api_key = os.environ.get("STRIPE_API_KEY")
+    api_key = await get_secret("stripe_secret_key", "STRIPE_API_KEY")
     if not api_key:
         return simulated
+    # success/cancel are browser redirects -> the frontend origin. The webhook URL is
+    # server-to-server and is PINNED to the server's public base (P2-e: never client).
+    success_url = f"{body.origin_url}/payment-return?session_id={{CHECKOUT_SESSION_ID}}"
+    cancel_url = f"{body.origin_url}/payments"
+    webhook_url = f"{_public_base(body.origin_url)}/api/webhook/stripe"
+    metadata = {"lead_id": body.lead_id, "payment_id": payment_id, "agent_id": user["id"]}
+    # Primary path: emergentintegrations (the Emergent platform package).
     try:
         from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionRequest
-        stripe_checkout = StripeCheckout(api_key=api_key, webhook_url=f"{body.origin_url}/api/webhook/stripe")
-        req = CheckoutSessionRequest(
-            amount=amount, currency=currency,
-            success_url=f"{body.origin_url}/payment-return?session_id={{CHECKOUT_SESSION_ID}}",
-            cancel_url=f"{body.origin_url}/payments",
-            metadata={"lead_id": body.lead_id, "payment_id": payment_id, "agent_id": user["id"]},
-        )
+        stripe_checkout = StripeCheckout(api_key=api_key, webhook_url=webhook_url)
+        req = CheckoutSessionRequest(amount=amount, currency=currency,
+            success_url=success_url, cancel_url=cancel_url, metadata=metadata)
         session = await stripe_checkout.create_checkout_session(req)
         return session.session_id, session.url
+    except ImportError:
+        pass  # off-platform -> official SDK below
     except Exception as e:
-        logger.warning(f"Stripe live link failed, falling back to simulated: {e}")
+        logger.warning(f"Stripe (emergentintegrations) failed, simulating: {e}")
+        return simulated
+    # Fallback: official `stripe` SDK with the CORRECT minor-unit amount (x100). Stripe
+    # expects the smallest currency unit (usd cents / inr paise).
+    try:
+        import stripe
+        stripe.api_key = api_key
+        session = stripe.checkout.Session.create(
+            mode="payment",
+            line_items=[{"price_data": {"currency": currency,
+                "unit_amount": int(round(float(amount) * 100)),
+                "product_data": {"name": desc or "Emergent upsell"}}, "quantity": 1}],
+            success_url=success_url, cancel_url=cancel_url,
+            metadata=metadata, idempotency_key=payment_id)
+        return session.id, session.url
+    except Exception as e:
+        logger.warning(f"Stripe (official SDK) failed, simulating: {e}")
         return simulated
 
 
@@ -2428,8 +2464,15 @@ async def create_payment_link(body: PaymentIn, user: dict = Depends(get_current_
     require_lead_access(user, lead)
 
     amount, currency, desc, credits, boost_credits, multiplier = _resolve_payment_amount(body)
+    # Rail guard (B4): Razorpay handles INR only; USD goes to Stripe. (Manual = any.)
+    if body.provider == "razorpay" and currency != "inr":
+        raise HTTPException(status_code=400, detail="Razorpay handles INR only — use Stripe for USD")
+    if body.provider == "stripe" and currency == "inr":
+        raise HTTPException(status_code=400, detail="Use Razorpay for INR payments")
     # convert everything to USD for reporting using the admin-managed FX rate
     fx_rate = await get_inr_rate()
+    if fx_rate <= 0:
+        fx_rate = 85.0
     amount_usd = round(amount / fx_rate, 2) if currency == "inr" else round(amount, 2)
 
     product_line = package_product_line(body.package_id) or lead.get("product_line") or ""
@@ -2448,7 +2491,7 @@ async def create_payment_link(body: PaymentIn, user: dict = Depends(get_current_
     }
 
     if body.provider == "stripe":
-        record["session_id"], record["payment_link"] = await _create_stripe_link(body, amount, currency, payment_id, user)
+        record["session_id"], record["payment_link"] = await _create_stripe_link(body, amount, currency, payment_id, user, desc)
     elif body.provider == "manual":
         # Offline/manual payment — no hosted link; the agent records it directly.
         record["session_id"], record["payment_link"] = f"manual_{payment_id[:12]}", ""
@@ -2561,28 +2604,59 @@ async def _apply_payment_status(record: dict, status: str, payment_status: str):
         await log_activity(record["lead_id"], "payment",
                            f"Payment link {payment_status} — recoverable", record.get("agent_name") or "System")
 
+async def _dedupe_webhook(provider: str, event_id: str) -> bool:
+    """First time we see this provider event -> True (process). Replay -> False (skip).
+    Atomic via the unique webhook_events index (A4)."""
+    if not event_id:
+        return True  # can't dedupe -> process (idempotent appliers are the backstop)
+    try:
+        await db.webhook_events.insert_one({"event_key": f"{provider}:{event_id}", "at": now_iso()})
+        return True
+    except DuplicateKeyError:
+        return False
+
 @api.post("/webhook/stripe")
 async def stripe_webhook(request: Request):
-    api_key = os.environ.get("STRIPE_API_KEY")
+    api_key = await get_secret("stripe_secret_key", "STRIPE_API_KEY")
     if not api_key:
-        return {"received": True}
+        return {"received": True}  # demo / no Stripe configured
+    webhook_secret = await get_secret("stripe_webhook_secret", "STRIPE_WEBHOOK_SECRET")
     body = await request.body()
-    sig = request.headers.get("Stripe-Signature")
+    sig = request.headers.get("Stripe-Signature", "")
+    session_id = payment_status = event_id = None
     try:
-        from emergentintegrations.payments.stripe.checkout import StripeCheckout
-        stripe_checkout = StripeCheckout(api_key=api_key, webhook_url="")
-        event = await stripe_checkout.handle_webhook(body, sig)
-        record = await db.payments.find_one({"session_id": event.session_id})
-        if record:
-            await _apply_payment_status(record, "complete", event.payment_status)
+        try:
+            import stripe
+            stripe.api_key = api_key
+            event = (stripe.Webhook.construct_event(body, sig, webhook_secret)
+                     if webhook_secret else json.loads(body.decode("utf-8") or "{}"))
+            event_id = event.get("id")
+            obj = (event.get("data") or {}).get("object") or {}
+            session_id = obj.get("id")
+            payment_status = "paid" if (event.get("type") == "checkout.session.completed"
+                                        or obj.get("payment_status") == "paid") else obj.get("payment_status")
+        except ImportError:
+            from emergentintegrations.payments.stripe.checkout import StripeCheckout
+            ev = await StripeCheckout(api_key=api_key, webhook_url="").handle_webhook(body, sig)
+            session_id, payment_status, event_id = ev.session_id, ev.payment_status, ev.session_id
     except Exception as e:
-        logger.error(f"webhook error: {e}")
+        # Signature/verification failure -> 400 (never swallow to 200 = looks valid).
+        logger.error(f"stripe webhook rejected: {e}")
+        raise HTTPException(status_code=400, detail="Invalid webhook")
+    if not await _dedupe_webhook("stripe", event_id):
+        return {"received": True}  # replay
+    if session_id and payment_status:
+        record = await db.payments.find_one({"session_id": session_id})
+        if record:
+            await _apply_payment_status(record, "complete", payment_status)
+        else:
+            await db.payment_reconcile.insert_one({"provider": "stripe", "session_id": session_id, "at": now_iso()})
+            logger.warning(f"stripe webhook: unknown session {session_id} -> queued for reconcile")
     return {"received": True}
 
-def _verify_razorpay_signature(raw: bytes, request: Request):
-    """Verify X-Razorpay-Signature when RAZORPAY_WEBHOOK_SECRET is set (demo mode
-    accepts unsigned). Raises 401 on mismatch."""
-    secret = os.environ.get("RAZORPAY_WEBHOOK_SECRET")
+def _verify_razorpay_signature(raw: bytes, request: Request, secret: str):
+    """Verify X-Razorpay-Signature when a secret is configured (demo mode accepts
+    unsigned). Raises 401 on mismatch."""
     if not secret:
         return
     try:
@@ -2604,10 +2678,10 @@ async def razorpay_webhook(request: Request):
     RAZORPAY_WEBHOOK_SECRET is set (demo mode accepts unsigned), then marks the
     matching payment paid/failed. Never crashes."""
     raw = await request.body()
-    _verify_razorpay_signature(raw, request)
+    secret = await get_secret("razorpay_webhook_secret", "RAZORPAY_WEBHOOK_SECRET")
+    _verify_razorpay_signature(raw, request, secret)
     try:
-        import json as _json
-        body = _json.loads(raw.decode("utf-8") or "{}")
+        body = json.loads(raw.decode("utf-8") or "{}")
     except Exception:
         return {"received": True}
     event = body.get("event") or ""
@@ -2615,8 +2689,9 @@ async def razorpay_webhook(request: Request):
     plink = ((payload.get("payment_link") or {}).get("entity")) or {}
     payment_ent = ((payload.get("payment") or {}).get("entity")) or {}
     link_id = plink.get("id") or payment_ent.get("payment_link_id")
+    event_id = request.headers.get("x-razorpay-event-id") or payment_ent.get("id") or f"{link_id}:{event}"
     record = await db.payments.find_one({"session_id": link_id}) if link_id else None
-    if record:
+    if record and await _dedupe_webhook("razorpay", event_id):
         if event in ("payment_link.paid", "payment.captured", "order.paid"):
             await _apply_payment_status(record, "complete", "paid")
         elif event in ("payment.failed", "payment_link.cancelled", "payment_link.expired"):
@@ -3340,7 +3415,7 @@ _SEED_PRODUCT = {
     "Credit Top-Up":            ("credits_500", 100.0, "usd"),
     "Annual Pro Subscription":  ("annual_pro", 1999.0, "usd"),
     "Dedicated Support":        ("dedicated_support", 3499.0, "usd"),
-    "Lifetime Access":          ("lifetime_access", 5999.0, "usd"),
+    "Lifetime Access":          ("lifetime_access", 15000.0, "usd"),
 }
 
 
@@ -3720,12 +3795,44 @@ def _mask_secret(v: str) -> str:
     return ("•" * 6) + v[-4:] if len(v) > 4 else "••••"
 
 ORG_INTEGRATION_FIELDS = [
-    "stripe_secret_key", "stripe_publishable_key", "razorpay_key_id",
-    "razorpay_key_secret", "calendly_token", "circleback_api_key", "sendgrid_api_key",
+    "stripe_secret_key", "stripe_publishable_key", "stripe_webhook_secret",
+    "razorpay_key_id", "razorpay_key_secret", "razorpay_webhook_secret",
+    "calendly_token", "calendly_webhook_signing_key",
+    "circleback_api_key", "circleback_api_url",
+    "sendgrid_api_key", "from_email",
+    "google_service_account_json", "google_organiser_fallback_email",
+    "emergent_users_api_url", "emergent_users_api_key",
 ]
 MY_INTEGRATION_FIELDS = ["calendly_link", "calendly_token"]
 # Non-secret fields are echoed back in full; everything else is masked.
-_NON_SECRET = {"stripe_publishable_key", "razorpay_key_id", "calendly_link"}
+_NON_SECRET = {"stripe_publishable_key", "razorpay_key_id", "calendly_link",
+               "circleback_api_url", "from_email", "google_organiser_fallback_email",
+               "emergent_users_api_url"}
+
+# B1: resolve a secret from the encrypted org-integrations doc FIRST, then env fallback.
+# Cached 30s per replica so Settings changes take effect quickly without a redeploy.
+_SECRET_CACHE = {"ts": 0.0, "doc": {}}
+async def _org_secrets() -> dict:
+    now = time.time()
+    if now - _SECRET_CACHE["ts"] > 30:
+        doc = await _read_integration_doc("org")
+        _SECRET_CACHE["doc"] = {f: _dec(doc.get(f, "")) for f in ORG_INTEGRATION_FIELDS}
+        _SECRET_CACHE["ts"] = now
+    return _SECRET_CACHE["doc"]
+
+async def get_secret(field: str, *env_names: str) -> str:
+    """Stored encrypted key (Settings) beats env beats ''. Used by every adapter."""
+    v = (await _org_secrets()).get(field, "")
+    if v:
+        return v
+    for e in env_names:
+        if os.environ.get(e):
+            return os.environ[e]
+    return ""
+
+def _public_base(origin_url: str = "") -> str:
+    """Server-pinned base URL for webhook/success URLs (P2-e: never trust client origin)."""
+    return PUBLIC_BASE_URL or origin_url or ""
 
 async def _read_integration_doc(doc_id: str) -> dict:
     return await db.integrations.find_one({"id": doc_id}) or {}
@@ -3755,6 +3862,7 @@ async def get_org_integrations(admin: dict = Depends(require_admin)):
 @api.put("/settings/integrations")
 async def put_org_integrations(body: dict, admin: dict = Depends(require_admin)):
     await _save_integrations("org", ORG_INTEGRATION_FIELDS, body)
+    _SECRET_CACHE["ts"] = 0  # invalidate so new keys take effect immediately
     await log_audit("update_integrations", admin["name"], "Org API keys")
     doc = await _read_integration_doc("org")
     return {"fields": _present_integrations(doc, ORG_INTEGRATION_FIELDS)}
