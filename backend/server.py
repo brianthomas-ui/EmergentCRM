@@ -1,6 +1,7 @@
 from dotenv import load_dotenv
 from pathlib import Path
 import os
+import json
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -535,7 +536,7 @@ async def fetch_circleback_summary(meeting: dict) -> dict:
         "recording_url": meeting.get("recording_url") or None,
         "summary": meeting.get("summary") or None,
     }
-    api_key = os.environ.get("CIRCLEBACK_API_KEY")
+    api_key = await get_secret("circleback_api_key", "CIRCLEBACK_API_KEY")
     if not api_key:
         return stored
 
@@ -680,13 +681,13 @@ async def enrich_from_emergent(email: str) -> dict:
     """Pull usage/LTV/region/plan for a lead's email from the Emergent Users DB.
     Real path activates only when EMERGENT_USERS_API_URL is set; otherwise returns a
     deterministic mock derived from the email so the demo always has plausible data."""
-    api_url = os.environ.get("EMERGENT_USERS_API_URL")
+    api_url = await get_secret("emergent_users_api_url", "EMERGENT_USERS_API_URL")
     if api_url:
         try:
             import urllib.request, urllib.parse, json as _json
             qs = urllib.parse.urlencode({"email": email})
             req = urllib.request.Request(f"{api_url}?{qs}")
-            api_key = os.environ.get("EMERGENT_USERS_API_KEY")
+            api_key = await get_secret("emergent_users_api_key", "EMERGENT_USERS_API_KEY")
             if api_key:
                 req.add_header("Authorization", f"Bearer {api_key}")
             loop = asyncio.get_event_loop()
@@ -1925,29 +1926,27 @@ async def create_google_meet(agent: dict, lead: dict, scheduled_at: str, duratio
     (impersonated via domain-wide delegation, so the agent is the organiser/host).
     Returns the hangoutLink, or None if creds/libs are missing or anything fails — in
     which case the caller keeps the existing mock/Calendly-provided link."""
-    sa_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
+    sa_json = await get_secret("google_service_account_json", "GOOGLE_SERVICE_ACCOUNT_JSON")
     if not sa_json:
         return None
+    # G11: if the agent has no Workspace identity, fall back to a designated organiser
+    # so a Meet link is still produced (never silently no-link -> breaks Circleback).
+    fallback_org = await get_secret("google_organiser_fallback_email", "GOOGLE_ORGANISER_FALLBACK_EMAIL")
     try:
         # Lazy imports: never break startup if google libs aren't installed.
-        import json as _json
         from google.oauth2 import service_account
         from googleapiclient.discovery import build
 
-        info = _json.loads(sa_json)
+        info = json.loads(sa_json)
         scopes = ["https://www.googleapis.com/auth/calendar"]
-        creds = service_account.Credentials.from_service_account_info(info, scopes=scopes)
-        # Impersonate the agent so the AGENT hosts the meeting (their real process).
-        impersonate = agent.get("email")
-        if impersonate:
-            creds = creds.with_subject(impersonate)
-
+        base_creds = service_account.Credentials.from_service_account_info(info, scopes=scopes)
         start = datetime.fromisoformat(scheduled_at.replace("Z", "+00:00"))
         end = start + timedelta(minutes=int(duration or 30))
         event_body = {
             "summary": f"Emergent · {lead.get('name')}",
-            "start": {"dateTime": start.isoformat()},
-            "end": {"dateTime": end.isoformat()},
+            # IST timezone is explicit so a naive ISO time isn't interpreted as UTC.
+            "start": {"dateTime": start.isoformat(), "timeZone": "Asia/Kolkata"},
+            "end": {"dateTime": end.isoformat(), "timeZone": "Asia/Kolkata"},
             "attendees": [{"email": lead.get("email")}] if lead.get("email") else [],
             "conferenceData": {"createRequest": {
                 "requestId": new_id(),
@@ -1956,15 +1955,24 @@ async def create_google_meet(agent: dict, lead: dict, scheduled_at: str, duratio
         }
         loop = asyncio.get_event_loop()
 
-        def _insert():
+        def _insert(organiser):
+            creds = base_creds.with_subject(organiser) if organiser else base_creds
             svc = build("calendar", "v3", credentials=creds, cache_discovery=False)
             return svc.events().insert(
                 calendarId="primary", body=event_body, conferenceDataVersion=1,
                 sendUpdates="all",
             ).execute()
 
-        ev = await loop.run_in_executor(None, _insert)
-        return ev.get("hangoutLink")
+        # Prefer the agent as organiser; on failure, fall back to the designated organiser.
+        for organiser in [agent.get("email"), fallback_org]:
+            if not organiser:
+                continue
+            try:
+                ev = await loop.run_in_executor(None, _insert, organiser)
+                return ev.get("hangoutLink")
+            except Exception as e:
+                logger.warning(f"Google Meet as {organiser} failed: {e}")
+        return None
     except Exception as e:
         logger.warning(f"create_google_meet failed, keeping existing link: {e}")
         return None
@@ -2122,13 +2130,17 @@ def _calendly_extract(payload: dict) -> dict:
     elif isinstance(loc, str):
         join_url = loc
     join_url = join_url or p.get("join_url") or ""
-    return {"name": name, "email": email, "start": start, "join_url": join_url}
+    # Idempotency key (per booking) + campaign attribution (G1) from Calendly tracking/UTM.
+    event_uri = p.get("uri") or (p.get("invitee") or {}).get("uri") or event.get("uri") or ""
+    tracking = p.get("tracking") or {}
+    campaign = tracking.get("utm_campaign") or tracking.get("utm_content") or tracking.get("utm_source") or ""
+    return {"name": name, "email": email, "start": start, "join_url": join_url,
+            "event_uri": event_uri, "campaign": campaign}
 
 
-def _verify_calendly_signature(raw: bytes, request: Request):
+def _verify_calendly_signature(raw: bytes, request: Request, signing_key: str):
     """Verify the Calendly-Webhook-Signature HMAC when a signing key is configured.
     Demo mode (no key) accepts unsigned payloads. Raises 401 on mismatch."""
-    signing_key = os.environ.get("CALENDLY_WEBHOOK_SIGNING_KEY")
     if not signing_key:
         return
     try:
@@ -2148,9 +2160,23 @@ def _verify_calendly_signature(raw: bytes, request: Request):
 
 
 async def _calendly_get_or_create_lead(info: dict) -> dict:
-    """Upsert a lead by email for a Calendly booking; enrich + log when newly created."""
+    """Upsert a lead by email for a Calendly booking; enrich + log when newly created.
+    A RETURNING customer who already converted is routed into a new upsell cycle (G2) —
+    same owner, fresh LTV, +1 upsell_cycle — instead of being left stuck in Won while a
+    new meeting is booked (which would corrupt the won record)."""
     lead = await db.leads.find_one({"email": info["email"]})
     if lead:
+        already_won = lead.get("deals_won", 0) > 0 or lead.get("owner_locked") or lead.get("outcome") == "Won"
+        if already_won:
+            enr = await enrich_from_emergent(info["email"])  # refresh LTV at the upsell moment
+            await db.leads.update_one({"id": lead["id"]}, {
+                "$set": {**status_set("Contact in Future", owner_locked=False,
+                                      priority="Follow-up This Week"),
+                         "monthly_spend": enr["monthly_spend"], "lifetime_value": enr["lifetime_value"]},
+                "$inc": {"upsell_cycles": 1},
+            })  # deals_won / total_revenue_usd preserved (historical)
+            await log_activity(lead["id"], "reopen", "Returning customer re-booked — new upsell cycle", "Calendly")
+            lead = await db.leads.find_one({"id": lead["id"]})
         return lead
     ldoc = {
         "id": new_id(), "name": info["name"] or info["email"], "email": info["email"],
@@ -2180,6 +2206,7 @@ async def _calendly_book_meeting(lead: dict, agent: dict, info: dict):
         "status": "scheduled", "source": "Calendly", "booking_driver": "",
         "no_show_reason": "", "reschedule_status": "", "outcome_notes": "",
         "join_url": info["join_url"] or "", "created_at": now_iso(),
+        "calendly_event_uri": info.get("event_uri") or None,
     }
     if not meeting["join_url"]:
         meeting["join_url"] = await create_google_meet(agent, lead, scheduled_at, 30) or ""
@@ -2188,26 +2215,44 @@ async def _calendly_book_meeting(lead: dict, agent: dict, info: dict):
     if not lead.get("owner_id"):
         await _assign_lead(lead, agent, "Auto (Calendly)")
     await db.leads.update_one({"id": lead["id"]}, {"$set": {
-        "stage": "Assigned", "next_meeting_at": scheduled_at, "updated_at": now_iso()}})
+        "stage": "Assigned", "sales_stage": "Contacted",
+        "next_meeting_at": scheduled_at, "updated_at": now_iso(), "last_activity": now_iso()}})
     await log_activity(lead["id"], "meeting", f"Calendly meeting booked with {agent['name']}", "Calendly")
 
 
 @api.post("/webhook/calendly")
 async def calendly_webhook(request: Request):
     raw = await request.body()
-    _verify_calendly_signature(raw, request)
+    signing_key = await get_secret("calendly_webhook_signing_key", "CALENDLY_WEBHOOK_SIGNING_KEY")
+    _verify_calendly_signature(raw, request, signing_key)
 
     try:
-        import json as _json
-        body = _json.loads(raw.decode("utf-8") or "{}")
+        body = json.loads(raw.decode("utf-8") or "{}")
     except Exception:
         return {"received": True}
 
-    if body.get("event") not in (None, "invitee.created"):
+    event = body.get("event")
+    info = _calendly_extract(body)
+
+    # Cancellation: cancel the matched meeting, move the lead to Follow-up Later.
+    if event == "invitee.canceled":
+        if info.get("event_uri"):
+            m = await db.meetings.find_one({"calendly_event_uri": info["event_uri"]})
+            if m and m.get("status") != "cancelled":
+                await db.meetings.update_one({"id": m["id"]}, {"$set": {"status": "cancelled", "updated_at": now_iso()}})
+                await db.leads.update_one({"id": m["lead_id"]}, {"$set": {
+                    "sales_stage": "Contact in Future", "stage": "Follow-up Later",
+                    "updated_at": now_iso(), "last_activity": now_iso()}})
+                await log_activity(m["lead_id"], "meeting", "Calendly meeting cancelled", "Calendly")
         return {"received": True}
 
-    info = _calendly_extract(body)
+    if event not in (None, "invitee.created"):
+        return {"received": True}
     if not info["email"]:
+        return {"received": True}
+
+    # Idempotency: a re-delivered invitee.created for the same event books one meeting.
+    if info.get("event_uri") and not await _dedupe_webhook("calendly", info["event_uri"]):
         return {"received": True}
 
     # Upsert lead by email — keep existing owner sticky, else round-robin among agents
@@ -2218,9 +2263,21 @@ async def calendly_webhook(request: Request):
     else:
         agent = await _round_robin_agent()
     if not agent:
+        # Never lose a paid-intent booking — park it for manual assignment.
+        await db.pending_bookings.insert_one({"id": new_id(), "lead_id": lead["id"],
+            "info": info, "created_at": now_iso()})
+        logger.warning("calendly: no active agent -> pending_bookings")
         return {"received": True}
 
     await _calendly_book_meeting(lead, agent, info)
+
+    # G1: real campaign -> booking attribution. Increment the driving campaign's booked
+    # count and tag the lead, when the Calendly link carried a campaign/UTM token.
+    if info.get("campaign"):
+        camp = await db.campaigns.find_one({"$or": [{"id": info["campaign"]}, {"name": info["campaign"]}]})
+        if camp:
+            await db.campaigns.update_one({"id": camp["id"]}, {"$inc": {"booked_count": 1}})
+            await db.leads.update_one({"id": lead["id"]}, {"$set": {"campaign_id": camp["id"]}})
     return {"received": True}
 
 # ----------------------------------------------------------------------------
@@ -3877,6 +3934,62 @@ async def put_my_integrations(body: dict, user: dict = Depends(get_current_user)
     await _save_integrations(f"user:{user['id']}", MY_INTEGRATION_FIELDS, body)
     doc = await _read_integration_doc(f"user:{user['id']}")
     return {"fields": _present_integrations(doc, MY_INTEGRATION_FIELDS)}
+
+@api.post("/settings/integrations/test/{name}")
+async def test_integration(name: str, admin: dict = Depends(require_admin)):
+    """B9: verify an integration before go-live. Returns {ok, detail} with the real
+    provider error on failure — turns silent mock-fallback into visible failure."""
+    name = (name or "").lower()
+    try:
+        if name == "stripe":
+            key = await get_secret("stripe_secret_key", "STRIPE_API_KEY")
+            if not key:
+                return {"ok": False, "detail": "No Stripe key configured"}
+            try:
+                import stripe
+                stripe.api_key = key
+                bal = stripe.Balance.retrieve()
+                return {"ok": True, "detail": f"Stripe reachable (livemode={getattr(bal, 'livemode', '?')})"}
+            except Exception as e:
+                return {"ok": False, "detail": f"Stripe error: {e}"}
+        if name == "razorpay":
+            kid = await get_secret("razorpay_key_id", "RAZORPAY_KEY_ID")
+            ksec = await get_secret("razorpay_key_secret", "RAZORPAY_KEY_SECRET")
+            if not (kid and ksec):
+                return {"ok": False, "detail": "Razorpay keys not configured"}
+            import urllib.request, base64
+            req = urllib.request.Request("https://api.razorpay.com/v1/payments?count=1")
+            req.add_header("Authorization", "Basic " + base64.b64encode(f"{kid}:{ksec}".encode()).decode())
+            try:
+                await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: urllib.request.urlopen(req, timeout=10).read())
+                return {"ok": True, "detail": "Razorpay auth OK"}
+            except Exception as e:
+                return {"ok": False, "detail": f"Razorpay error: {e}"}
+        if name in ("google_meet", "google"):
+            sa = await get_secret("google_service_account_json", "GOOGLE_SERVICE_ACCOUNT_JSON")
+            if not sa:
+                return {"ok": False, "detail": "Not configured"}
+            try:
+                json.loads(sa)
+                return {"ok": True, "detail": "Service-account JSON present and valid"}
+            except Exception:
+                return {"ok": False, "detail": "GOOGLE_SERVICE_ACCOUNT_JSON is not valid JSON"}
+        # Config-presence checks for the rest (a live call needs side-effecting calls).
+        presence = {
+            "calendly": ("calendly_token", "CALENDLY_TOKEN"),
+            "circleback": ("circleback_api_key", "CIRCLEBACK_API_KEY"),
+            "sendgrid": ("sendgrid_api_key", "SENDGRID_API_KEY"),
+            "emergent_users": ("emergent_users_api_url", "EMERGENT_USERS_API_URL"),
+            "emergent": ("emergent_users_api_url", "EMERGENT_USERS_API_URL"),
+        }
+        if name in presence:
+            field, env = presence[name]
+            v = await get_secret(field, env)
+            return {"ok": bool(v), "detail": "Configured" if v else "Not configured"}
+        return {"ok": False, "detail": f"Unknown integration '{name}'"}
+    except Exception as e:
+        return {"ok": False, "detail": str(e)}
 
 # ----------------------------------------------------------------------------
 # Agent workspace ("My Work"): everything an agent needs to track active leads

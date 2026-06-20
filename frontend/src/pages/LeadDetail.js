@@ -10,6 +10,8 @@ import {
   LeadActivityTimeline,
 } from "@/components/lead/LeadPanels";
 import { PaymentModal, ReopenModal, MeetingModal } from "@/components/lead/LeadModals";
+import { Card } from "@/components/dark/Primitives";
+import AssignControl from "@/components/dark/AssignControl";
 import {
   NotesPanel,
   TasksPanel,
@@ -206,6 +208,11 @@ export default function LeadDetail() {
         <div className="space-y-4">
           <LeadContextPanel lead={lead} onRefresh={refreshEmergent} />
           <OverviewPanel lead={lead} meta={meta} onUpdate={updateField} onUpdateStage={updateStage} />
+          <Card className="p-4">
+            <span className="text-[11px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--text-faint)] block mb-3">Owner</span>
+            <div className="text-sm text-[var(--text)] mb-2">{lead.owner_name || "Unassigned"}{lead.owner_locked ? " · 🔒 locked" : ""}</div>
+            <AssignControl lead={lead} onAssigned={load} />
+          </Card>
         </div>
 
         <div className="space-y-4">
