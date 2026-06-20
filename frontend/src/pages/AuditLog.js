@@ -17,7 +17,7 @@ export default function AuditLog() {
         <p className="text-sm text-zinc-500 mt-1">Admin actions across the workspace</p>
       </div>
 
-      <div className="bg-white border border-zinc-200 rounded-lg overflow-hidden">
+      <div className="bg-white border border-zinc-200 rounded-lg overflow-hidden" data-tour="audit-table">
         <table className="w-full">
           <thead>
             <tr className="bg-zinc-50 border-b border-zinc-200">

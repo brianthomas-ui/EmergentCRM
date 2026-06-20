@@ -362,7 +362,7 @@ export default function Team() {
       </div>
 
       {/* ── Leaderboard table ── */}
-      <Card className="flex flex-col">
+      <Card className="flex flex-col" data-tour="team-leaderboard">
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
           <h2 className="text-sm font-semibold text-[var(--text)]">Rep Performance Leaderboard</h2>
           <span className="text-[11px] text-[var(--text-faint)]">

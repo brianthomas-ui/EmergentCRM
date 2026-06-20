@@ -99,7 +99,7 @@ export default function Campaigns() {
       <PerformanceCharts perfData={perfData} channelData={channelData} />
 
       {/* Campaign table + sidebar */}
-      <div className="grid lg:grid-cols-3 gap-4">
+      <div className="grid lg:grid-cols-3 gap-4" data-tour="campaigns-table">
         <CampaignsTable
           loading={loading}
           filtered={filtered}

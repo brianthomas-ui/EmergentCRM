@@ -1,111 +1,163 @@
-// Role-specific guided tours. Each step optionally targets a sidebar nav item
-// (by data-testid) so the spotlight lands on a stable element. Content is deep
-// and action-oriented, tailored to what each role actually does day-to-day.
+// Role-specific guided tours, structured as a PAGE WALK: each step carries a
+// `pagePath` so the tour navigates to that route, waits for the target to mount,
+// then spotlights a page-level anchor (data-tour / data-testid). Steps without a
+// selector render centered (intro / outro). Content is deep and action-oriented.
 
 const AGENT_STEPS = [
   {
+    pagePath: "/",
     title: "Welcome to your sales console 👋",
-    body: "This 90-second tour shows you exactly how to run your day: see what needs attention, work your leads, log conversations, book meetings and send payment links. You can replay it any time from the sidebar.",
+    body: "This 2-minute tour walks you through every page you'll use: your dashboard, My Work, leads, meetings, deals and payments. The tour moves between pages for you — just hit Next. You can replay it any time from the sidebar.",
   },
   {
-    selector: '[data-testid="nav-workspace"]',
-    title: "Start here every morning — My Work",
-    body: "My Work is your command center. It surfaces today's meetings, follow-ups that are due, deals waiting on payment, and leads going stale — so you never lose track of an active conversation. Clear this list daily.",
+    pagePath: "/",
+    selector: '[data-tour="dashboard-kpis"]',
+    title: "Dashboard — your day in six numbers",
+    body: "Revenue closed, open pipeline, meetings today, payments pending, no-shows and conversion. Every card is clickable — drill in to see the exact leads, deals or payments behind the number.",
   },
   {
-    selector: '[data-testid="nav-leads"]',
+    pagePath: "/",
+    selector: '[data-tour="dashboard-period"]',
+    title: "Scope everything by time period",
+    body: "Switch between Today, This Week, This Month or a custom range. The whole dashboard re-scopes — and when you drill into a card, the drill-down respects the same period, so 'Open Pipeline' for This Week shows only this week's deals.",
+  },
+  {
+    pagePath: "/workspace",
+    selector: '[data-testid="ws-followups"]',
+    title: "My Work — start here every morning",
+    body: "Your command center: follow-ups that are due, today's meetings, deals waiting on payment, and leads going stale. Clear this list daily and nothing slips through the cracks.",
+  },
+  {
+    pagePath: "/leads",
+    selector: '[data-tour="leads-table"]',
     title: "Leads — your book of business",
-    body: "Every prospect you own lives here. Use the search and status filters to slice your pipeline. Open any lead to see the full story: company context, usage, and your entire conversation history.",
+    body: "Every prospect you own. Search and filter to slice your pipeline, then open any lead for the full story — company context, usage and your entire conversation history. Log a note after each call; it feeds your My Work feed.",
   },
   {
-    selector: '[data-testid="nav-leads"]',
-    title: "Log every conversation",
-    body: "Inside a lead, add a note after each call or email (what happened + the next step). These notes power your 'Recent conversations' feed in My Work and keep your manager in the loop without status meetings.",
-  },
-  {
-    selector: '[data-testid="nav-meetings"]',
+    pagePath: "/meetings",
+    selector: '[data-tour="meetings-title"]',
     title: "Meetings — run the call, log the outcome",
-    body: "Your calendar of bookings. After a call, open the meeting to mark it Show or No-Show, add outcome notes, or reschedule. No-shows automatically flow back into My Work so you can re-book them.",
+    body: "Your calendar of bookings in IST. After a call, mark it Show or No-Show, add outcome notes, or reschedule. No-shows flow straight back into My Work so you can re-book them.",
   },
   {
-    selector: '[data-testid="nav-deals"]',
-    title: "Deals — move the pipeline",
-    body: "A fast, filterable table of your active deals. Open a deal to advance its status (Interested → Payment Link Sent → Paid) and to generate a Stripe or Razorpay payment link in two clicks.",
+    pagePath: "/deals",
+    selector: '[data-tour="deals-search"]',
+    title: "Deals — search and work the pipeline",
+    body: "A fast, searchable pipeline grouped by recency — Today, this week, this month, earlier — so the freshest deals are always on top. Sort by amount, owner or date with the column headers.",
   },
   {
-    selector: '[data-testid="nav-payments"]',
+    pagePath: "/deals",
+    selector: '[data-tour="deals-period"]',
+    title: "Scope deals to a period",
+    body: "Narrow the pipeline to any time window, or keep 'All time' to see everything. Open a deal to advance its status and generate a Stripe or Razorpay payment link in two clicks.",
+  },
+  {
+    pagePath: "/payments",
+    selector: '[data-tour="new-payment-link"]',
     title: "Payments — get paid",
-    body: "All your payment links and closed revenue in USD. Hit 'New Payment Link' to create a custom link for any lead, choose the product line, and the deal updates automatically when it's paid.",
+    body: "All your links and closed revenue in USD. 'New Payment Link' creates a link for a lead, or a standalone link with no lead attached — enter a customer email and it auto-attaches to a matching lead, or link it later.",
   },
   {
-    selector: '[data-testid="nav-settings"]',
+    pagePath: "/settings",
+    selector: '[data-testid="settings-page"]',
     title: "Your settings & keys",
-    body: "Add your own integration details here — for example your personal Calendly link — so booking and follow-ups feel like yours. You can also change your password and theme.",
+    body: "Add your own integration details — like your personal Calendly link — so booking and follow-ups feel like yours. You can also change your password and switch theme here.",
   },
   {
-    selector: '[data-tour="user-card"]',
-    title: "Profile, theme & replaying this tour",
-    body: "Update your photo, switch between dark and light mode, change your password, or restart this tour any time — all from here.",
-  },
-  {
+    pagePath: "/settings",
     title: "You're ready to sell 🎉",
-    body: "Quick rhythm: clear My Work → log every conversation → book the meeting → send the payment link. Do that daily and your pipeline runs itself. Good luck!",
+    body: "Quick rhythm: clear My Work → log every conversation → book the meeting → send the payment link. Do that daily and your pipeline runs itself. Replay this tour any time from the sidebar. Good luck!",
   },
 ];
 
 const MANAGER_STEPS = [
   {
+    pagePath: "/",
     title: "Welcome, Sales Head 👋",
-    body: "This tour covers how to run the team: read performance at a glance, dig into any metric, manage agents and targets, configure integrations, import historical data, and even view the CRM exactly as one of your reps.",
+    body: "This tour walks every page you'll run the team from — dashboard, team & targets, campaigns, the full pipeline, payments, settings and the audit log. The tour navigates between pages for you; just hit Next.",
   },
   {
-    selector: '[data-testid="nav-dashboard"]',
+    pagePath: "/",
+    selector: '[data-tour="dashboard-kpis"]',
     title: "Dashboard — the whole team at a glance",
-    body: "Revenue, pipeline health, conversion and per-product performance, all filterable by time period. Every KPI and chart is clickable — drill in to see the exact leads, deals or payments behind the number.",
+    body: "Revenue, pipeline, meetings, conversion and more — all for the team. Every KPI and chart is clickable; drill in to see the exact leads, deals or payments behind it.",
   },
   {
-    selector: '[data-testid="nav-team"]',
+    pagePath: "/",
+    selector: '[data-tour="dashboard-period"]',
+    title: "Scope by period — drill-downs follow",
+    body: "Today / This Week / This Month / custom re-scopes the whole console. Drill-downs respect the selected window, so clicking a card after picking 'This Week' shows only this week's records.",
+  },
+  {
+    pagePath: "/team",
+    selector: '[data-tour="team-leaderboard"]',
     title: "Team — agents, targets & the leaderboard",
-    body: "Manage your reps, set monthly targets, and watch the leaderboard. Compare leads worked, meetings, win rate and revenue per agent for any time window.",
+    body: "Manage reps, set monthly targets, and watch the leaderboard: leads worked, meetings, win rate and revenue per agent for any window. You're on it too — you carry a target as a selling manager.",
   },
   {
+    pagePath: "/team",
     selector: '[data-tour="view-as"]',
     title: "View as an agent (powerful!)",
-    body: "Pick any rep here to see the CRM exactly as they do — their My Work, their leads, their deals. Perfect for coaching and 1:1s. A banner reminds you you're viewing as them; click 'Back to Manager' to return.",
+    body: "Pick any rep here to see the CRM exactly as they do — their My Work, leads and deals. Perfect for coaching and 1:1s. A banner reminds you you're viewing as them; click 'Back to Manager' to return.",
   },
   {
-    selector: '[data-testid="nav-workspace"]',
+    pagePath: "/workspace",
+    selector: '[data-testid="ws-followups"]',
     title: "You sell too — My Work",
-    body: "You also carry a book of business, so My Work shows your own active leads, follow-ups and meetings — same command center your reps use.",
+    body: "Your own command center: your active follow-ups, today's meetings and pending payments — the same daily list your reps work.",
   },
   {
-    selector: '[data-testid="nav-campaigns"]',
+    pagePath: "/campaigns",
+    selector: '[data-tour="campaigns-table"]',
     title: "Campaigns — outbound at scale",
-    body: "Build targeted segments, track performance, and run mail-merge outreach to fill the top of the funnel for the team.",
+    body: "Build targeted segments, track performance, and run mail-merge outreach to fill the top of the funnel for the whole team.",
   },
   {
-    selector: '[data-testid="nav-leads"]',
-    title: "Leads & Deals — the full pipeline",
-    body: "Leads and Deals show the entire team's pipeline (not just yours). Filter by owner, status, product or region to spot stuck deals and rebalance workload.",
+    pagePath: "/leads",
+    selector: '[data-tour="leads-table"]',
+    title: "Leads — the whole team's pipeline",
+    body: "Leads (and Deals) show everyone's pipeline, not just yours. Filter by owner, status, product or region to spot stuck deals and rebalance workload.",
   },
   {
-    selector: '[data-testid="nav-settings"]',
-    title: "Settings — API keys & integrations",
-    body: "Add and rotate your Stripe, Razorpay, Calendly and other API keys here. Keys are stored securely and shown masked. This is also where you set the FX rate and can reset the demo dataset.",
+    pagePath: "/deals",
+    selector: '[data-tour="deals-search"]',
+    title: "Deals — searchable, grouped by recency",
+    body: "The team pipeline as a fast table, grouped Today / this week / this month / earlier and sortable by amount, owner or date. Scope it to any period with the control on the right.",
   },
   {
-    selector: '[data-testid="nav-settings"]',
+    pagePath: "/meetings",
+    selector: '[data-tour="meetings-title"]',
+    title: "Meetings — the team's calendar",
+    body: "Every rep's bookings in one IST grid. Spot a quiet day or a wall of no-shows at a glance.",
+  },
+  {
+    pagePath: "/payments",
+    selector: '[data-tour="new-payment-link"]',
+    title: "Payments — links & revenue",
+    body: "All payment links and closed revenue in USD. Standalone links can be created with no lead and attached to one later — handy for ad-hoc or historical payments.",
+  },
+  {
+    pagePath: "/settings",
+    selector: '[data-testid="settings-page"]',
+    title: "Settings — keys, FX & import",
+    body: "Add and rotate Stripe, Razorpay, Calendly and other keys (stored securely, shown masked), set the FX rate, and reset the demo dataset.",
+  },
+  {
+    pagePath: "/settings",
+    selector: '[data-tour="import-template"]',
     title: "Import historical data",
-    body: "Backfill the CRM from your old tools: import historical leads, deals and meetings via a cleaned CSV with column mapping and de-duplication, so your reports are complete from day one.",
+    body: "Backfill from your old tools: download a CSV template for leads, payments or meetings, fill it in, and import with column-mapping and de-duplication so your reports are complete from day one.",
   },
   {
-    selector: '[data-testid="nav-audit"]',
+    pagePath: "/audit",
+    selector: '[data-tour="audit-table"]',
     title: "Audit Log — full accountability",
-    body: "Every meaningful action — assignments, status changes, payments, key updates, impersonation — is logged here with who, what and when.",
+    body: "Every meaningful action — assignments, status changes, payments, key updates, impersonation — logged with who, what and when.",
   },
   {
+    pagePath: "/audit",
     title: "That's the manager toolkit 🎯",
-    body: "Read the Dashboard, coach with 'View as', keep targets sharp on Team, and keep integrations current in Settings. You're set — restart this tour any time from the sidebar.",
+    body: "Read the Dashboard, coach with 'View as', keep targets sharp on Team, and keep integrations current in Settings. Replay this tour any time from the sidebar.",
   },
 ];
 

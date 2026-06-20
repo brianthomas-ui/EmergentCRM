@@ -578,7 +578,9 @@ export default function Dashboard() {
             {isAdmin ? "Team performance overview" : "Your pipeline and meetings"}
           </p>
         </div>
-        <PeriodFilter value={period} onChange={setPeriod} />
+        <div data-tour="dashboard-period">
+          <PeriodFilter value={period} onChange={setPeriod} />
+        </div>
       </div>
 
       {/* ---- Loading skeleton ---- */}
@@ -592,7 +594,7 @@ export default function Dashboard() {
       {data && (
         <>
           {/* ---- KPI Cards (6) ---- */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3" data-tour="dashboard-kpis">
             <KpiCard
               testid="kpi-revenue"
               label="Revenue Closed"

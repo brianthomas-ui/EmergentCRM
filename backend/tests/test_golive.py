@@ -149,6 +149,89 @@ def test_calendly_idempotent(admin):
     assert len(det["meetings"]) == 1
 
 
+# ----------------- Demo-richness + UX features (items A-F) -----------------
+
+def _drill_ids(admin, metric, **params):
+    r = requests.get(f"{BASE}/dashboard/drilldown",
+                     params={"metric": metric, **params}, headers=H(admin))
+    assert r.status_code == 200, r.text
+    data = r.json()
+    items = data if isinstance(data, list) else data.get("items", [])
+    return {x.get("id") for x in items}
+
+
+def test_drilldown_respects_period(admin):
+    """B/item7: a fresh active-pipeline lead shows in the TODAY window but not in a
+    past custom window — proving open-pipeline drill-downs are period-aware."""
+    lead = _new_lead(admin)
+    requests.put(f"{BASE}/leads/{lead['id']}/stage", json={"stage": "Interested"}, headers=H(admin))
+    assert lead["id"] in _drill_ids(admin, "open_pipeline", period="today")
+    assert lead["id"] not in _drill_ids(admin, "open_pipeline", period="custom",
+                                        **{"from": "2026-01-01", "to": "2026-01-31"})
+
+
+def test_standalone_payment_then_link_lead(admin):
+    """C/item8: a link with a novel email is standalone (no lead); it can be attached
+    to a lead later via /payments/{id}/link-lead."""
+    novel = f"standalone_{uuid.uuid4().hex[:10]}@nobody.test"
+    p = requests.post(f"{BASE}/payments/link",
+                      json={"provider": "manual", "amount": 1500, "currency": "usd",
+                            "customer_email": novel, "customer_name": "Standalone Co"},
+                      headers=H(admin)).json()
+    assert not p.get("lead_id")
+    assert p.get("link_type") == "standalone"
+
+    lead = _new_lead(admin)
+    r = requests.post(f"{BASE}/payments/{p['id']}/link-lead",
+                      json={"lead_id": lead["id"]}, headers=H(admin))
+    assert r.status_code == 200, r.text
+    assert r.json().get("lead_id") == lead["id"]
+    assert r.json().get("link_type") == "lead"
+
+
+def test_payment_autolinks_by_email(admin):
+    """C/item8: a link whose customer_email matches an existing lead auto-attaches."""
+    email = f"auto_{uuid.uuid4().hex[:10]}@x.com"
+    lead = requests.post(f"{BASE}/leads", json={"name": "Auto", "email": email}, headers=H(admin)).json()
+    p = requests.post(f"{BASE}/payments/link",
+                      json={"provider": "manual", "amount": 1200, "currency": "usd",
+                            "customer_email": email}, headers=H(admin)).json()
+    assert p.get("lead_id") == lead["id"]
+    assert p.get("link_type") == "lead"
+
+
+def test_import_template_csv(admin):
+    """F/item9: each template type returns a CSV (header + examples); unknown -> 404."""
+    for itype, col in [("leads", "email"), ("payments", "customer_email"), ("meetings", "scheduled_at")]:
+        r = requests.get(f"{BASE}/import/template/{itype}", headers=H(admin))
+        assert r.status_code == 200, r.text
+        assert "text/csv" in r.headers.get("content-type", "")
+        lines = r.text.strip().splitlines()
+        assert col in lines[0] and len(lines) >= 3  # header + >=2 example rows
+    assert requests.get(f"{BASE}/import/template/bogus", headers=H(admin)).status_code == 404
+
+
+def test_seed_diyea_on_leaderboard_and_brian_lowest(admin):
+    """A/items2: the leaderboard includes Diyea (selling manager) and Brian is the
+    lowest contributor."""
+    board = requests.get(f"{BASE}/dashboard", params={"period": "all"}, headers=H(admin)).json().get("per_agent", [])
+    by_rev = sorted(board, key=lambda x: -(x.get("revenue") or 0))
+    names = [a.get("name") for a in by_rev]
+    assert "Diyea" in names, names
+    assert by_rev[-1]["name"] == "Brian", names
+    # Diyea carries a target as a selling manager.
+    diyea = next(a for a in board if a["name"] == "Diyea")
+    assert (diyea.get("target") or 0) > 0
+
+
+def test_seed_has_repeat_customers(admin):
+    """A/item4: heavy seed includes returning customers (deals_won>1, upsell_cycles>0)."""
+    leads = requests.get(f"{BASE}/leads", params={"period": "all"}, headers=H(admin)).json()
+    assert len(leads) >= 120, f"expected a heavy dataset, got {len(leads)}"
+    assert any((l.get("deals_won") or 0) > 1 for l in leads)
+    assert any((l.get("upsell_cycles") or 0) > 0 for l in leads)
+
+
 if __name__ == "__main__":
     import sys
     sys.exit(pytest.main([__file__, "-v"]))

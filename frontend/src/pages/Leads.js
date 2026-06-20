@@ -178,13 +178,15 @@ export default function Leads() {
             )}
           </div>
 
-          <LeadsTable
-            filtered={filtered}
-            leads={leads}
-            loading={loading}
-            meta={meta}
-            onRowClick={(id) => navigate(`/leads/${id}`)}
-          />
+          <div data-tour="leads-table">
+            <LeadsTable
+              filtered={filtered}
+              leads={leads}
+              loading={loading}
+              meta={meta}
+              onRowClick={(id) => navigate(`/leads/${id}`)}
+            />
+          </div>
         </div>
 
         {/* Sidebar */}

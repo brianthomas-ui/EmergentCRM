@@ -822,7 +822,9 @@ class CampaignIn(BaseModel):
     template_body: str
 
 class PaymentIn(BaseModel):
-    lead_id: str
+    lead_id: Optional[str] = None           # optional -> standalone (lead-less) links
+    customer_email: Optional[str] = None    # if it matches a CRM lead, auto-link to it
+    customer_name: Optional[str] = None
     provider: str = "stripe"  # stripe | razorpay | manual
     package_id: Optional[str] = None
     amount: Optional[float] = None          # explicit amount overrides the preset (lets agents discount)
@@ -1902,6 +1904,43 @@ async def import_historical(body: ImportIn, admin: dict = Depends(require_admin)
     }
 
 
+_IMPORT_TEMPLATES = {
+    "leads": (
+        ["name", "email", "company", "phone", "plan", "monthly_spend", "lifetime_value",
+         "region", "status", "owner", "product_line", "source", "created_at"],
+        [["Jane Cooper", "jane@acme.io", "Acme Inc", "+1 555 0142", "Pro $149/mo", "149", "2400",
+          "North America", "Interested", "Aryan", "Credit Top-Up", "Q1 Outreach", "2026-03-12"],
+         ["Raj Patel", "raj@northstar.in", "Northstar", "+91 98xxxxxx", "Team $299/mo", "299", "5200",
+          "APAC", "Payment Link Paid", "Diyea", "Annual Pro Subscription", "Webinar", "2026-04-02"]],
+    ),
+    "payments": (
+        ["customer_email", "amount", "currency", "status", "provider", "product_line", "description", "created_at"],
+        [["jane@acme.io", "2500", "usd", "paid", "stripe", "Credit Top-Up", "2,500 credits", "2026-04-05"],
+         ["raj@northstar.in", "1999", "usd", "paid", "razorpay", "Annual Pro Subscription", "Annual plan", "2026-04-02"]],
+    ),
+    "meetings": (
+        ["email", "scheduled_at", "status", "duration", "driver", "notes"],
+        [["jane@acme.io", "2026-04-10T14:30:00Z", "completed", "30", "Top-Up Credits", "Great call — sending link"],
+         ["raj@northstar.in", "2026-04-12T15:00:00Z", "scheduled", "30", "Renewal", "Renewal discussion"]],
+    ),
+}
+
+@api.get("/import/template/{itype}")
+async def import_template(itype: str, admin: dict = Depends(require_admin)):
+    """Downloadable CSV template (headers + 2 example rows) for the historical importer."""
+    spec = _IMPORT_TEMPLATES.get((itype or "").lower())
+    if not spec:
+        raise HTTPException(status_code=404, detail="Unknown template type")
+    headers, examples = spec
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(headers)
+    for row in examples:
+        w.writerow(row)
+    return Response(content=buf.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": f"attachment; filename=emergentcrm_{itype}_template.csv"})
+
+
 # ----------------------------------------------------------------------------
 # Meetings (Calendly intake simulated)
 # ----------------------------------------------------------------------------
@@ -2515,10 +2554,18 @@ async def _create_razorpay_link(body, amount, currency, payment_id, lead, fallba
 
 @api.post("/payments/link")
 async def create_payment_link(body: PaymentIn, user: dict = Depends(get_current_user)):
-    lead = await db.leads.find_one({"id": body.lead_id})
-    if not lead:
-        raise HTTPException(status_code=404, detail="Lead not found")
-    require_lead_access(user, lead)
+    # Resolve the lead: explicit lead_id, else auto-link by customer email, else STANDALONE.
+    lead = None
+    cust_email = (body.customer_email or "").strip().lower() or None
+    if body.lead_id:
+        lead = await db.leads.find_one({"id": body.lead_id})
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        require_lead_access(user, lead)
+    elif cust_email:
+        lead = await db.leads.find_one({"email": cust_email})  # auto-link on match
+        if lead:
+            require_lead_access(user, lead)
 
     amount, currency, desc, credits, boost_credits, multiplier = _resolve_payment_amount(body)
     # Rail guard (B4): Razorpay handles INR only; USD goes to Stripe. (Manual = any.)
@@ -2526,17 +2573,22 @@ async def create_payment_link(body: PaymentIn, user: dict = Depends(get_current_
         raise HTTPException(status_code=400, detail="Razorpay handles INR only — use Stripe for USD")
     if body.provider == "stripe" and currency == "inr":
         raise HTTPException(status_code=400, detail="Use Razorpay for INR payments")
-    # convert everything to USD for reporting using the admin-managed FX rate
     fx_rate = await get_inr_rate()
     if fx_rate <= 0:
         fx_rate = 85.0
     amount_usd = round(amount / fx_rate, 2) if currency == "inr" else round(amount, 2)
 
-    product_line = package_product_line(body.package_id) or lead.get("product_line") or ""
+    product_line = package_product_line(body.package_id) or (lead.get("product_line") if lead else "") or ""
+    email_final = cust_email or (lead.get("email") if lead else None)
 
     payment_id = new_id()
     record = {
-        "id": payment_id, "lead_id": body.lead_id, "lead_name": lead["name"],
+        "id": payment_id,
+        "lead_id": (lead["id"] if lead else None),
+        "lead_name": (lead["name"] if lead else (body.customer_name or email_final or "Standalone link")),
+        "customer_email": email_final,
+        "customer_name": body.customer_name or (lead.get("name") if lead else None),
+        "link_type": ("lead" if lead else "standalone"),
         "agent_id": user["id"], "agent_name": user["name"],
         "provider": body.provider, "amount": amount, "currency": currency,
         "credits": credits, "boost_credits": boost_credits, "multiplier": multiplier,
@@ -2550,34 +2602,33 @@ async def create_payment_link(body: PaymentIn, user: dict = Depends(get_current_
     if body.provider == "stripe":
         record["session_id"], record["payment_link"] = await _create_stripe_link(body, amount, currency, payment_id, user, desc)
     elif body.provider == "manual":
-        # Offline/manual payment — no hosted link; the agent records it directly.
         record["session_id"], record["payment_link"] = f"manual_{payment_id[:12]}", ""
     else:
-        # Razorpay: real Payment Link when keys are present, else the simulated fallback link.
         simulated = (
             f"rzp_{payment_id[:12]}",
             f"{body.origin_url}/payment-return?session_id=rzp_{payment_id[:12]}&pid={payment_id}",
         )
         record["session_id"], record["payment_link"] = await _create_razorpay_link(
-            body, amount, currency, payment_id, lead, simulated)
+            body, amount, currency, payment_id, lead or {}, simulated)
 
     await db.payments.insert_one(record)
-    lead_set = {
-        "stage": "Payment Link Sent", "sales_stage": "Payment Link Sent",
-        "payment_status": "link_sent", "payment_state": "Link Sent", "outcome": "",
-        "priority": "Payment Pending", "provider": body.provider,
-        "updated_at": now_iso(), "last_activity": now_iso(),
-    }
-    if product_line:
-        lead_set["product_line"] = product_line
-    if body.package_id:
-        lead_set["package_id"] = body.package_id
-    lead_set["amount"] = amount
-    lead_set["currency"] = currency
-    await db.leads.update_one({"id": body.lead_id}, {"$set": lead_set})
-    await log_activity(body.lead_id, "payment", f"{body.provider.title()} payment link sent: {currency.upper()} {amount:.0f} (~${amount_usd:.0f})", user["name"])
-    # Manual payment already received -> mark Won immediately (G5: Won rides a real
-    # paid payment record). This is the path the FE "Mark paid" uses.
+    # Lead side-effects ONLY when this payment is attached to a lead.
+    if lead:
+        lead_set = {
+            "stage": "Payment Link Sent", "sales_stage": "Payment Link Sent",
+            "payment_status": "link_sent", "payment_state": "Link Sent", "outcome": "",
+            "priority": "Payment Pending", "provider": body.provider,
+            "amount": amount, "currency": currency,
+            "updated_at": now_iso(), "last_activity": now_iso(),
+        }
+        if product_line:
+            lead_set["product_line"] = product_line
+        if body.package_id:
+            lead_set["package_id"] = body.package_id
+        await db.leads.update_one({"id": lead["id"]}, {"$set": lead_set})
+        await log_activity(lead["id"], "payment", f"{body.provider.title()} payment link sent: {currency.upper()} {amount:.0f} (~${amount_usd:.0f})", user["name"])
+    # Manual payment already received -> mark paid (G5). Standalone too (counts toward
+    # the agent's revenue; touches no lead).
     if body.provider == "manual" and body.mark_paid:
         await _apply_payment_status(record, "complete", "paid")
         record = await db.payments.find_one({"id": payment_id})
@@ -2637,29 +2688,61 @@ async def _apply_payment_status(record: dict, status: str, payment_status: str):
         return
     update = {"status": status, "payment_status": payment_status, "updated_at": now_iso()}
     await db.payments.update_one({"id": record["id"]}, {"$set": update})
+    lead_id = record.get("lead_id")  # standalone payments have none -> skip lead writes
     if payment_status == "paid":
-        amt_usd = record.get("amount_usd", record["amount"])
-        # The ONE place a deal becomes Won (G5): always against a real paid payment
-        # record. Routed through status_set so all five status fields stay consistent.
-        lead_set = status_set("Payment Link Paid", priority="None",
-                              next_action="View customer / ask for referral")
-        if record.get("product_line"):
-            lead_set["product_line"] = record["product_line"]
-        await db.leads.update_one({"id": record["lead_id"]}, {
-            "$set": lead_set,
-            "$inc": {"total_revenue_usd": amt_usd, "deals_won": 1},
-        })
-        await log_activity(record["lead_id"], "payment",
-                           f"Payment completed: {record['currency'].upper()} {record['amount']:.0f} (~${record.get('amount_usd', record['amount']):.0f}) 🎉",
-                           record["agent_name"])
+        if lead_id:
+            amt_usd = record.get("amount_usd", record["amount"])
+            # The ONE place a deal becomes Won (G5): always against a real paid payment
+            # record. Routed through status_set so all five status fields stay consistent.
+            lead_set = status_set("Payment Link Paid", priority="None",
+                                  next_action="View customer / ask for referral")
+            if record.get("product_line"):
+                lead_set["product_line"] = record["product_line"]
+            await db.leads.update_one({"id": lead_id}, {
+                "$set": lead_set,
+                "$inc": {"total_revenue_usd": amt_usd, "deals_won": 1},
+            })
+            await log_activity(lead_id, "payment",
+                               f"Payment completed: {record['currency'].upper()} {record['amount']:.0f} (~${record.get('amount_usd', record['amount']):.0f}) 🎉",
+                               record["agent_name"])
     elif payment_status in ("failed", "expired", "canceled", "cancelled"):
         # Payment Link Failed -> recoverable (spec §4). Keep the lead in the active
         # journey; don't lock or count revenue.
-        await db.leads.update_one({"id": record["lead_id"]}, {"$set": status_set(
-            "Payment Link Failed", priority="Follow-up This Week",
-            next_action="Retry payment link")})
-        await log_activity(record["lead_id"], "payment",
-                           f"Payment link {payment_status} — recoverable", record.get("agent_name") or "System")
+        if lead_id:
+            await db.leads.update_one({"id": lead_id}, {"$set": status_set(
+                "Payment Link Failed", priority="Follow-up This Week",
+                next_action="Retry payment link")})
+            await log_activity(lead_id, "payment",
+                               f"Payment link {payment_status} — recoverable", record.get("agent_name") or "System")
+
+class LinkLeadIn(BaseModel):
+    lead_id: str
+    roll_revenue: bool = True
+
+@api.post("/payments/{payment_id}/link-lead", response_model=PaymentOut)
+async def link_payment_to_lead(payment_id: str, body: LinkLeadIn, user: dict = Depends(get_current_user)):
+    """Associate a standalone (lead-less) payment with a lead. If it's already paid and
+    roll_revenue is set, roll the revenue onto the lead and mark it Won."""
+    record = await db.payments.find_one({"id": payment_id})
+    if not record:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    await require_payment_access(user, record)
+    lead = await db.leads.find_one({"id": body.lead_id})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    require_lead_access(user, lead)
+    await db.payments.update_one({"id": payment_id}, {"$set": {
+        "lead_id": lead["id"], "lead_name": lead["name"], "link_type": "lead",
+        "reconciled": True, "updated_at": now_iso()}})
+    await log_activity(lead["id"], "payment",
+                       f"Linked a {record['currency'].upper()} {record.get('amount', 0):.0f} payment to this lead",
+                       user["name"])
+    if record.get("payment_status") == "paid" and body.roll_revenue:
+        amt_usd = record.get("amount_usd", record.get("amount", 0))
+        await db.leads.update_one({"id": lead["id"]}, {
+            "$set": status_set("Payment Link Paid", priority="None"),
+            "$inc": {"total_revenue_usd": amt_usd, "deals_won": 1}})
+    return clean(await db.payments.find_one({"id": payment_id}))
 
 async def _dedupe_webhook(provider: str, event_id: str) -> bool:
     """First time we see this provider event -> True (process). Replay -> False (skip).
@@ -2968,11 +3051,12 @@ async def dashboard(request: Request, user: dict = Depends(get_current_user)):
         "noshow_today": len(noshow_today),
         "noshow_total": status_counts.get("No-Show", 0),
         "revenue_won": _revenue(win_payments, "paid"),
-        # Open pipeline value = Active Pipeline group deal value (current state).
-        "pipeline_value": round(open_group_counts["Active Pipeline"]["value_usd"], 2),
-        "recoverable_count": open_group_counts["Recoverable"]["count"],
-        "recoverable_value": round(open_group_counts["Recoverable"]["value_usd"], 2),
-        "lost_count": open_group_counts["Lost"]["count"],
+        # Pipeline / recoverable / lost now reflect the SELECTED PERIOD (created-in-window),
+        # so the KPI card matches its drill-down. (Was current-state, ignoring the filter.)
+        "pipeline_value": round(win_group_counts["Active Pipeline"]["value_usd"], 2),
+        "recoverable_count": win_group_counts["Recoverable"]["count"],
+        "recoverable_value": round(win_group_counts["Recoverable"]["value_usd"], 2),
+        "lost_count": win_group_counts["Lost"]["count"],
         # Payment pending = Payment Link Sent status (awaiting payment), not failed/paid.
         "payment_pending": status_counts.get("Payment Link Sent", 0),
         "payment_failed": status_counts.get("Payment Link Failed", 0),
@@ -2985,10 +3069,16 @@ async def dashboard(request: Request, user: dict = Depends(get_current_user)):
     }
 
     if is_admin:
-        agents = await db.users.find({"role": "agent"}).to_list(100)
-        result["team_target"] = sum(a.get("monthly_target", 0) for a in agents)
+        # Include the selling manager (Diyea) on the leaderboard, but never the demo
+        # showcase account. Round-robin still excludes admins (handled elsewhere).
+        demo_email = os.environ.get("DEMO_EMAIL", "demo@emergent.sh").lower()
+        sellers = await db.users.find({
+            "role": {"$in": ["agent", "admin"]}, "active": True,
+            "email": {"$ne": demo_email},
+        }).to_list(100)
+        result["team_target"] = sum(a.get("monthly_target", 0) for a in sellers)
         # Leaderboard reflects the window: leads created in-window + payments paid in-window.
-        result["per_agent"] = _agent_leaderboard(agents, win_leads, meetings, win_payments)
+        result["per_agent"] = _agent_leaderboard(sellers, win_leads, meetings, win_payments)
     return result
 
 @api.get("/settings", response_model=SettingsOut)
@@ -3223,7 +3313,7 @@ async def _drill_revenue_closed(lead_scope, agent_scope, today, win_start, win_e
 async def _drill_open_pipeline(lead_scope, agent_scope, today, win_start, win_end):
     q = {**lead_scope, "stage": {"$in": OPEN_STAGES}}
     rows = await db.leads.find(q, {"_id": 0}).sort("updated_at", -1).to_list(5000)
-    return "Open Pipeline", [_lead_row(l) for l in rows]
+    return "Open Pipeline", [_lead_row(l) for l in rows if _in_window(l.get("created_at"), win_start, win_end)]
 
 
 async def _drill_meetings_today(lead_scope, agent_scope, today, win_start, win_end):
@@ -3239,17 +3329,21 @@ async def _drill_no_shows_today(lead_scope, agent_scope, today, win_start, win_e
 async def _drill_payment_pending(lead_scope, agent_scope, today, win_start, win_end):
     q = {**lead_scope, "$or": [{"priority": "Payment Pending"}, {"stage": "Payment Link Sent"}]}
     rows = await db.leads.find(q, {"_id": 0}).sort("updated_at", -1).to_list(5000)
-    return "Payment Pending", [_lead_row(l) for l in rows]
+    return "Payment Pending", [_lead_row(l) for l in rows if _in_window(l.get("created_at"), win_start, win_end)]
 
 
 async def _drill_recoverable(lead_scope, agent_scope, today, win_start, win_end):
     rows = await db.leads.find(lead_scope, {"_id": 0}).sort("updated_at", -1).to_list(5000)
-    return "Recoverable", [r for r in (_lead_row(l) for l in rows) if "Recoverable" in (r.get("status_groups") or [])]
+    return "Recoverable", [r for r in (_lead_row(l) for l in rows)
+                           if "Recoverable" in (r.get("status_groups") or [])
+                           and _in_window(r.get("created_at"), win_start, win_end)]
 
 
 async def _drill_payment_failed(lead_scope, agent_scope, today, win_start, win_end):
     rows = await db.leads.find(lead_scope, {"_id": 0}).sort("updated_at", -1).to_list(5000)
-    return "Payment Link Failed", [r for r in (_lead_row(l) for l in rows) if r.get("status") == "Payment Link Failed"]
+    return "Payment Link Failed", [r for r in (_lead_row(l) for l in rows)
+                                   if r.get("status") == "Payment Link Failed"
+                                   and _in_window(r.get("created_at"), win_start, win_end)]
 
 
 _DRILL_HANDLERS = {
@@ -3370,7 +3464,9 @@ async def _seed_admin():
             "password_hash": hash_password(admin_password), "role": "admin",
             # Empty by default -> UI falls back to initials until an avatar is uploaded.
             "avatar_url": "",
-            "monthly_target": 0, "weekly_target": 0, "active": True, "created_at": now_iso(),
+            # Diyea sells too (manager + agent), so she carries a real target + appears
+            # on the leaderboard.
+            "monthly_target": 40000.0, "weekly_target": 10000.0, "active": True, "created_at": now_iso(),
         })
         logger.info(f"seed: admin {'created' if created else 'already present (race)'} -> {admin_email}")
     # NOTE: no per-boot password self-heal — so a user's self-service password change persists.
@@ -3495,60 +3591,111 @@ async def _seed_demo_leads():
 
     now = datetime.now(timezone.utc)
     products = PRODUCT_LINE_NAMES
-    owner_cycle = ["Brian", "Aryan", "Vinay", "Dipan", "Abhishek", "Diyea"]
 
-    # Believable companies / contacts (NO test data). spend = $/mo, ltv = $ lifetime.
+    import random as _random
+    rng = _random.Random(42)  # deterministic so the demo is stable across reseeds
+
+    # Weighted rep attribution for the OPEN pipeline (incl. Diyea); Brian is the
+    # lowest contributor but still solid.
+    _owner_weights = [("Diyea", 24), ("Aryan", 22), ("Dipan", 18), ("Vinay", 16),
+                      ("Abhishek", 12), ("Brian", 8)]
+    _weighted_owner_names = [nm for nm, w in _owner_weights for _ in range(w)]
+
+    def pick_owner():
+        return pick(rng.choice(_weighted_owner_names))
+
+    # Deterministic WON-deal attribution so the leaderboard always reads the way the
+    # team expects: Diyea & Aryan on top, Brian clearly the lowest. Counts sum to the
+    # number of "Payment Link Paid" leads in status_plan below (34). Brian gets the
+    # fewest wins and (via deal_for) the smallest tickets, so he's unambiguously last.
+    _paid_owner_plan = (["Diyea"] * 8 + ["Aryan"] * 7 + ["Abhishek"] * 6 +
+                        ["Dipan"] * 5 + ["Vinay"] * 5 + ["Brian"] * 3)
+    rng.shuffle(_paid_owner_plan)
+    _paid_iter = iter(_paid_owner_plan)
+
+    def deal_for(owner_name=None, paid=False):
+        """Mid-market deal sizing: deals mostly $1k-5k, top-ups $2-5k, occasional $15k
+        Lifetime. Brian's WON deals are capped small so he stays the lowest earner."""
+        if paid and owner_name == "Brian":
+            return "Credit Top-Up", "credits_500", 1500.0
+        r = rng.randint(1, 100)
+        if r <= 50:
+            return "Credit Top-Up", "credits_500", float(rng.choice([2000, 2500, 3000, 3500, 4000, 5000]))
+        if r <= 72:
+            return "Annual Pro Subscription", "annual_pro", 1999.0
+        if r <= 92:
+            return "Dedicated Support", "dedicated_support", float(rng.choice([1350, 2400, 3499, 4200]))
+        return "Lifetime Access", "lifetime_access", 15000.0
+
+    # ---- Build ~150 believable leads: hand-written anchors + generated pool ----
     companies = [
         ("Northwind Analytics", "Priya Raman",      "priya@northwind.io",        "North America", "Pro $149/mo",   149, 2400, "rising"),
-        ("Cobalt Robotics",     "Daniel Whitfield", "daniel@cobaltrobotics.com", "North America", "Team $299/mo",  299, 5200, "rising"),
+        ("Cobalt Robotics",     "Daniel Whitfield", "daniel@cobaltrobotics.io",  "North America", "Team $299/mo",  299, 5200, "rising"),
         ("Larkspur Media",      "Sofia Mendez",     "sofia@larkspur.media",      "LATAM",         "Pro $99/mo",    99,  1500, "stable"),
         ("Aperture Labs",       "Marcus Feld",      "marcus@aperturelabs.dev",   "Europe",        "Pro $199/mo",   199, 3300, "rising"),
         ("Tidal Commerce",      "Hana Suzuki",      "hana@tidalcommerce.jp",     "APAC",          "Team $249/mo",  249, 4100, "rising"),
         ("Meridian Health",     "Olu Adeyemi",      "olu@meridianhealth.io",     "MEA",           "Pro $129/mo",   129, 1900, "stable"),
-        ("Bramble & Co",        "Eleanor Hayes",    "eleanor@brambleco.uk",      "Europe",        "Starter $59/mo",59,  720,  "rising"),
-        ("Vela Logistics",      "Tomás Ribeiro",    "tomas@vela.cl",             "LATAM",         "Pro $149/mo",   149, 2200, "declining"),
         ("Helios Energy",       "Aisha Rahman",     "aisha@helios.energy",       "MEA",           "Team $299/mo",  299, 6100, "rising"),
-        ("Pinecrest Studios",   "Jordan Blake",     "jordan@pinecrest.studio",   "North America", "Pro $99/mo",    99,  1100, "stable"),
         ("Kestrel Finance",     "Ananya Iyer",      "ananya@kestrel.finance",    "APAC",          "Pro $189/mo",   189, 3000, "rising"),
-        ("Solstice Apparel",    "Rivka Adler",      "rivka@solstice.shop",       "Europe",        "Starter $49/mo",49,  540,  "stable"),
-        ("Orbit Mobility",      "Kenji Watanabe",   "kenji@orbitmobility.jp",    "APAC",          "Pro $159/mo",   159, 2600, "rising"),
         ("Granite Security",    "Liam O'Connor",    "liam@granitesec.io",        "North America", "Team $299/mo",  299, 5500, "rising"),
-        ("Saffron Foods",       "Neha Kapadia",     "neha@saffronfoods.in",      "APAC",          "Pro $99/mo",    99,  980,  "stable"),
-        ("Cypress Cloud",       "Mateo Alvarez",    "mateo@cypress.cloud",       "LATAM",         "Pro $179/mo",   179, 2900, "rising"),
-        ("Birchwood Legal",     "Grace Thornton",   "grace@birchwoodlegal.com",  "North America", "Pro $149/mo",   149, 2100, "declining"),
-        ("Dunes Travel",        "Yara Haddad",      "yara@dunestravel.ae",       "MEA",           "Starter $59/mo",59,  680,  "rising"),
-        ("Nimbus Robotics",     "Erik Larsson",     "erik@nimbusrobotics.se",    "Europe",        "Team $249/mo",  249, 4800, "rising"),
-        ("Coral Reef Media",    "Isabella Rossi",   "isabella@coralreef.media",  "Europe",        "Pro $129/mo",   129, 1700, "stable"),
-        ("Summit Sportswear",   "Carlos Nunez",     "carlos@summitsports.mx",    "LATAM",         "Pro $99/mo",    99,  1300, "rising"),
         ("Lighthouse AI",       "Wei Chen",         "wei@lighthouseai.sg",       "APAC",          "Team $299/mo",  299, 5900, "rising"),
-        ("Ferndale Retail",     "Hannah Brooks",    "hannah@ferndale.shop",      "North America", "Pro $99/mo",    99,  1000, "stable"),
         ("Onyx Trading",        "Dmitri Volkov",    "dmitri@onyxtrading.io",     "Europe",        "Pro $199/mo",   199, 3400, "rising"),
-        ("Palmetto Care",       "Brianna Scott",    "brianna@palmettocare.com",  "North America", "Pro $149/mo",   149, 2300, "rising"),
-        ("Zephyr Audio",        "Noah Bergmann",    "noah@zephyraudio.de",       "Europe",        "Starter $49/mo",49,  600,  "stable"),
-        ("Verdant Farms",       "Lucas Pereira",    "lucas@verdantfarms.br",     "LATAM",         "Pro $129/mo",   129, 1600, "declining"),
-        ("Atlas Freight",       "Fatima Noor",      "fatima@atlasfreight.ae",    "MEA",           "Team $249/mo",  249, 4200, "rising"),
-        ("Quill Publishing",    "Oliver Bennett",   "oliver@quillpub.uk",        "Europe",        "Pro $99/mo",    99,  900,  "stable"),
-        ("Beacon Robotics",     "Mina Park",        "mina@beaconrobotics.kr",    "APAC",          "Pro $179/mo",   179, 2800, "rising"),
-        ("Cedar Park Dental",   "Ryan Mitchell",    "ryan@cedarparkdental.com",  "North America", "Starter $59/mo",59,  640,  "rising"),
-        ("Halcyon Travel",      "Amara Okafor",     "amara@halcyontravel.ng",    "MEA",           "Pro $149/mo",   149, 2000, "stable"),
         ("Vantage Insurance",   "Sebastian Cruz",   "sebastian@vantageins.com",  "LATAM",         "Team $299/mo",  299, 5000, "rising"),
-        ("Maplewood Edtech",    "Chloe Dubois",     "chloe@maplewood.edu",       "Europe",        "Pro $129/mo",   129, 1800, "rising"),
         ("Ironclad Devices",    "Arjun Mehta",      "arjun@ironclad.dev",        "APAC",          "Pro $199/mo",   199, 3600, "rising"),
-        ("Willowbrook Spa",     "Emma Larsen",      "emma@willowbrook.spa",      "North America", "Pro $99/mo",    99,  1050, "stable"),
+        ("Nimbus Robotics",     "Erik Larsson",     "erik@nimbusrobotics.se",    "Europe",        "Team $249/mo",  249, 4800, "rising"),
+        ("Atlas Freight",       "Fatima Noor",      "fatima@atlasfreight.ae",    "MEA",           "Team $249/mo",  249, 4200, "rising"),
     ]
+    _firsts = ["Priya", "Daniel", "Sofia", "Marcus", "Hana", "Olu", "Eleanor", "Tomas", "Aisha",
+               "Jordan", "Ananya", "Rivka", "Kenji", "Liam", "Neha", "Mateo", "Grace", "Yara",
+               "Erik", "Isabella", "Carlos", "Wei", "Hannah", "Dmitri", "Brianna", "Noah", "Lucas",
+               "Fatima", "Oliver", "Mina", "Ryan", "Amara", "Sebastian", "Chloe", "Arjun", "Emma",
+               "Ravi", "Mei", "Diego", "Leila", "Sven", "Nadia", "Felix", "Zara", "Omar", "Lena",
+               "Hugo", "Sara", "Kai", "Ingrid", "Pablo", "Yuki", "Tariq", "Anika", "Bjorn", "Camila"]
+    _lasts = ["Raman", "Whitfield", "Mendez", "Feld", "Suzuki", "Adeyemi", "Hayes", "Ribeiro",
+              "Rahman", "Blake", "Iyer", "Adler", "Watanabe", "Connor", "Kapadia", "Alvarez",
+              "Thornton", "Haddad", "Larsson", "Rossi", "Nunez", "Chen", "Brooks", "Volkov",
+              "Scott", "Bergmann", "Pereira", "Noor", "Bennett", "Park", "Mitchell", "Okafor",
+              "Cruz", "Dubois", "Mehta", "Larsen", "Kumar", "Tan", "Silva", "Haan", "Novak"]
+    _stems = ["Northwind", "Cobalt", "Larkspur", "Aperture", "Tidal", "Meridian", "Bramble",
+              "Vela", "Helios", "Pinecrest", "Kestrel", "Solstice", "Orbit", "Granite", "Saffron",
+              "Cypress", "Birchwood", "Dunes", "Nimbus", "Coral", "Summit", "Lighthouse", "Ferndale",
+              "Onyx", "Palmetto", "Zephyr", "Verdant", "Atlas", "Quill", "Beacon", "Cedar", "Halcyon",
+              "Vantage", "Maplewood", "Ironclad", "Willowbrook", "Sable", "Marigold", "Thorne", "Vireo"]
+    _types = ["Analytics", "Robotics", "Media", "Labs", "Commerce", "Health", "Logistics", "Energy",
+              "Studios", "Finance", "Cloud", "Legal", "Retail", "Trading", "Care", "Audio", "Farms",
+              "Freight", "Systems", "Mobility", "Security", "AI", "Edtech", "Devices", "Group"]
+    _regions = ["North America", "Europe", "APAC", "LATAM", "MEA"]
+    _plans = [("Starter $59/mo", 59, 700), ("Pro $99/mo", 99, 1200), ("Pro $149/mo", 149, 2200),
+              ("Pro $199/mo", 199, 3300), ("Team $249/mo", 249, 4400), ("Team $299/mo", 299, 5800)]
+    _tlds = ["io", "com", "dev", "co", "ai", "app"]
+    _seen_emails = {c[2].lower() for c in companies}
+    while len(companies) < 150:
+        fn, ln = rng.choice(_firsts), rng.choice(_lasts)
+        stem, typ = rng.choice(_stems), rng.choice(_types)
+        comp = f"{stem} {typ}"
+        dom = f"{stem.lower()}{rng.choice(['', 'hq', 'app'])}.{rng.choice(_tlds)}"
+        email = f"{fn.lower()}.{ln.lower()}@{dom}"
+        if email in _seen_emails:
+            continue
+        _seen_emails.add(email)
+        plan, spend, ltv = rng.choice(_plans)
+        companies.append((comp, f"{fn} {ln}", email, rng.choice(_regions), plan,
+                          spend, ltv + rng.randint(-300, 900), rng.choice(["rising", "stable", "declining"])))
 
+    # Scaled-up status distribution (~150 leads; wins are the biggest bucket for revenue).
     status_plan = (
-        ["New / Needs Review"] * 7 +
-        ["Contacted"] * 6 +
-        ["Interested"] * 6 +
-        ["Contact in Future"] * 4 +
-        ["Payment Link Sent"] * 4 +
-        ["Payment Link Failed"] * 2 +
-        ["Payment Link Paid"] * 9 +
-        ["No-Show"] * 3 +
-        ["Not Interested"] * 2 +
-        ["Changed Their Mind"] * 2
+        ["New / Needs Review"] * 24 +
+        ["Contacted"] * 22 +
+        ["Interested"] * 20 +
+        ["Contact in Future"] * 14 +
+        ["Payment Link Sent"] * 12 +
+        ["Payment Link Failed"] * 6 +
+        ["Payment Link Paid"] * 34 +
+        ["No-Show"] * 9 +
+        ["Not Interested"] * 6 +
+        ["Changed Their Mind"] * 3
     )
+    rng.shuffle(status_plan)
 
     note_templates = {
         "New / Needs Review": [
@@ -3606,36 +3753,64 @@ async def _seed_demo_leads():
         "Changed Their Mind": "Run recovery task",
     }
 
-    import random as _random
-    rng = _random.Random(42)  # deterministic so the demo is stable across reseeds
+    sources = ["Q1 Power User Outreach", "Inbound - Pricing Page", "Product Qualified Lead",
+               "Webinar Follow-up", "March Campaign — Power Users", "April Reactivation",
+               "May Upgrade Push", "June Renewal Drive"]
 
     n = min(len(companies), len(status_plan))
-    won_meeting_targets = []
+    meeting_targets = []
+
+    async def _insert_payment(doc, owner, prod, pkg, amt, provider, pay_status, created_iso):
+        ps_map = {"paid": ("complete", "paid"), "pending": ("initiated", "pending"),
+                  "failed": ("initiated", "failed")}
+        st, pst = ps_map[pay_status]
+        await db.payments.insert_one({
+            "id": new_id(), "lead_id": doc["id"], "lead_name": doc["name"],
+            "agent_id": owner["id"], "agent_name": owner["name"],
+            "provider": provider, "amount": amt, "currency": "usd",
+            "product_line": prod, "package_id": pkg,
+            "amount_usd": amt, "fx_rate": 85.0, "description": prod,
+            "status": st, "payment_status": pst,
+            "session_id": f"seed_{new_id()[:10]}",
+            "payment_link": (f"https://pay.demo/{new_id()[:8]}" if pay_status != "paid" else None),
+            "created_at": created_iso, "updated_at": created_iso,
+        })
 
     for i in range(n):
         company, name, email, region, plan, spend, ltv, trend = companies[i]
         status = status_plan[i]
-        product_line = products[i % len(products)]
-        owner_name = None if (status == "New / Needs Review" and i % 3 == 0) else owner_cycle[i % len(owner_cycle)]
-        owner = pick(owner_name) if owner_name else None
-        sf = _status_fields(status)
-        pkg_id, amount, currency = _SEED_PRODUCT[product_line]
-        provider = ["razorpay", "stripe", "manual"][i % 3]
         is_paid = status == "Payment Link Paid"
-
-        # created_at spread: new leads recent, won spread across weeks/months (≈ half this month).
+        # WON deals draw their owner from the deterministic tiered plan (Diyea/Aryan top,
+        # Brian lowest). A few brand-new leads are unassigned; the rest of the open
+        # pipeline is weighted across all six reps.
         if is_paid:
-            days_ago = rng.randint(1, 16) if (i % 2 == 0) else rng.randint(28, 110)
+            owner = pick(next(_paid_iter, rng.choice(_weighted_owner_names)))
+        elif status == "New / Needs Review" and i % 4 == 0:
+            owner = None
         else:
-            ranges = {
-                "New / Needs Review": (0, 6), "Contacted": (2, 16), "Interested": (3, 22),
-                "Contact in Future": (8, 40), "Payment Link Sent": (1, 8), "Payment Link Failed": (2, 10),
-                "No-Show": (3, 18), "Not Interested": (10, 60), "Changed Their Mind": (6, 45),
-            }
-            lo, hi = ranges.get(status, (1, 20))
-            days_ago = rng.randint(lo, hi)
-        created_dt = now - timedelta(days=days_ago, hours=rng.randint(0, 9))
+            owner = pick_owner()
+        sf = _status_fields(status)
+        product_line, pkg_id, amount = deal_for(owner["name"] if owner else None, is_paid)
+        currency = "usd"
+        provider = rng.choice(["stripe", "razorpay", "manual"])
+
+        # created_at spread across Mar–Jun 2026 (~110-day window). Active pipeline
+        # weighted recent; wins + older statuses spread across the whole window so the
+        # period filter + Deals time-groups have material in every bucket.
+        if status in ("New / Needs Review", "Contacted", "Payment Link Sent", "Payment Link Failed"):
+            days_ago = rng.randint(0, 30)
+        elif status == "Interested":
+            days_ago = rng.randint(1, 45)
+        elif is_paid:
+            days_ago = rng.randint(2, 110)
+        else:  # Contact in Future / No-Show / Not Interested / Changed Their Mind
+            days_ago = rng.randint(5, 100)
+        created_dt = now - timedelta(days=days_ago, hours=rng.randint(0, 12))
         created = created_dt.isoformat()
+        won_dt = (created_dt + timedelta(days=rng.randint(1, 9))) if is_paid else None
+        if won_dt and won_dt > now:
+            won_dt = now - timedelta(hours=rng.randint(1, 30))
+        won_at = won_dt.isoformat() if won_dt else None
 
         # Conversation history (notes).
         tmpl = note_templates.get(status, ["Touched base with the customer."])
@@ -3657,30 +3832,43 @@ async def _seed_demo_leads():
         last_activity = last_contacted
         if status in ("Contacted", "Interested") and i % 7 == 0:
             notes = notes[:1]
-            last_activity = created
-            last_contacted = created
+            last_activity = (now - timedelta(days=rng.randint(9, 20))).isoformat()
+            last_contacted = last_activity
 
         # Next follow-up: some overdue (feed "Follow-ups due"), some upcoming.
         next_followup = None
-        if status in ("Contact in Future", "Interested", "Payment Link Sent", "No-Show"):
-            delta = timedelta(days=rng.randint(1, 3))
-            next_followup = ((now - delta) if (i % 4 == 0) else (now + delta)).isoformat()
+        if status in ("Contact in Future", "Interested", "Payment Link Sent", "No-Show", "Contacted"):
+            delta = timedelta(days=rng.randint(1, 4))
+            next_followup = ((now - delta) if (i % 3 == 0) else (now + delta)).isoformat()
 
         priority = ("Payment Pending" if status in ("Payment Link Sent", "Payment Link Failed")
                     else ("Hot" if status == "Interested" else "None"))
+
+        # Repeat / upsell customer: ~28% of wins are returning customers with prior deals
+        # in earlier months (deals_won>1, upsell_cycles>0, cumulative revenue). Brian is
+        # excluded so his small win count keeps him the lowest earner.
+        is_repeat = is_paid and owner and owner["name"] != "Brian" and (rng.random() < 0.28)
+        prior = []
+        if is_repeat:
+            for c in range(rng.randint(1, 2)):
+                _pl, _pk, _amt = deal_for(owner["name"], True)
+                _pc = created_dt - timedelta(days=rng.randint(28, 75) * (c + 1))
+                prior.append((_pl, _pk, _amt, _pc.isoformat()))
+        prior_rev = sum(p[2] for p in prior)
+        total_revenue = (amount + prior_rev) if is_paid else 0.0
+        deals_won = (1 + len(prior)) if is_paid else 0
 
         doc = {
             "id": new_id(), "name": name, "email": email.lower(), "company": company,
             "phone": f"+1 555 0{100 + i:03d}", "plan": plan, "monthly_spend": float(spend),
             "lifetime_value": float(ltv), "usage_trend": trend, "product_history": ["API", "Dashboard"],
-            "source": rng.choice(["Q3 Power User Outreach", "Inbound - Pricing Page",
-                                   "Product Qualified Lead", "Webinar Follow-up"]),
+            "source": rng.choice(sources),
             "region": region, "priority": priority,
             "owner_id": owner["id"] if owner else None,
             "owner_name": owner["name"] if owner else None,
             "owner_locked": bool(is_paid and owner),
-            "total_revenue_usd": amount if is_paid else 0.0,
-            "deals_won": 1 if is_paid else 0, "upsell_cycles": 0,
+            "total_revenue_usd": total_revenue,
+            "deals_won": deals_won, "upsell_cycles": len(prior),
             "notes": notes, "ownership_history": [],
             "product_line": product_line, "package_id": pkg_id, "amount": amount, "currency": currency,
             "provider": provider,
@@ -3690,7 +3878,7 @@ async def _seed_demo_leads():
             "loss_reason": ("Chose a competitor" if status == "Not Interested" else ""),
             "referred_by_lead_id": None, "referred_by_name": "",
             "last_meeting_at": None, "next_meeting_at": None,
-            "won_at": created if is_paid else None,
+            "won_at": won_at,
             "last_activity": last_activity,
             "created_at": created, "updated_at": last_activity,
             **sf,
@@ -3702,67 +3890,76 @@ async def _seed_demo_leads():
             await log_activity(doc["id"], "note", f"{nn['type']}: {nn['text'][:80]}", nn["author"])
 
         if is_paid and owner:
-            await db.payments.insert_one({
-                "id": new_id(), "lead_id": doc["id"], "lead_name": doc["name"],
-                "agent_id": owner["id"], "agent_name": owner["name"],
-                "provider": provider, "amount": amount, "currency": currency,
-                "product_line": product_line, "package_id": pkg_id,
-                "amount_usd": amount, "fx_rate": 85.0, "description": product_line,
-                "status": "complete", "payment_status": "paid",
-                "session_id": f"seed_{new_id()[:10]}", "payment_link": None,
-                "created_at": created, "updated_at": created,
-            })
+            await _insert_payment(doc, owner, product_line, pkg_id, amount, provider, "paid", won_at or created)
+            for (_pl, _pk, _amt, _pc) in prior:  # earlier won deals for returning customers
+                await _insert_payment(doc, owner, _pl, _pk, _amt, rng.choice(["stripe", "razorpay"]), "paid", _pc)
         elif status in ("Payment Link Sent", "Payment Link Failed") and owner:
-            ps = "failed" if status == "Payment Link Failed" else "pending"
-            await db.payments.insert_one({
-                "id": new_id(), "lead_id": doc["id"], "lead_name": doc["name"],
-                "agent_id": owner["id"], "agent_name": owner["name"],
-                "provider": provider, "amount": amount, "currency": currency,
-                "product_line": product_line, "package_id": pkg_id,
-                "amount_usd": amount, "fx_rate": 85.0, "description": product_line,
-                "status": "initiated", "payment_status": ps,
-                "session_id": f"seed_{new_id()[:10]}", "payment_link": f"https://pay.demo/{new_id()[:8]}",
-                "created_at": created, "updated_at": created,
-            })
+            await _insert_payment(doc, owner, product_line, pkg_id, amount, provider,
+                                  ("failed" if status == "Payment Link Failed" else "pending"), created)
 
-        if owner and status in ("Interested", "No-Show", "Changed Their Mind",
-                                 "Payment Link Paid", "Contact in Future"):
-            won_meeting_targets.append((doc, owner, status, created))
+        # Meeting targets — broad enough that every rep gets a book of meetings.
+        if owner and status in ("Interested", "No-Show", "Changed Their Mind", "Payment Link Paid",
+                                 "Contact in Future", "Contacted", "Payment Link Sent"):
+            meeting_targets.append((doc, owner, status, created_dt))
 
-    await _seed_demo_meetings(won_meeting_targets, now)
+    await _seed_demo_meetings(meeting_targets, now, owners_pool)
 
 
-async def _seed_demo_meetings(targets, now):
-    """Seed meetings for selected leads, some with Circleback recordings + summaries."""
-    drivers = ["Discount", "Lifetime Access", "Top-Up Credits", "Support", "Renewal"]
-    for i, (lead, owner, status, created) in enumerate(targets):
-        completed = status in ("Interested", "Changed Their Mind", "Payment Link Paid")
-        no_show = status == "No-Show"
-        # Past for completed/no-show; upcoming for future-contact leads.
-        if status == "Contact in Future":
-            sched = (now + timedelta(days=1 + (i % 3), hours=(i % 5))).isoformat()
-            m_status = "scheduled"
-        else:
-            sched = (now - timedelta(days=1 + (i % 4), hours=(i % 6))).isoformat()
-            m_status = "completed" if completed else ("no_show" if no_show else "scheduled")
-        has_recording = completed and (i % 2 == 0)
-        meeting = {
+async def _seed_demo_meetings(targets, now, owners_pool):
+    """Seed meetings for selected leads, plus GUARANTEE every rep has past + today +
+    upcoming meetings (so the calendar grid + 'Today's meetings' look full for everyone).
+    Times land inside the 12:00–24:00 IST booking window."""
+    import random as _r
+    rng = _r.Random(1234)
+    drivers = ["Discount", "Lifetime Access", "Top-Up Credits", "Support", "Renewal", "Pricing / Upgrade"]
+    summary = ("Customer is a power user hitting credit limits; interested in the annual plan and "
+               "dedicated support. Wants pricing in writing. Next step: send payment link.")
+
+    def _ist_slot(day_offset):
+        # A believable half-hour slot in the 12:00–24:00 IST window, stored as UTC.
+        hour_ist = rng.choice([12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22])
+        minute = rng.choice([0, 30])
+        d = (now + timedelta(days=day_offset)).date()
+        return (datetime(d.year, d.month, d.day, hour_ist, minute, tzinfo=timezone.utc)
+                - timedelta(hours=5, minutes=30))
+
+    async def _mk(lead, owner, m_status, sched_dt, driver, completed):
+        has_rec = completed and rng.random() < 0.5
+        await db.meetings.insert_one({
             "id": new_id(), "lead_id": lead["id"], "lead_name": lead["name"],
             "agent_id": owner["id"], "agent_name": owner["name"],
-            "scheduled_at": sched, "duration": 30,
-            "status": m_status, "source": "Calendly",
-            "booking_driver": drivers[i % len(drivers)],
-            "no_show_reason": "Did not join" if no_show else "",
+            "scheduled_at": sched_dt.isoformat(), "duration": 30,
+            "status": m_status, "source": "Calendly", "booking_driver": driver,
+            "no_show_reason": "Did not join" if m_status == "no_show" else "",
             "reschedule_status": "", "outcome_notes": "Discussed upgrade options" if completed else "",
-            "completed_at": sched if m_status in ("completed", "no_show") else None,
-            "recording_url": f"https://app.circleback.ai/recordings/{new_id()[:10]}" if has_recording else None,
-            "summary": ("Customer is a power user hitting credit limits; interested in the annual "
-                        "plan and dedicated support. Wants pricing in writing. Next step: send payment link.")
-                        if has_recording else None,
+            "completed_at": sched_dt.isoformat() if m_status in ("completed", "no_show") else None,
+            "recording_url": f"https://app.circleback.ai/recordings/{new_id()[:10]}" if has_rec else None,
+            "summary": summary if has_rec else None,
             "join_url": f"https://meet.google.com/{new_id()[:3]}-{new_id()[:4]}-{new_id()[:3]}",
-            "created_at": created,
-        }
-        await db.meetings.insert_one(meeting)
+            "calendly_event_uri": None,
+            "created_at": (sched_dt - timedelta(days=rng.randint(1, 4))).isoformat(),
+        })
+        if m_status == "scheduled":
+            await db.leads.update_one({"id": lead["id"]}, {"$set": {"next_meeting_at": sched_dt.isoformat()}})
+
+    for i, (lead, owner, status, created_dt) in enumerate(targets):
+        completed = status in ("Interested", "Changed Their Mind", "Payment Link Paid")
+        if status in ("Contact in Future", "Contacted", "Payment Link Sent"):
+            await _mk(lead, owner, "scheduled", _ist_slot(rng.randint(1, 9)), drivers[i % len(drivers)], False)
+        elif status == "No-Show":
+            await _mk(lead, owner, "no_show", _ist_slot(-rng.randint(1, 30)), drivers[i % len(drivers)], False)
+        else:
+            await _mk(lead, owner, "completed", _ist_slot(-rng.randint(1, 60)), drivers[i % len(drivers)], True)
+
+    # Guarantee every rep has a meeting TODAY + a couple upcoming this week.
+    for owner in owners_pool:
+        own_leads = await db.leads.find({"owner_id": owner["id"]}, {"_id": 0}).to_list(200)
+        if not own_leads:
+            continue
+        picks = rng.sample(own_leads, min(4, len(own_leads)))
+        await _mk(picks[0], owner, "scheduled", _ist_slot(0), rng.choice(drivers), False)
+        for k, lead in enumerate(picks[1:]):
+            await _mk(lead, owner, "scheduled", _ist_slot(k + 1), rng.choice(drivers), False)
 
 
 async def _seed_coverage_history():
@@ -4092,12 +4289,52 @@ async def _migrate_clean_reseed_v3():
     prod DB, so without this guard the first prod boot would wipe real data)."""
     if IS_PROD:
         return
-    key = "clean_reseed_believable_v4"
+    key = "clean_reseed_believable_v6"
     if await db.migrations.find_one({"key": key}):
         return
     await reset_demo_data()
     await db.migrations.update_one({"key": key}, {"$set": {"key": key, "done_at": now_iso()}}, upsert=True)
     logger.info("migrate: wiped test data + reseeded believable demo dataset")
+
+async def _migrate_remove_legacy_com_users():
+    """Remove any legacy @emergent.com user accounts (the team is canonical @emergent.sh)
+    and reassign their leads/meetings/payments to the matching @emergent.sh rep by name.
+    Fixes the duplicate-rep problem. Idempotent + safe in every mode."""
+    try:
+        legacy = await db.users.find({"email": {"$regex": "@emergent\\.com$", "$options": "i"}}).to_list(100)
+        for u in legacy:
+            match = await db.users.find_one({
+                "name": u.get("name"), "email": {"$regex": "@emergent\\.sh$", "$options": "i"}})
+            if match:
+                for coll, fields in (("leads", ("owner_id",)), ("meetings", ("agent_id",)),
+                                     ("payments", ("agent_id",))):
+                    for f in fields:
+                        await db[coll].update_many({f: u["id"]}, {"$set": {f: match["id"]}})
+                # keep denormalised owner/agent names consistent after reassignment
+                await db.leads.update_many({"owner_id": match["id"]},
+                                           {"$set": {"owner_name": match["name"]}})
+                await db.meetings.update_many({"agent_id": match["id"]},
+                                              {"$set": {"agent_name": match["name"]}})
+                await db.payments.update_many({"agent_id": match["id"]},
+                                              {"$set": {"agent_name": match["name"]}})
+            await db.users.delete_one({"id": u["id"]})
+        if legacy:
+            logger.info(f"migrate: removed {len(legacy)} legacy @emergent.com user(s)")
+    except Exception as e:
+        logger.warning(f"legacy-com user cleanup failed (continuing): {e}")
+
+
+async def _migrate_ensure_diyea_target():
+    """Ensure the admin/sales-head carries a sales target (she sells too) so she appears
+    on the leaderboard even on an already-seeded DB. Idempotent."""
+    try:
+        admin_email = os.environ.get("ADMIN_EMAIL", "diyea@emergent.sh").lower()
+        await db.users.update_one(
+            {"email": admin_email, "$or": [{"monthly_target": {"$in": [0, None]}}, {"monthly_target": {"$exists": False}}]},
+            {"$set": {"monthly_target": 40000.0, "weekly_target": 10000.0}})
+    except Exception as e:
+        logger.warning(f"ensure-diyea-target failed (continuing): {e}")
+
 
 async def _migrate_dedupe_lead_emails():
     """Merge duplicate-email leads into the OLDEST one so a unique index can be created
@@ -4140,7 +4377,9 @@ async def bootstrap_production():
     await db.settings.update_one({"id": "settings"}, {"$setOnInsert": {"id": "settings", "inr_per_usd": 85.0}}, upsert=True)
     await _migrate_meeting_scheduled_to_assigned()
     await _migrate_to_sales_status_model()
+    await _migrate_remove_legacy_com_users()
     await _seed_admin()
+    await _migrate_ensure_diyea_target()
 
 async def seed_demo():
     """DEMO ONLY: the 5 demo agents, the demo account, the one-time team-password

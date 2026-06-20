@@ -91,14 +91,27 @@ function FxNote({ payForm, fxRate }) {
   );
 }
 
-export function PaymentModal({ open, onClose, payForm, setPayForm, packages, fxRate, meta, onSubmit }) {
+export function PaymentModal({ open, onClose, payForm, setPayForm, packages, fxRate, meta, standalone, onSubmit }) {
   const mb = meta?.credit_multiplier || { min: 6, default: 7.5, max: 10 };
   const line = payForm.product_line || "Credit Top-Up";
   const isCredit = line === "Credit Top-Up";
   const preview = creditPreview(payForm, mb, fxRate);
 
   return (
-    <Modal open={open} onClose={onClose} title="Send Payment Link" testid="payment-modal">
+    <Modal open={open} onClose={onClose} title={standalone ? "New Payment Link" : "Send Payment Link"} testid="payment-modal">
+      {standalone && (
+        <div className="mb-3 grid grid-cols-2 gap-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+          <div className="col-span-2 text-[11px] font-medium text-zinc-500">
+            Standalone link — leave the email blank, or enter a customer email to auto-attach it to a matching lead.
+          </div>
+          <Field label="Customer email (optional)">
+            <input className={inputCls} value={payForm.customer_email || ""} onChange={(e) => setPayForm({ ...payForm, customer_email: e.target.value })} placeholder="customer@company.com" data-testid="pay-customer-email" />
+          </Field>
+          <Field label="Customer name (optional)">
+            <input className={inputCls} value={payForm.customer_name || ""} onChange={(e) => setPayForm({ ...payForm, customer_name: e.target.value })} placeholder="Acme Inc." data-testid="pay-customer-name" />
+          </Field>
+        </div>
+      )}
       <Field label="Provider">
         <select className={inputCls} value={payForm.provider} onChange={(e) => setPayForm({ ...payForm, provider: e.target.value })} data-testid="pay-provider">
           <option value="stripe">Stripe</option>

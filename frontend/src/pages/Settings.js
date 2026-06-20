@@ -3,7 +3,7 @@ import client, { apiError } from "@/api";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
 import {
-  KeyRound, Save, RefreshCw, Upload, DollarSign, ShieldCheck, FileSpreadsheet, CheckCircle2,
+  KeyRound, Save, RefreshCw, Upload, DollarSign, ShieldCheck, FileSpreadsheet, CheckCircle2, Download,
 } from "lucide-react";
 
 const ORG_FIELDS = [
@@ -61,6 +61,14 @@ function KeyFields({ fields, values, current, onChange }) {
   );
 }
 
+// Expected columns per import type — mirrors the backend _IMPORT_TEMPLATES headers
+// so users see the format before downloading the template.
+const TEMPLATE_COLUMNS = {
+  leads: "name, email, company, phone, plan, monthly_spend, lifetime_value, region, status, owner, product_line, source, created_at",
+  payments: "customer_email, amount, currency, status, provider, product_line, description, created_at",
+  meetings: "email, scheduled_at, status, duration, driver, notes",
+};
+
 function HistoricalImport() {
   const [type, setType] = useState("leads");
   const [csvText, setCsvText] = useState("");
@@ -68,6 +76,22 @@ function HistoricalImport() {
   const [updateExisting, setUpdateExisting] = useState(false);
   const [result, setResult] = useState(null);
   const [busy, setBusy] = useState(false);
+
+  const downloadTemplate = async () => {
+    try {
+      const res = await client.get(`/import/template/${type}`, { responseType: "blob" });
+      const url = URL.createObjectURL(new Blob([res.data], { type: "text/csv" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `emergentcrm_${type}_template.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      toast.error(apiError(e));
+    }
+  };
 
   const onFile = (e) => {
     const file = e.target.files?.[0];
@@ -113,7 +137,21 @@ function HistoricalImport() {
             Update existing (match by email)
           </label>
         )}
+        <button
+          type="button"
+          data-tour="import-template"
+          data-testid="download-template-btn"
+          onClick={downloadTemplate}
+          className="inline-flex items-center gap-1.5 text-sm rounded-md border border-emerald-500/40 text-emerald-400 px-3 py-2 hover:bg-emerald-500/10 transition-colors ml-auto"
+        >
+          <Download className="w-4 h-4" /> Download {type} template
+        </button>
       </div>
+
+      <p className="mt-2 text-[11px] text-[var(--text-faint)]">
+        Expected columns: <span className="font-mono text-[var(--text-muted)]">{TEMPLATE_COLUMNS[type]}</span>.
+        Extra columns are ignored; only the rows you fill in are imported.
+      </p>
 
       <div className="flex items-center gap-2 mt-4">
         <button data-testid="import-preview-btn" onClick={() => run(false)} disabled={busy || !csvText}

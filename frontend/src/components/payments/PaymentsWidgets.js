@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { money, Badge, paymentStatusClass, fmtDateTime } from "@/components/helpers";
-import { Copy, RefreshCw, CheckCircle2 } from "lucide-react";
+import { Copy, RefreshCw, CheckCircle2, Link2 } from "lucide-react";
 
 export function FxRateCard({ isAdmin, fxRate, rateInput, setRateInput, onSave, saving }) {
   return (
@@ -55,7 +55,7 @@ export function PaymentsSummary({ totalPaid, totalPending, count }) {
   );
 }
 
-export function PaymentsTable({ payments, onRefresh, onSimulate }) {
+export function PaymentsTable({ payments, onRefresh, onSimulate, onLinkLead }) {
   return (
     <div className="bg-white border border-zinc-200 rounded-lg overflow-hidden">
       <table className="w-full">
@@ -69,7 +69,15 @@ export function PaymentsTable({ payments, onRefresh, onSimulate }) {
         <tbody>
           {payments.map((p) => (
             <tr key={p.id} data-testid={`pay-row-${p.id}`} className="border-b border-zinc-100 hover:bg-zinc-50">
-              <td className="p-3"><Link to={`/leads/${p.lead_id}`} className="text-sm font-semibold text-zinc-900 hover:underline">{p.lead_name}</Link>
+              <td className="p-3">
+                {p.lead_id ? (
+                  <Link to={`/leads/${p.lead_id}`} className="text-sm font-semibold text-zinc-900 hover:underline">{p.lead_name || "Lead"}</Link>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-zinc-500">
+                    <span className="text-[10px] font-medium uppercase tracking-wide bg-zinc-100 text-zinc-500 px-1.5 py-0.5 rounded">Standalone</span>
+                    {p.customer_email || p.lead_name || "No lead"}
+                  </span>
+                )}
                 <div className="text-xs text-zinc-400">{p.description}</div>
               </td>
               <td className="p-3">
@@ -92,6 +100,9 @@ export function PaymentsTable({ payments, onRefresh, onSimulate }) {
                   )}
                   {p.payment_status !== "paid" && p.provider === "razorpay" && (
                     <button onClick={() => onSimulate(p)} className="text-emerald-600 hover:text-emerald-800" title="Mark paid (Razorpay sim)" data-testid={`simulate-${p.id}`}><CheckCircle2 className="w-3.5 h-3.5" /></button>
+                  )}
+                  {!p.lead_id && onLinkLead && (
+                    <button onClick={() => onLinkLead(p)} className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 hover:text-emerald-900" title="Attach this payment to a lead" data-testid={`link-lead-${p.id}`}><Link2 className="w-3.5 h-3.5" /> Link to lead</button>
                   )}
                 </div>
               </td>

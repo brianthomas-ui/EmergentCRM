@@ -1,4 +1,4 @@
-import { Search, Loader2 } from "lucide-react";
+import { Loader2, ChevronUp, ChevronDown } from "lucide-react";
 import { money, fmtDate, timeAgo } from "@/components/helpers";
 import {
   Card,
@@ -13,7 +13,6 @@ import {
   StagePill,
   Select,
   RowActionButton,
-  darkInput,
 } from "@/components/dark/Primitives";
 
 export function DealsSummary({ products, productStats, statuses, stageStats, statusMeta, product, setProduct, status, setStatus }) {
@@ -57,23 +56,14 @@ export function DealsSummary({ products, productStats, statuses, stageStats, sta
 }
 
 export function DealsFilters({
-  search, setSearch, product, setProduct, status, setStatus,
+  product, setProduct, status, setStatus,
   provider, setProvider, owner, setOwner, mine, setMine,
   products, statuses, providers, team, isAdmin,
 }) {
   return (
     <Card className="p-3">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 min-w-[220px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-faint)]" />
-          <input
-            data-testid="deals-search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search lead, company, email, phone…"
-            className={`${darkInput} pl-9`}
-          />
-        </div>
+        <span className="text-xs font-medium text-[var(--text-faint)] mr-1">Filter</span>
         <Select value={product} onChange={(e) => setProduct(e.target.value)} className="w-auto min-w-[160px]" data-testid="filter-product">
           <option value="">All Products</option>
           {products.map((p) => (
@@ -139,21 +129,39 @@ function DealRow({ lead, selected, setSelected, onRowAction }) {
   );
 }
 
-export function DealsTable({ loading, rows, leads, selected, setSelected, onRowAction }) {
+// A clickable, sortable column header. `sortable` keys map to Deals.js sort state.
+function SortTH({ label, sortKey, currentKey, dir, onSort, align }) {
+  const active = currentKey === sortKey;
+  return (
+    <TH align={align}>
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        data-testid={`deals-sort-${sortKey}`}
+        className={`inline-flex items-center gap-1 ${align === "right" ? "flex-row-reverse" : ""} ${active ? "text-[var(--text)]" : "hover:text-[var(--text-muted)]"} transition-colors`}
+      >
+        {label}
+        {active && (dir === "asc" ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
+      </button>
+    </TH>
+  );
+}
+
+export function DealsTable({ loading, sections, rowCount, leads, selected, setSelected, onRowAction, sortKey, sortDir, onSort }) {
   return (
     <Card className="overflow-hidden">
-      <div className="max-h-[calc(100vh-360px)] overflow-y-auto">
+      <div className="max-h-[calc(100vh-420px)] overflow-y-auto">
         <Table>
           <THead>
             <TH>Lead</TH>
             <TH>Product</TH>
-            <TH align="right">Amount</TH>
+            <SortTH label="Amount" sortKey="amount" currentKey={sortKey} dir={sortDir} onSort={onSort} align="right" />
             <TH>Provider</TH>
             <TH>Status</TH>
-            <TH>Owner</TH>
-            <TH>Last activity</TH>
+            <SortTH label="Owner" sortKey="owner" currentKey={sortKey} dir={sortDir} onSort={onSort} />
+            <SortTH label="Last activity" sortKey="activity" currentKey={sortKey} dir={sortDir} onSort={onSort} />
             <TH>Next action</TH>
-            <TH>Created</TH>
+            <SortTH label="Created" sortKey="created" currentKey={sortKey} dir={sortDir} onSort={onSort} />
             <TH align="right">Action</TH>
           </THead>
           <tbody>
@@ -163,25 +171,46 @@ export function DealsTable({ loading, rows, leads, selected, setSelected, onRowA
                   <Loader2 className="w-5 h-5 animate-spin inline mr-2" /> Loading pipeline…
                 </td>
               </tr>
-            ) : rows.length === 0 ? (
+            ) : !sections || sections.length === 0 ? (
               <tr>
                 <td colSpan={10} className="py-16 text-center text-sm text-[var(--text-faint)]">
                   No deals match these filters.
                 </td>
               </tr>
             ) : (
-              rows.map((l) => (
-                <DealRow key={l.id} lead={l} selected={selected} setSelected={setSelected} onRowAction={onRowAction} />
+              sections.map((sec) => (
+                <SectionGroup key={sec.key} sec={sec} selected={selected} setSelected={setSelected} onRowAction={onRowAction} />
               ))
             )}
           </tbody>
         </Table>
       </div>
-      {!loading && rows.length > 0 && (
+      {!loading && rowCount > 0 && (
         <div className="px-4 py-2.5 text-[11px] text-[var(--text-faint)] font-mono border-t border-[var(--border)]">
-          Showing {rows.length} of {leads.length} deals
+          Showing {rowCount} of {leads.length} deals
         </div>
       )}
     </Card>
+  );
+}
+
+function SectionGroup({ sec, selected, setSelected, onRowAction }) {
+  const total = sec.rows.reduce((s, l) => s + Number(l.amount || 0), 0);
+  return (
+    <>
+      <tr className="bg-[var(--surface-2)]" data-testid={`deals-group-${sec.key}`}>
+        <td colSpan={10} className="px-4 py-2 border-y border-[var(--border)]">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
+              {sec.label} <span className="text-[var(--text-faint)] font-mono ml-1">({sec.rows.length})</span>
+            </span>
+            <span className="text-[11px] font-mono text-[var(--text-faint)]">{money(total)}</span>
+          </div>
+        </td>
+      </tr>
+      {sec.rows.map((l) => (
+        <DealRow key={l.id} lead={l} selected={selected} setSelected={setSelected} onRowAction={onRowAction} />
+      ))}
+    </>
   );
 }

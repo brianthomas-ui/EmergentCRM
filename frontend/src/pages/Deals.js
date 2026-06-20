@@ -1,17 +1,40 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Plus, Download } from "lucide-react";
+import { Plus, Download, Search } from "lucide-react";
 import client, { apiError } from "@/api";
 import { useAuth } from "@/context/AuthContext";
 import { VISIBLE_STATUSES, PRODUCT_LINES, PROVIDERS } from "@/components/helpers";
-import { btnEmerald } from "@/components/dark/Primitives";
+import { btnEmerald, darkInput } from "@/components/dark/Primitives";
 import { DealsSummary, DealsFilters, DealsTable } from "@/components/deals/DealsParts";
+import PeriodFilter, { toParams, DEFAULT_PERIOD } from "@/components/dark/PeriodFilter";
 import DealDrawer from "@/components/dark/DealDrawer";
 import NewLeadModal from "@/components/dark/NewLeadModal";
 import { PaymentModal } from "@/components/lead/LeadModals";
 
 const WON_STATUS = "Payment Link Paid";
+
+// Recency buckets for the time-grouped pipeline. A deal lands in the first bucket
+// whose window contains its last_activity (fallback updated_at / created_at).
+const DAY = 86400000;
+function recencyBucket(iso) {
+  if (!iso) return "earlier";
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return "earlier";
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  if (t >= startOfToday) return "today";
+  if (t >= startOfToday - 6 * DAY) return "this_week";
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  if (t >= startOfMonth) return "this_month";
+  return "earlier";
+}
+const BUCKETS = [
+  { key: "today", label: "Today" },
+  { key: "this_week", label: "Earlier this week" },
+  { key: "this_month", label: "Earlier this month" },
+  { key: "earlier", label: "Earlier" },
+];
 
 export default function Deals() {
   const { user, isAdmin } = useAuth();
@@ -29,6 +52,15 @@ export default function Deals() {
   const [provider, setProvider] = useState("");
   const [owner, setOwner] = useState("");
   const [mine, setMine] = useState(false);
+  const [period, setPeriod] = useState({ ...DEFAULT_PERIOD, period: "all" });
+
+  // column sort within each recency group
+  const [sortKey, setSortKey] = useState("amount"); // amount | created | owner | activity
+  const [sortDir, setSortDir] = useState("desc");
+  const onSort = (key) => {
+    if (key === sortKey) setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+    else { setSortKey(key); setSortDir(key === "owner" ? "asc" : "desc"); }
+  };
 
   // drawer / modal
   const [selected, setSelected] = useState(null);
@@ -107,19 +139,22 @@ export default function Deals() {
   const load = useCallback(() => {
     setLoading(true);
     client
-      .get("/leads")
+      .get("/leads", { params: toParams(period) })
       .then((r) => setLeads(r.data || []))
       .catch((e) => toast.error(apiError(e)))
       .finally(() => setLoading(false));
-  }, []);
+  }, [period]);
 
   useEffect(() => {
     load();
+  }, [load]);
+
+  useEffect(() => {
     client.get("/meta").then((r) => setMeta(r.data)).catch(() => {});
     client.get("/payments/packages").then((r) => setPackages(r.data)).catch(() => {});
     client.get("/settings").then((r) => setFxRate(r.data.inr_per_usd)).catch(() => {});
     if (isAdmin) client.get("/team").then((r) => setTeam(r.data || [])).catch(() => {});
-  }, [load, isAdmin]);
+  }, [isAdmin]);
 
   const statuses = meta?.statuses || VISIBLE_STATUSES;
   const products = meta?.product_lines || PRODUCT_LINES;
@@ -173,6 +208,30 @@ export default function Deals() {
       return true;
     });
   }, [leads, product, status, provider, owner, mine, search, user]);
+
+  // ---- time-grouped + sorted sections ----
+  const sections = useMemo(() => {
+    const dir = sortDir === "asc" ? 1 : -1;
+    const activityOf = (l) => l.last_activity || l.updated_at || l.created_at;
+    const cmp = (a, b) => {
+      let av, bv;
+      if (sortKey === "owner") { av = (a.owner_name || "").toLowerCase(); bv = (b.owner_name || "").toLowerCase(); }
+      else if (sortKey === "created") { av = new Date(a.created_at || 0).getTime(); bv = new Date(b.created_at || 0).getTime(); }
+      else if (sortKey === "activity") { av = new Date(activityOf(a) || 0).getTime(); bv = new Date(activityOf(b) || 0).getTime(); }
+      else { av = Number(a.amount || 0); bv = Number(b.amount || 0); } // amount
+      if (av < bv) return -1 * dir;
+      if (av > bv) return 1 * dir;
+      return 0;
+    };
+    const byKey = {};
+    rows.forEach((l) => {
+      const k = recencyBucket(activityOf(l));
+      (byKey[k] = byKey[k] || []).push(l);
+    });
+    return BUCKETS
+      .map((b) => ({ ...b, rows: (byKey[b.key] || []).slice().sort(cmp) }))
+      .filter((s) => s.rows.length > 0);
+  }, [rows, sortKey, sortDir]);
 
   const onRowAction = async (lead, action) => {
     // Light, demo-safe flows. Heavier flows open the drawer.
@@ -264,6 +323,23 @@ export default function Deals() {
         </div>
       </div>
 
+      {/* Prominent search + period scope */}
+      <div className="flex flex-col lg:flex-row lg:items-center gap-3">
+        <div className="relative flex-1" data-tour="deals-search">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-faint)]" />
+          <input
+            data-testid="deals-search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search deals by lead, company, email or phone…"
+            className={`${darkInput} pl-10 h-11 text-[15px]`}
+          />
+        </div>
+        <div data-tour="deals-period">
+          <PeriodFilter value={period} onChange={setPeriod} includeAll />
+        </div>
+      </div>
+
       {/* Product revenue cards + stage summary strip */}
       <DealsSummary
         products={products}
@@ -277,9 +353,8 @@ export default function Deals() {
         setStatus={setStatus}
       />
 
-      {/* Filter row */}
+      {/* Filter row (dropdowns only — search lives in the top bar) */}
       <DealsFilters
-        search={search} setSearch={setSearch}
         product={product} setProduct={setProduct}
         status={status} setStatus={setStatus}
         provider={provider} setProvider={setProvider}
@@ -289,14 +364,18 @@ export default function Deals() {
         team={team} isAdmin={isAdmin}
       />
 
-      {/* Table-first pipeline */}
+      {/* Table-first pipeline, grouped by recency */}
       <DealsTable
         loading={loading}
-        rows={rows}
+        sections={sections}
+        rowCount={rows.length}
         leads={leads}
         selected={selected}
         setSelected={setSelected}
         onRowAction={onRowAction}
+        sortKey={sortKey}
+        sortDir={sortDir}
+        onSort={onSort}
       />
 
       {/* Detail drawer */}

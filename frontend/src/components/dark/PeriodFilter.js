@@ -17,6 +17,10 @@ const SEGMENTS = [
   { key: "custom", label: "Custom" },
 ];
 
+// "All time" segment, prepended when the caller passes includeAll (e.g. Deals,
+// where the default view is every deal grouped by recency).
+const ALL_SEGMENT = { key: "all", label: "All time" };
+
 export const DEFAULT_PERIOD = {
   period: "this_month",
   from: "",
@@ -43,8 +47,9 @@ export function toParams(value) {
   return { period: v.period };
 }
 
-export default function PeriodFilter({ value, onChange, className = "" }) {
+export default function PeriodFilter({ value, onChange, className = "", includeAll = false }) {
   const v = normalize(value);
+  const segments = includeAll ? [ALL_SEGMENT, ...SEGMENTS] : SEGMENTS;
 
   const setPeriod = (period) => onChange?.({ ...v, period });
   const setFrom = (from) => onChange?.({ ...v, period: "custom", from });
@@ -53,7 +58,7 @@ export default function PeriodFilter({ value, onChange, className = "" }) {
   return (
     <div className={`flex flex-wrap items-center gap-2 ${className}`} data-testid="period-filter">
       <div className="inline-flex items-center rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-0.5">
-        {SEGMENTS.map((seg) => {
+        {segments.map((seg) => {
           const active = v.period === seg.key;
           return (
             <button

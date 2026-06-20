@@ -16,6 +16,8 @@ const EMPTY_PAY_FORM = {
   description: "",
   credits: "",
   boost_credits: "",
+  customer_email: "",
+  customer_name: "",
 };
 
 function LeadPicker({ open, onClose, onPick }) {
@@ -91,6 +93,7 @@ export default function Payments() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
   const [linkLead, setLinkLead] = useState(null);
+  const [linkTarget, setLinkTarget] = useState(null); // a standalone payment to attach to a lead
   const [payForm, setPayForm] = useState(EMPTY_PAY_FORM);
 
   const load = () => client.get("/payments").then((r) => setPayments(r.data));
@@ -139,19 +142,31 @@ export default function Payments() {
     }
   };
 
-  const pickLead = (lead) => {
-    setLinkLead(lead);
-    setPickerOpen(false);
+  // Open the create modal for a STANDALONE link (no lead pre-selected).
+  const newStandaloneLink = () => {
+    setLinkLead(null);
     setPayForm(EMPTY_PAY_FORM);
     setPayOpen(true);
   };
 
+  // LeadPicker is now used to attach an existing standalone payment to a lead.
+  const onPickLead = async (lead) => {
+    if (!linkTarget) { setPickerOpen(false); return; }
+    try {
+      await client.post(`/payments/${linkTarget.id}/link-lead`, { lead_id: lead.id });
+      toast.success(`Linked payment to ${lead.name}`);
+      setPickerOpen(false);
+      setLinkTarget(null);
+      load();
+    } catch (e) {
+      toast.error(apiError(e));
+    }
+  };
+
   const createPayment = async () => {
-    if (!linkLead) return;
     try {
       const isCredit = (payForm.product_line || "Credit Top-Up") === "Credit Top-Up";
       const body = {
-        lead_id: linkLead.id,
         provider: payForm.provider,
         origin_url: window.location.origin,
         package_id: payForm.package_id || null,
@@ -159,6 +174,11 @@ export default function Payments() {
         currency: payForm.currency,
         description: payForm.description || "",
       };
+      if (linkLead) body.lead_id = linkLead.id;
+      else if (payForm.customer_email) {
+        body.customer_email = payForm.customer_email.trim();
+        if (payForm.customer_name) body.customer_name = payForm.customer_name.trim();
+      }
       if (payForm.amount !== "" && payForm.amount != null) body.amount = Number(payForm.amount);
       if (isCredit) {
         const mult = Number(payForm.multiplier) || (meta?.credit_multiplier?.default ?? 7.5);
@@ -172,7 +192,7 @@ export default function Payments() {
         if (payForm.boost_credits !== "" && payForm.boost_credits != null) body.boost_credits = Number(payForm.boost_credits);
       }
       const { data: rec } = await client.post("/payments/link", body);
-      toast.success(`Payment link created for ${linkLead.name}`);
+      toast.success(rec.lead_id ? `Payment link attached to ${rec.lead_name}` : "Standalone payment link created");
       setPayOpen(false);
       setLinkLead(null);
       load();
@@ -180,6 +200,11 @@ export default function Payments() {
     } catch (e) {
       toast.error(apiError(e));
     }
+  };
+
+  const startLinkToLead = (payment) => {
+    setLinkTarget(payment);
+    setPickerOpen(true);
   };
 
   const totalPaid = payments.filter((p) => p.payment_status === "paid").reduce((s, p) => s + (p.amount_usd ?? p.amount), 0);
@@ -194,7 +219,8 @@ export default function Payments() {
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           <button
-            onClick={() => setPickerOpen(true)}
+            onClick={newStandaloneLink}
+            data-tour="new-payment-link"
             data-testid="new-payment-link-btn"
             className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 text-sm font-medium transition-colors shadow-sm"
           >
@@ -213,11 +239,11 @@ export default function Payments() {
 
       <PaymentsSummary totalPaid={totalPaid} totalPending={totalPending} count={payments.length} />
 
-      <PaymentsTable payments={payments} onRefresh={refresh} onSimulate={simulate} />
+      <PaymentsTable payments={payments} onRefresh={refresh} onSimulate={simulate} onLinkLead={startLinkToLead} />
 
-      <p className="text-[11px] text-zinc-400">Razorpay is simulated for V1. Use the check action to mark a Razorpay link as paid. Stripe is live in test mode.</p>
+      <p className="text-[11px] text-zinc-400">Create a standalone link (no lead needed), or enter a customer email to auto-attach it to a matching lead. Unlinked links can be attached to a lead later.</p>
 
-      <LeadPicker open={pickerOpen} onClose={() => setPickerOpen(false)} onPick={pickLead} />
+      <LeadPicker open={pickerOpen} onClose={() => { setPickerOpen(false); setLinkTarget(null); }} onPick={onPickLead} />
       <PaymentModal
         open={payOpen}
         onClose={() => setPayOpen(false)}
@@ -226,6 +252,7 @@ export default function Payments() {
         packages={packages}
         fxRate={fxRate}
         meta={meta}
+        standalone={!linkLead}
         onSubmit={createPayment}
       />
     </div>
