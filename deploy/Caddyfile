@@ -1,0 +1,33 @@
+# Production reverse proxy for emergentcrm.com.
+#
+# Architecture: ONE origin. The SPA is served at / and the API is proxied at /api on the
+# SAME domain, so the secure SameSite=Lax auth cookies keep working (no CORS, no cross-site
+# cookie pitfalls). Cloudflare sits in front (orange-cloud) and terminates the visitor TLS;
+# this origin still speaks TLS end-to-end so `secure` cookies are never dropped.
+#
+# Cloudflare SSL/TLS mode:
+#   • "Full"          -> works with the default `tls internal` below (self-signed origin cert).
+#   • "Full (strict)" -> generate a free Cloudflare Origin Certificate, drop the two PEM files
+#                        in deploy/certs/, and replace `tls internal` with:
+#                            tls /etc/caddy/certs/origin.pem /etc/caddy/certs/origin-key.pem
+{
+	admin off
+}
+
+emergentcrm.com, www.emergentcrm.com {
+	tls internal
+
+	encode zstd gzip
+
+	# Backend API on the same origin (no prefix stripping — FastAPI serves under /api).
+	handle /api/* {
+		reverse_proxy backend:8001
+	}
+
+	# Single-page app: serve the built static files, fall back to index.html for client routes.
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

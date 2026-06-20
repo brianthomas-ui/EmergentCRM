@@ -1,0 +1,21 @@
+# Production web image: build the React SPA to static files, serve them + reverse-proxy
+# /api with Caddy. (Dev uses frontend/Dockerfile's CRA dev server; this is the prod build.)
+
+# --- stage 1: build the optimized static bundle ---
+FROM node:20-slim AS build
+WORKDIR /app/frontend
+# yarn classic, matching frontend/Dockerfile (react-scripts 5 needs yarn's nested ajv majors).
+RUN npm install -g yarn@1.22.22 --force
+COPY frontend/package.json /app/frontend/package.json
+RUN yarn install --network-timeout 600000
+COPY frontend /app/frontend
+# Empty backend URL -> axios calls a RELATIVE /api, which Caddy proxies on the same origin.
+# CI=false so CRA build warnings don't fail the build.
+ENV REACT_APP_BACKEND_URL="" CI=false DISABLE_ESLINT_PLUGIN=true
+RUN yarn build
+
+# --- stage 2: serve static + proxy /api ---
+FROM caddy:2-alpine
+COPY --from=build /app/frontend/build /srv
+COPY deploy/Caddyfile /etc/caddy/Caddyfile
+EXPOSE 80 443

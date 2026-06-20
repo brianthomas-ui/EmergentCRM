@@ -1,0 +1,35 @@
+# Production stack for emergentcrm.com (self-hosted, off the Emergent platform).
+#
+#   cp .env.prod.example .env.prod   # then fill in the secrets
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Only the web container is exposed (80/443). Mongo + backend stay on the internal network.
+# Put Cloudflare in front (orange-cloud) with SSL/TLS = "Full" (see deploy/Caddyfile).
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes: ["mongo_prod_data:/data/db"]   # named volume => data survives restarts/redeploys
+
+  backend:
+    build: { context: ., dockerfile: backend/Dockerfile }
+    restart: unless-stopped
+    depends_on: [mongo]
+    env_file: [.env.prod]
+    environment:
+      MONGO_URL: mongodb://mongo:27017       # internal docker network
+
+  web:
+    build: { context: ., dockerfile: deploy/Dockerfile.web }
+    restart: unless-stopped
+    depends_on: [backend]
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./deploy/certs:/etc/caddy/certs:ro   # optional: Cloudflare Origin Cert for Full(strict)
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  mongo_prod_data:
+  caddy_data:
+  caddy_config:

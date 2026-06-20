@@ -54,9 +54,16 @@ export default function Layout({ children }) {
 
   useEffect(() => {
     if (!user) return;
-    let done = false;
-    try { done = localStorage.getItem("crm_tour_v2_done") === "1"; } catch (e) { done = true; }
-    if (!done) setRunTour(true);
+    // Auto-launch the guided tour on first visit (per browser) OR whenever a one-shot
+    // "force" flag is set — Demo View sets it so every showcase visitor gets walked through,
+    // even on a browser that has already seen the tour.
+    let done = false, force = false;
+    try {
+      force = sessionStorage.getItem("crm_force_tour") === "1";
+      done = localStorage.getItem("crm_tour_v2_done") === "1";
+    } catch (e) { done = true; }
+    if (force || !done) setRunTour(true);
+    try { sessionStorage.removeItem("crm_force_tour"); } catch (e) { /* storage blocked */ }
   }, [user]);
 
   const onAvatarUpload = async (dataUrl) => {

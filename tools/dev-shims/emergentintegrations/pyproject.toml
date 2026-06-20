@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "emergentintegrations"
+version = "0.2.0"
+description = "LOCAL DEV SHIM that emulates Emergent's proprietary emergentintegrations package so the backend runs off-platform. NOT the real package."
+requires-python = ">=3.8"
+
+[tool.setuptools.packages.find]
+where = ["src"]
