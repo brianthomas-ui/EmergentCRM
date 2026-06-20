@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Eye, ArrowLeft } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { apiError } from "@/api";
@@ -6,6 +7,7 @@ import { toast } from "sonner";
 
 export default function ImpersonationBanner() {
   const { user, stopImpersonation } = useAuth();
+  const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   if (!user?.impersonating) return null;
 
@@ -14,6 +16,7 @@ export default function ImpersonationBanner() {
     try {
       await stopImpersonation();
       toast.success("Back to manager view");
+      navigate("/");   // land on the manager dashboard, not an agent-only deep view
     } catch (e) {
       toast.error(apiError(e));
       setBusy(false);
@@ -21,9 +24,11 @@ export default function ImpersonationBanner() {
   };
 
   return (
+    // Fixed above all page chrome (sidebar z-20, sticky headers z-10/20) so the exit
+    // control is never covered. Aligned with the main content column (left of it = sidebar).
     <div
       data-testid="impersonation-banner"
-      className="sticky top-0 z-30 flex items-center justify-center gap-3 bg-amber-400 text-amber-950 text-sm font-medium px-4 py-2 shadow-sm"
+      className="fixed top-0 left-0 right-0 lg:left-[272px] z-40 flex items-center justify-center gap-3 bg-amber-400 text-amber-950 text-sm font-medium px-4 py-2.5 shadow-md"
     >
       <Eye className="w-4 h-4 shrink-0" />
       <span>

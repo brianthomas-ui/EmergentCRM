@@ -8,13 +8,19 @@ import {
   TrendingUp, Users, Trophy, ChevronRight, Inbox,
 } from "lucide-react";
 
-const StatTile = ({ icon: Icon, label, value, accent, testid }) => (
-  <div data-testid={testid} className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-4">
+const StatTile = ({ icon: Icon, label, value, accent, testid, onClick }) => (
+  <button
+    type="button"
+    data-testid={testid}
+    onClick={onClick}
+    disabled={!onClick}
+    className={`text-left rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-4 transition-colors ${onClick ? "cursor-pointer hover:bg-[var(--surface-2)] hover:border-[var(--accent-text)]/40" : ""}`}
+  >
     <div className="flex items-center gap-2 text-[11px] font-mono uppercase tracking-wider text-[var(--text-faint)]">
       <Icon className={`w-3.5 h-3.5 ${accent || ""}`} /> {label}
     </div>
     <div className="mt-1.5 text-2xl font-semibold tabular-nums text-[var(--text)]">{value}</div>
-  </div>
+  </button>
 );
 
 const Section = ({ icon: Icon, title, count, children, testid }) => (
@@ -84,12 +90,12 @@ export default function Workspace() {
 
       {/* Stat tiles */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <StatTile testid="ws-stat-open" icon={Users} label="Open leads" value={s.open_leads} />
-        <StatTile testid="ws-stat-followups" icon={Bell} label="Follow-ups due" value={s.followups_due} accent="text-amber-400" />
-        <StatTile testid="ws-stat-pending" icon={CreditCard} label="Payment pending" value={s.payment_pending} accent="text-amber-400" />
-        <StatTile testid="ws-stat-meetings" icon={CalendarClock} label="Meetings / wk" value={s.meetings_this_week} />
-        <StatTile testid="ws-stat-won" icon={Trophy} label="Won this month" value={s.won_this_month} accent="text-emerald-400" />
-        <StatTile testid="ws-stat-revenue" icon={TrendingUp} label="Revenue / mo" value={money(s.revenue_this_month)} accent="text-emerald-400" />
+        <StatTile testid="ws-stat-open" icon={Users} label="Open leads" value={s.open_leads} onClick={() => navigate("/leads?view=open")} />
+        <StatTile testid="ws-stat-followups" icon={Bell} label="Follow-ups due" value={s.followups_due} accent="text-amber-400" onClick={() => navigate("/leads?view=followups")} />
+        <StatTile testid="ws-stat-pending" icon={CreditCard} label="Payment pending" value={s.payment_pending} accent="text-amber-400" onClick={() => navigate("/leads?view=pending")} />
+        <StatTile testid="ws-stat-meetings" icon={CalendarClock} label="Meetings / wk" value={s.meetings_this_week} onClick={() => navigate("/meetings")} />
+        <StatTile testid="ws-stat-won" icon={Trophy} label="Won this month" value={s.won_this_month} accent="text-emerald-400" onClick={() => navigate("/leads?view=won")} />
+        <StatTile testid="ws-stat-revenue" icon={TrendingUp} label="Revenue / mo" value={money(s.revenue_this_month)} accent="text-emerald-400" onClick={() => navigate("/payments")} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">

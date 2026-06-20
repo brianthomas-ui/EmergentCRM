@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { Plus, Search, X } from "lucide-react";
 import client, { apiError } from "@/api";
 import { useAuth } from "@/context/AuthContext";
-import { FxRateCard, PaymentsSummary, PaymentsTable } from "@/components/payments/PaymentsWidgets";
+import { FxRateCard, PaymentsSummary, PaymentsTable, PaymentDetailModal } from "@/components/payments/PaymentsWidgets";
 import { PaymentModal } from "@/components/lead/LeadModals";
 
 const EMPTY_PAY_FORM = {
@@ -94,6 +94,7 @@ export default function Payments() {
   const [payOpen, setPayOpen] = useState(false);
   const [linkLead, setLinkLead] = useState(null);
   const [linkTarget, setLinkTarget] = useState(null); // a standalone payment to attach to a lead
+  const [detail, setDetail] = useState(null); // payment whose detail panel is open
   const [payForm, setPayForm] = useState(EMPTY_PAY_FORM);
 
   const load = () => client.get("/payments").then((r) => setPayments(r.data));
@@ -239,7 +240,9 @@ export default function Payments() {
 
       <PaymentsSummary totalPaid={totalPaid} totalPending={totalPending} count={payments.length} />
 
-      <PaymentsTable payments={payments} onRefresh={refresh} onSimulate={simulate} onLinkLead={startLinkToLead} />
+      <PaymentsTable payments={payments} onRefresh={refresh} onSimulate={simulate} onLinkLead={startLinkToLead} onRowClick={setDetail} />
+
+      <PaymentDetailModal payment={detail} onClose={() => setDetail(null)} />
 
       <p className="text-[11px] text-zinc-400">Create a standalone link (no lead needed), or enter a customer email to auto-attach it to a matching lead. Unlinked links can be attached to a lead later.</p>
 

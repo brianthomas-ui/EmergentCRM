@@ -22,6 +22,13 @@ export function AuthProvider({ children }) {
     return data.user;
   }, []);
 
+  // One-click "Demo View": the server signs us in as the demo manager account.
+  const demoLogin = useCallback(async () => {
+    const { data } = await client.post("/auth/demo-login");
+    setUser(data.user);
+    return data.user;
+  }, []);
+
   const logout = useCallback(async () => {
     try {
       await client.post("/auth/logout");
@@ -59,11 +66,11 @@ export function AuthProvider({ children }) {
   // Memoized so the context value keeps a stable reference between renders.
   const value = useMemo(
     () => ({
-      user, login, logout, refreshUser, startImpersonation, stopImpersonation,
+      user, login, demoLogin, logout, refreshUser, startImpersonation, stopImpersonation,
       isAdmin: user?.role === "admin",
       impersonating: !!user?.impersonating,
     }),
-    [user, login, logout, refreshUser, startImpersonation, stopImpersonation]
+    [user, login, demoLogin, logout, refreshUser, startImpersonation, stopImpersonation]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

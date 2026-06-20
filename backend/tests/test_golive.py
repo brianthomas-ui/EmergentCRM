@@ -232,6 +232,60 @@ def test_seed_has_repeat_customers(admin):
     assert any((l.get("upsell_cycles") or 0) > 0 for l in leads)
 
 
+# ----------------- Landing / data-enrichment / workable UX (this round) -----------------
+
+def test_demo_login_returns_admin():
+    """Landing 'Demo View': /auth/demo-login signs in the demo manager (admin), no creds."""
+    r = requests.post(f"{BASE}/auth/demo-login", timeout=15)
+    assert r.status_code == 200, r.text
+    assert r.json().get("user", {}).get("role") == "admin"
+
+
+def test_payment_paid_at_is_set(admin):
+    """A paid payment carries an explicit paid_at timestamp (powers the detail panel)."""
+    lead = _new_lead(admin)
+    requests.post(f"{BASE}/payments/link",
+                  json={"lead_id": lead["id"], "provider": "manual", "amount": 1000,
+                        "currency": "usd", "mark_paid": True}, headers=H(admin))
+    pays = requests.get(f"{BASE}/payments", headers=H(admin)).json()
+    mine = [p for p in pays if p.get("lead_id") == lead["id"] and p.get("payment_status") == "paid"]
+    assert mine and mine[0].get("paid_at"), "expected paid_at on the paid payment"
+
+
+def test_next_followup_at_settable(admin):
+    """The lead follow-up date picker PUTs next_followup_at; it persists + reads back."""
+    lead = _new_lead(admin)
+    when = "2026-07-15T10:00:00+00:00"
+    r = requests.put(f"{BASE}/leads/{lead['id']}", json={"next_followup_at": when}, headers=H(admin))
+    assert r.status_code == 200, r.text
+    got = requests.get(f"{BASE}/leads/{lead['id']}", headers=H(admin)).json()["lead"]
+    assert (got.get("next_followup_at") or "").startswith("2026-07-15")
+
+
+def test_agent_sees_only_own_leads(admin, agents):
+    """Per-agent isolation: an agent's /leads is scoped to leads they own; another
+    agent's lead 404s on direct GET."""
+    a_lead = _new_lead(admin, owner_id=agents["a"]["id"])
+    b_lead = _new_lead(admin, owner_id=agents["b"]["id"])
+    a_list = requests.get(f"{BASE}/leads", headers=H(agents["ta"])).json()
+    owners = {l.get("owner_id") for l in a_list}
+    assert owners <= {agents["a"]["id"]}, "agent list must contain only their own leads"
+    assert any(l["id"] == a_lead["id"] for l in a_list)
+    assert requests.get(f"{BASE}/leads/{b_lead['id']}", headers=H(agents["ta"])).status_code == 404
+
+
+def test_seed_monthly_revenue_and_ordering(admin):
+    """Enriched seed: this-month per-agent revenue is in the ~$100k range, Diyea/Aryan
+    on top and Brian clearly the lowest."""
+    board = requests.get(f"{BASE}/dashboard", params={"period": "this_month"}, headers=H(admin)).json().get("per_agent", [])
+    by_rev = sorted(board, key=lambda x: -(x.get("revenue") or 0))
+    names = [a.get("name") for a in by_rev]
+    assert "Diyea" in names and "Brian" in names, names
+    assert by_rev[-1]["name"] == "Brian", names
+    # The top sellers should be tracking toward a six-figure month (June is mid-month).
+    assert (by_rev[0].get("revenue") or 0) >= 50000, by_rev[0]
+
+
 if __name__ == "__main__":
     import sys
     sys.exit(pytest.main([__file__, "-v"]))

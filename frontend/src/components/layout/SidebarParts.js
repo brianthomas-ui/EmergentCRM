@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { LogOut, KeyRound, Compass, Sun, Moon } from "lucide-react";
+import { LogOut, KeyRound, Compass, Sun, Moon, ArrowLeft } from "lucide-react";
 import { AvatarUpload } from "@/components/dark/Avatar";
 
 // Sidebar navigation list. `items` is already filtered/memoized by the parent.
@@ -49,9 +49,11 @@ export function SidebarNav({ items }) {
 export function SidebarUserCard({
   user,
   isAdmin,
+  impersonating,
   savingAvatar,
   theme,
   onAvatarUpload,
+  onStopImpersonation,
   onLogout,
   onChangePassword,
   onToggleTheme,
@@ -61,6 +63,16 @@ export function SidebarUserCard({
     "flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-medium text-[var(--text-muted)] border border-[var(--border)] hover:bg-[var(--surface-2)] hover:text-[var(--text)] transition-colors";
   return (
     <div className="p-3 border-t border-[var(--border)]">
+      {/* Always-reachable exit when viewing-as an agent (belt-and-suspenders with the banner). */}
+      {impersonating && (
+        <button
+          data-testid="sidebar-exit-viewas"
+          onClick={onStopImpersonation}
+          className="w-full mb-2 inline-flex items-center justify-center gap-1.5 rounded-lg bg-amber-400 text-amber-950 hover:bg-amber-300 px-3 py-2 text-xs font-semibold transition-colors"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" /> Back to Manager
+        </button>
+      )}
       <div
         data-tour="user-card"
         className="flex items-center gap-3 px-2.5 py-2.5 rounded-lg bg-[var(--surface-2)] border border-[var(--border)]"

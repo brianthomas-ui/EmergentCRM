@@ -38,7 +38,7 @@ const navItems = [
 ];
 
 export default function Layout({ children }) {
-  const { user, logout, refreshUser, isAdmin, impersonating } = useAuth();
+  const { user, logout, refreshUser, isAdmin, impersonating, stopImpersonation } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const [savingAvatar, setSavingAvatar] = useState(false);
@@ -98,9 +98,19 @@ export default function Layout({ children }) {
         <SidebarUserCard
           user={user}
           isAdmin={isAdmin}
+          impersonating={impersonating}
           savingAvatar={savingAvatar}
           theme={theme}
           onAvatarUpload={onAvatarUpload}
+          onStopImpersonation={async () => {
+            try {
+              await stopImpersonation();
+              toast.success("Back to manager view");
+              navigate("/");
+            } catch (e) {
+              toast.error(apiError(e));
+            }
+          }}
           onLogout={() => {
             logout();
             navigate("/login");
@@ -111,8 +121,12 @@ export default function Layout({ children }) {
         />
       </aside>
 
+      {/* Rendered at root (not inside <main>) and fixed, so the exit control always sits
+          above page chrome and is reachable at any scroll position / on any page. */}
+      <ImpersonationBanner />
+
       <main className="ml-[272px] min-h-screen relative z-10">
-        <ImpersonationBanner />
+        {impersonating && <div aria-hidden className="h-11" />}
         <div className="max-w-[1680px] mx-auto px-6 py-6 md:px-8 md:py-8">{children}</div>
       </main>
 

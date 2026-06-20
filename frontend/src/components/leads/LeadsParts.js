@@ -4,9 +4,14 @@ import { timeAgo } from "@/components/helpers";
 import { Card, Table, THead, TH, TR, TD, StatusBadge } from "@/components/dark/Primitives";
 import Avatar from "@/components/dark/Avatar";
 
-export function KpiCard({ label, value, sub, accent = false }) {
+export function KpiCard({ label, value, sub, accent = false, onClick, active = false }) {
+  const clickable = !!onClick;
   return (
-    <Card className="p-4 flex flex-col gap-1 min-w-0">
+    <Card
+      onClick={onClick}
+      data-testid={`kpi-${(label || "").toLowerCase().replace(/\s+/g, "-")}`}
+      className={`p-4 flex flex-col gap-1 min-w-0 transition-colors ${clickable ? "cursor-pointer hover:bg-[var(--surface-2)]" : ""} ${active ? "ring-1 ring-emerald-500/70 bg-[var(--surface-2)]" : ""}`}
+    >
       <span className="text-[10px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--text-faint)]">
         {label}
       </span>
@@ -143,6 +148,15 @@ function LeadRow({ lead, meta, onRowClick }) {
         </span>
       </TD>
       <TD>
+        {l.next_followup_at ? (
+          <span className={`text-xs font-medium ${new Date(l.next_followup_at) < new Date() ? "text-amber-400" : "text-[var(--text-muted)]"}`}>
+            {timeAgo(l.next_followup_at)}
+          </span>
+        ) : (
+          <span className="text-[var(--text-faint)] text-xs">—</span>
+        )}
+      </TD>
+      <TD>
         {l.status ? (
           <StatusBadge status={l.status} tone={(meta?.status_meta || {})[l.status]?.tone} />
         ) : (
@@ -166,6 +180,7 @@ export function LeadsTable({ filtered, leads, loading, meta, onRowClick }) {
           <TH>Product Interest</TH>
           <TH>Referred By</TH>
           <TH>Last Contacted</TH>
+          <TH>Next Follow-up</TH>
           <TH>Status</TH>
           <TH className="w-8" />
         </THead>
@@ -175,7 +190,7 @@ export function LeadsTable({ filtered, leads, loading, meta, onRowClick }) {
           ))}
           {!loading && filtered.length === 0 && (
             <tr>
-              <td colSpan={7} className="py-14 text-center">
+              <td colSpan={8} className="py-14 text-center">
                 <Users className="w-8 h-8 mx-auto mb-2 text-[var(--text-faint)]" />
                 <p className="text-sm text-[var(--text-faint)]">No leads found.</p>
               </td>
@@ -183,7 +198,7 @@ export function LeadsTable({ filtered, leads, loading, meta, onRowClick }) {
           )}
           {loading && (
             <tr>
-              <td colSpan={7} className="py-10 text-center text-xs text-[var(--text-faint)]">
+              <td colSpan={8} className="py-10 text-center text-xs text-[var(--text-faint)]">
                 Loading…
               </td>
             </tr>

@@ -4,9 +4,25 @@ import {
   CreditCard, CalendarPlus, CheckCircle2, RefreshCw, Lock, Mail, MessageCircle, Loader2, StickyNote,
 } from "lucide-react";
 import client, { apiError } from "@/api";
-import { stageClass, PRIORITIES, REGIONS, timeAgo, VISIBLE_STATUSES } from "@/components/helpers";
+import { stageClass, PRIORITIES, REGIONS, timeAgo, fmtDateTime, VISIBLE_STATUSES } from "@/components/helpers";
 import { Card, StatusBadge, Select, darkInput, btnEmerald, btnGhost } from "@/components/dark/Primitives";
 import Avatar from "@/components/dark/Avatar";
+
+// Follow-up date helpers (shared by the OverviewPanel scheduler).
+const toLocalInput = (iso) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d)) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+const presetISO = (days) => {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  d.setHours(10, 0, 0, 0);
+  return d.toISOString();
+};
+const isOverdue = (iso) => !!iso && new Date(iso) < new Date();
 
 function Section({ title, icon: Icon, children, action, className = "" }) {
   return (
@@ -159,6 +175,37 @@ export function OverviewPanel({ lead, meta, onUpdate, onUpdateStage }) {
           <div className="col-span-2">
             <FLabel>Referred By</FLabel>
             <span className="text-sm text-emerald-300 font-medium">{lead.referred_by_name}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Next follow-up — so the rep always knows whom/when to chase next. */}
+      <div className="mt-4 pt-3 border-t border-[var(--border)]" data-tour="lead-followup">
+        <FLabel>Next follow-up</FLabel>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="datetime-local"
+            data-testid="followup-input"
+            className={`${darkInput} w-auto [color-scheme:dark]`}
+            value={toLocalInput(lead.next_followup_at)}
+            onChange={(e) => e.target.value && onUpdate({ next_followup_at: new Date(e.target.value).toISOString() }, "Follow-up set")}
+          />
+          {[["Tomorrow", 1], ["In 3 days", 3], ["Next week", 7]].map(([lbl, days]) => (
+            <button key={lbl} type="button" data-testid={`followup-${days}`}
+              onClick={() => onUpdate({ next_followup_at: presetISO(days) }, `Follow-up set · ${lbl.toLowerCase()}`)}
+              className={`${btnGhost} text-xs`}>{lbl}</button>
+          ))}
+          {lead.next_followup_at && (
+            <button type="button" onClick={() => onUpdate({ next_followup_at: "" }, "Follow-up cleared")}
+              className="text-xs text-[var(--text-faint)] hover:text-[var(--text)]">Clear</button>
+          )}
+        </div>
+        {lead.next_followup_at && (
+          <div className="mt-2 text-xs">
+            <span className={isOverdue(lead.next_followup_at) ? "text-amber-400 font-medium" : "text-[var(--text-muted)]"}>
+              {isOverdue(lead.next_followup_at) ? "Overdue · " : "Scheduled · "}
+              {fmtDateTime(lead.next_followup_at)} ({timeAgo(lead.next_followup_at)})
+            </span>
           </div>
         )}
       </div>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Plus, Upload, Search } from "lucide-react";
 import client, { apiError } from "@/api";
@@ -10,9 +10,34 @@ import PeriodFilter, { DEFAULT_PERIOD, toParams } from "@/components/dark/Period
 import NewLeadModal from "@/components/dark/NewLeadModal";
 import { KpiCard, TodaysMeetings, RecentNotes, LeadsTable } from "@/components/leads/LeadsParts";
 
+// Named "views" — a single mechanism shared by the Leads KPI cards (clicked in place)
+// and the My Work tiles (which navigate here as /leads?view=...). Each is a client-side
+// predicate over the loaded leads.
+const VIEW_LABEL = {
+  all: "All leads", new: "New this week", qualified: "Qualified",
+  followups: "Follow-ups due", open: "Open pipeline", pending: "Payment pending",
+  stale: "Going stale", won: "Won deals",
+};
+function viewPredicate(view) {
+  const now = Date.now();
+  const weekAgo = now - 7 * 86400e3;
+  const inGroup = (l, g) => (l.status_groups || []).includes(g);
+  switch (view) {
+    case "new": return (l) => l.created_at && new Date(l.created_at).getTime() >= weekAgo;
+    case "qualified": return (l) => ["Interested", "Payment Link Sent"].includes(l.status);
+    case "followups": return (l) => l.next_followup_at && new Date(l.next_followup_at).getTime() <= now;
+    case "open": return (l) => inGroup(l, "Active Pipeline");
+    case "pending": return (l) => ["Payment Link Sent", "Payment Link Failed"].includes(l.status);
+    case "stale": return (l) => inGroup(l, "Active Pipeline") && l.last_activity && (now - new Date(l.last_activity).getTime()) > 7 * 86400e3;
+    case "won": return (l) => l.status === "Payment Link Paid";
+    default: return () => true;
+  }
+}
+
 export default function Leads() {
   const { isAdmin } = useAuth();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const fileRef = useRef();
 
   const [leads, setLeads] = useState([]);
@@ -27,6 +52,18 @@ export default function Leads() {
   const [productFilter, setProductFilter] = useState("");
   const [sourceFilter, setSourceFilter] = useState("");
   const [period, setPeriod] = useState(DEFAULT_PERIOD);
+  const [view, setView] = useState(searchParams.get("view") || "all");
+
+  // Keep the active view in sync with a ?view= deep link (e.g. from My Work tiles).
+  useEffect(() => {
+    setView(searchParams.get("view") || "all");
+  }, [searchParams]);
+
+  const pickView = (v) => {
+    const next = view === v ? "all" : v;
+    setView(next);
+    setSearchParams(next === "all" ? {} : { view: next }, { replace: true });
+  };
 
   // modal
   const [newOpen, setNewOpen] = useState(false);
@@ -53,8 +90,8 @@ export default function Leads() {
 
   useEffect(() => {
     client.get("/meta").then((r) => setMeta(r.data)).catch(() => {});
-    // Meetings for sidebar (no period filter — just upcoming)
-    client.get("/meetings").then((r) => setMeetings(r.data || [])).catch(() => {});
+    // Meetings for the sidebar "today" widget — scoped server-side (the collection is large).
+    client.get("/meetings", { params: { today: "true" } }).then((r) => setMeetings(r.data || [])).catch(() => {});
     // Recent notes across leads
     client.get("/leads/notes/recent").then((r) => setRecentNotes(r.data || [])).catch(() => {});
   }, [isAdmin]);
@@ -70,11 +107,13 @@ export default function Leads() {
     return { total, newThisWeek, qualified, followupsDue };
   }, [leads]);
 
-  // Client-side source filter
+  // Client-side source filter + the active KPI/My-Work "view".
   const filtered = useMemo(() => {
-    if (!sourceFilter) return leads;
-    return leads.filter((l) => (l.source || "").toLowerCase() === sourceFilter.toLowerCase());
-  }, [leads, sourceFilter]);
+    const pred = viewPredicate(view);
+    return leads.filter(
+      (l) => pred(l) && (!sourceFilter || (l.source || "").toLowerCase() === sourceFilter.toLowerCase())
+    );
+  }, [leads, sourceFilter, view]);
 
   // Unique sources for filter dropdown
   const sources = useMemo(
@@ -124,15 +163,23 @@ export default function Leads() {
       <div className="space-y-3">
         <PeriodFilter value={period} onChange={setPeriod} />
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <KpiCard label="Total Leads" value={kpis.total} sub="in selected period" />
-          <KpiCard label="New This Week" value={kpis.newThisWeek} sub={`+${kpis.newThisWeek} this week`} accent />
+          <KpiCard label="Total Leads" value={kpis.total} sub="in selected period" active={view === "all"} onClick={() => pickView("all")} />
+          <KpiCard label="New This Week" value={kpis.newThisWeek} sub={`+${kpis.newThisWeek} this week`} accent active={view === "new"} onClick={() => pickView("new")} />
           <KpiCard
             label="Qualified"
             value={kpis.qualified}
             sub={`${leads.length ? Math.round((kpis.qualified / leads.length) * 100) : 0}% of total`}
+            active={view === "qualified"}
+            onClick={() => pickView("qualified")}
           />
-          <KpiCard label="Follow-ups Due" value={kpis.followupsDue} sub="overdue today" />
+          <KpiCard label="Follow-ups Due" value={kpis.followupsDue} sub="overdue today" active={view === "followups"} onClick={() => pickView("followups")} />
         </div>
+        {view !== "all" && (
+          <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
+            <span>Showing <span className="font-medium text-[var(--text)]">{VIEW_LABEL[view] || view}</span> · {filtered.length} of {leads.length}</span>
+            <button onClick={() => pickView("all")} className="text-emerald-400 hover:text-emerald-300">Clear</button>
+          </div>
+        )}
       </div>
 
       {/* Two-column layout: table + sidebar */}
