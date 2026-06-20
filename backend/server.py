@@ -606,6 +606,35 @@ async def require_admin(user: dict = Depends(get_current_user)) -> dict:
         raise HTTPException(status_code=403, detail="Admin access required")
     return user
 
+# ----------------------------------------------------------------------------
+# Per-record ownership guards (A1). Agents may only read/mutate records for leads
+# they own; admins (incl. an admin impersonating an agent acts as that agent) see
+# their scope. We return 404 (not 403) for unowned records so an agent can't probe
+# which record ids exist. Each guard takes the ALREADY-FETCHED record (no extra DB
+# round-trip) except the payment one, which may look up the lead owner as fallback.
+# ----------------------------------------------------------------------------
+def _is_admin(user: dict) -> bool:
+    return user.get("role") == "admin"
+
+def _owns_lead(user: dict, lead: dict) -> bool:
+    return _is_admin(user) or (lead is not None and lead.get("owner_id") == user["id"])
+
+def require_lead_access(user: dict, lead: dict) -> None:
+    if not _owns_lead(user, lead):
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+def require_meeting_access(user: dict, meeting: dict) -> None:
+    if not (_is_admin(user) or meeting.get("agent_id") == user["id"]):
+        raise HTTPException(status_code=404, detail="Meeting not found")
+
+async def require_payment_access(user: dict, record: dict) -> None:
+    if _is_admin(user) or record.get("agent_id") == user["id"]:
+        return
+    # Legacy payments may lack agent_id; fall back to the owning lead.
+    lead = await db.leads.find_one({"id": record.get("lead_id")}, {"_id": 0, "owner_id": 1})
+    if not (lead and lead.get("owner_id") == user["id"]):
+        raise HTTPException(status_code=404, detail="Payment not found")
+
 async def log_activity(lead_id: str, type_: str, description: str, actor: str):
     await db.activities.insert_one({
         "id": new_id(), "lead_id": lead_id, "type": type_,
@@ -788,7 +817,7 @@ class CampaignIn(BaseModel):
 
 class PaymentIn(BaseModel):
     lead_id: str
-    provider: str = "stripe"  # stripe, razorpay
+    provider: str = "stripe"  # stripe | razorpay | manual
     package_id: Optional[str] = None
     amount: Optional[float] = None          # explicit amount overrides the preset (lets agents discount)
     currency: str = "usd"
@@ -796,7 +825,10 @@ class PaymentIn(BaseModel):
     credits: Optional[int] = None           # custom credits for a credit top-up
     boost_credits: Optional[int] = None     # custom bonus/boost credits (free extra)
     multiplier: Optional[float] = None      # Credit Top-Up: credits delivered = amount * multiplier
-    origin_url: str
+    origin_url: str = ""
+    # Manual provider only: record an offline payment that's ALREADY received so the
+    # deal becomes Won immediately (G5 — Won always rides a real paid payment record).
+    mark_paid: bool = False
 
 class SettingsIn(BaseModel):
     inr_per_usd: float
@@ -1431,6 +1463,7 @@ async def get_lead(lead_id: str, user: dict = Depends(get_current_user)):
     lead = await db.leads.find_one({"id": lead_id})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
+    require_lead_access(user, lead)
     activities = await db.activities.find({"lead_id": lead_id}).sort("created_at", -1).to_list(500)
     meetings = await db.meetings.find({"lead_id": lead_id}).sort("scheduled_at", -1).to_list(100)
     payments = await db.payments.find({"lead_id": lead_id}).sort("created_at", -1).to_list(100)
@@ -1447,17 +1480,15 @@ def _apply_lead_update_mappings(updates: dict) -> dict:
     legacy mirroring; an outcome of Won locks the owner and sets the legacy Won stage."""
     if "stage" in updates and updates["stage"] in SALES_STAGES:
         updates["sales_stage"] = updates.pop("stage")
+    # G5: a lead becomes Won ONLY via a real paid payment record — never by a direct
+    # lead edit. Reject attempts to set Paid/Won here; the FE records a Manual payment.
+    if updates.get("payment_status") == "Paid" or updates.get("payment_state") == "Paid" or updates.get("outcome") == "Won":
+        raise HTTPException(status_code=400,
+                            detail="Record a paid payment (incl. Manual) to mark Won — not a lead edit.")
     if "payment_status" in updates and updates["payment_status"] in PAYMENT_STATES:
         updates["payment_state"] = updates.pop("payment_status")
-        if updates["payment_state"] == "Paid":
-            updates["payment_status"] = "paid"
-            updates["outcome"] = "Won"
-        elif updates["payment_state"] == "Link Sent":
+        if updates["payment_state"] == "Link Sent":
             updates["payment_status"] = "link_sent"
-    if updates.get("outcome") == "Won":
-        updates["won_at"] = now_iso()
-        updates["owner_locked"] = True
-        updates["stage"] = "Won"
     return updates
 
 @api.put("/leads/{lead_id}")
@@ -1465,6 +1496,7 @@ async def update_lead(lead_id: str, body: LeadUpdate, user: dict = Depends(get_c
     lead = await db.leads.find_one({"id": lead_id})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
+    require_lead_access(user, lead)
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     if updates:
         updates = _apply_lead_update_mappings(updates)
@@ -1479,42 +1511,32 @@ async def update_lead(lead_id: str, body: LeadUpdate, user: dict = Depends(get_c
     lead = await db.leads.find_one({"id": lead_id})
     return serialize_lead(lead)
 
+# Legacy PIPELINE_STAGES value -> canonical visible status (back-compat).
+_LEGACY_STAGE_TO_STATUS = {
+    "New Booking": "New / Needs Review", "Assigned": "Contacted",
+    "Meeting Completed": "Interested", "Payment Link Sent": "Payment Link Sent",
+    "Won": "Payment Link Paid", "Lost": "Not Interested", "Follow-up Later": "Contact in Future",
+}
+
 @api.put("/leads/{lead_id}/stage", response_model=LeadOut)
 async def update_stage(lead_id: str, body: StageIn, user: dict = Depends(get_current_user)):
-    # Accept legacy PIPELINE_STAGES (back-compat) OR a new visible status / sales stage.
-    if body.stage not in PIPELINE_STAGES and body.stage not in VISIBLE_STATUSES:
+    # Accept a new visible status, or a legacy PIPELINE_STAGES value (mapped).
+    status = body.stage if body.stage in VISIBLE_STATUSES else _LEGACY_STAGE_TO_STATUS.get(body.stage)
+    if not status:
         raise HTTPException(status_code=400, detail="Invalid stage")
+    # G5: a deal can only become Won via a real paid payment record (incl. Manual),
+    # never by directly setting the status. The FE "Mark paid" records a payment.
+    if status == "Payment Link Paid":
+        raise HTTPException(status_code=400,
+                            detail="Record a paid payment (incl. Manual) to mark Won — not a status change.")
     lead = await db.leads.find_one({"id": lead_id})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
-
-    set_doc = {"updated_at": now_iso(), "last_activity": now_iso()}
-    if body.stage in PIPELINE_STAGES:
-        set_doc["stage"] = body.stage
-        if body.stage == "Won":
-            set_doc.update({"won_at": now_iso(), "owner_locked": True,
-                            "outcome": "Won", "payment_state": "Paid", "payment_status": "paid"})
-    else:
-        # New visible status -> map onto the (sales_stage, outcome, payment_state) model.
-        s = body.stage
-        if s in SALES_STAGES:
-            set_doc["sales_stage"] = s
-            set_doc["outcome"] = ""
-        elif s == "Payment Link Paid":
-            set_doc.update({"outcome": "Won", "payment_state": "Paid", "payment_status": "paid",
-                            "stage": "Won", "won_at": now_iso(), "owner_locked": True})
-        elif s == "Payment Link Failed":
-            set_doc.update({"payment_state": "Failed", "sales_stage": "Payment Link Sent"})
-        elif s == "No-Show":
-            set_doc.update({"outcome": "No-Show", "stage": "Follow-up Later"})
-        elif s == "Not Interested":
-            set_doc.update({"outcome": "Not Interested", "stage": "Lost"})
-        elif s == "Changed Their Mind":
-            set_doc.update({"outcome": "Changed Their Mind"})
-    await db.leads.update_one({"id": lead_id}, {"$set": set_doc})
-    await log_activity(lead_id, "stage", f"Moved to {body.stage}", user["name"])
-    lead = await db.leads.find_one({"id": lead_id})
-    return serialize_lead(lead)
+    require_lead_access(user, lead)
+    # Single-writer projection: status_set fills all five storage fields consistently.
+    await db.leads.update_one({"id": lead_id}, {"$set": status_set(status)})
+    await log_activity(lead_id, "stage", f"Status -> {status}", user["name"])
+    return serialize_lead(await db.leads.find_one({"id": lead_id}))
 
 async def _assign_lead(lead: dict, agent: dict, by: str):
     history = lead.get("ownership_history", [])
@@ -1580,8 +1602,7 @@ async def reopen_lead(lead_id: str, body: ReopenIn, user: dict = Depends(get_cur
         raise HTTPException(status_code=404, detail="Lead not found")
     if not lead.get("owner_id"):
         raise HTTPException(status_code=400, detail="Lead has no owner to route the new opportunity to")
-    if user["role"] == "agent" and lead["owner_id"] != user["id"]:
-        raise HTTPException(status_code=403, detail="Only the owning agent or admin can reopen this lead")
+    require_lead_access(user, lead)
     await db.leads.update_one({"id": lead_id}, {
         "$set": {"stage": "Follow-up Later", "priority": "Follow-up This Week",
                  "payment_status": "none", "updated_at": now_iso(), "last_activity": now_iso(),
@@ -1602,6 +1623,7 @@ async def add_note(lead_id: str, body: NoteIn, user: dict = Depends(get_current_
     lead = await db.leads.find_one({"id": lead_id})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
+    require_lead_access(user, lead)
     note = {
         "id": new_id(), "text": body.text, "type": body.type,
         "author": user["name"], "created_at": now_iso(),
@@ -1618,6 +1640,7 @@ async def enrich_lead(lead_id: str, user: dict = Depends(get_current_user)):
     lead = await db.leads.find_one({"id": lead_id})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
+    require_lead_access(user, lead)
     enr = await enrich_from_emergent(lead["email"])
     updates = {
         "monthly_spend": enr["monthly_spend"], "lifetime_value": enr["lifetime_value"],
@@ -1631,17 +1654,23 @@ async def enrich_lead(lead_id: str, user: dict = Depends(get_current_user)):
 
 
 class TouchIn(BaseModel):
-    channel: str  # "email" | "whatsapp"
+    channel: str  # "email" | "whatsapp" | "call"
 
+
+# Follow-up channels are logged only (G9). WhatsApp is log-only for v1 (no provider wired).
+_TOUCH_LABELS = {"email": "Emailed lead", "whatsapp": "WhatsApped lead", "call": "Called lead"}
 
 @api.post("/leads/{lead_id}/touch")
 async def touch_lead(lead_id: str, body: TouchIn, user: dict = Depends(get_current_user)):
     # Convenience touch + logged activity only. Intentionally does NOT change stage,
     # priority, or revenue — these are NOT used for agent accountability/metrics.
+    if body.channel not in _TOUCH_LABELS:
+        raise HTTPException(status_code=400, detail="Invalid touch channel")
     lead = await db.leads.find_one({"id": lead_id})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
-    label = "Emailed lead" if body.channel == "email" else "WhatsApped lead"
+    require_lead_access(user, lead)
+    label = _TOUCH_LABELS[body.channel]
     await log_activity(lead_id, "touch", label, user["name"])
     return {"ok": True, "channel": body.channel}
 
@@ -1941,6 +1970,10 @@ async def create_meeting(body: MeetingIn, user: dict = Depends(get_current_user)
     lead = await db.leads.find_one({"id": body.lead_id})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
+    require_lead_access(user, lead)
+    # Non-admins may only book for themselves (cannot forge another agent's id).
+    if body.agent_id and not _is_admin(user) and body.agent_id != user["id"]:
+        raise HTTPException(status_code=403, detail="Agents can only book meetings for themselves")
     # sticky ownership: route to the existing owner; round-robin only if unowned
     if body.agent_id:
         agent = await db.users.find_one({"id": body.agent_id})
@@ -1983,6 +2016,7 @@ async def meeting_outcome(meeting_id: str, body: MeetingOutcome, user: dict = De
     meeting = await db.meetings.find_one({"id": meeting_id})
     if not meeting:
         raise HTTPException(status_code=404, detail="Meeting not found")
+    require_meeting_access(user, meeting)
     m_set = {
         "status": body.status, "no_show_reason": body.no_show_reason,
         "outcome_notes": body.outcome_notes, "reschedule_status": body.reschedule_status,
@@ -2024,10 +2058,19 @@ async def reschedule_meeting(meeting_id: str, body: RescheduleIn, user: dict = D
     meeting = await db.meetings.find_one({"id": meeting_id})
     if not meeting:
         raise HTTPException(status_code=404, detail="Meeting not found")
+    require_meeting_access(user, meeting)
+    # G4: cap reschedules. Past the cap, flag the lead for manual follow-up rather
+    # than allowing endless reschedules (no auto-no-show).
+    resched_count = int(meeting.get("reschedule_count", 0))
+    if resched_count >= 3:
+        await db.leads.update_one({"id": meeting["lead_id"]}, {"$set": {
+            "priority": "Follow-up This Week", "updated_at": now_iso(), "last_activity": now_iso()}})
+        raise HTTPException(status_code=400, detail="Reschedule limit reached (3) — flagged for follow-up")
     m_set = {
         "scheduled_at": body.scheduled_at,
         "status": "scheduled",
         "reschedule_status": "rescheduled",
+        "reschedule_count": resched_count + 1,
         "completed_at": None,
         "updated_at": now_iso(),
     }
@@ -2047,8 +2090,7 @@ async def get_meeting(meeting_id: str, user: dict = Depends(get_current_user)):
     meeting = await db.meetings.find_one({"id": meeting_id})
     if not meeting:
         raise HTTPException(status_code=404, detail="Meeting not found")
-    if user["role"] == "agent" and meeting.get("agent_id") != user["id"]:
-        raise HTTPException(status_code=403, detail="Not your meeting")
+    require_meeting_access(user, meeting)
     # Live Circleback backfill (non-blocking) when a key is configured; persisted for reuse.
     cb = await fetch_circleback_summary(meeting)
     if cb.get("recording_url") != meeting.get("recording_url") or cb.get("summary") != meeting.get("summary"):
@@ -2383,6 +2425,7 @@ async def create_payment_link(body: PaymentIn, user: dict = Depends(get_current_
     lead = await db.leads.find_one({"id": body.lead_id})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
+    require_lead_access(user, lead)
 
     amount, currency, desc, credits, boost_credits, multiplier = _resolve_payment_amount(body)
     # convert everything to USD for reporting using the admin-managed FX rate
@@ -2406,6 +2449,9 @@ async def create_payment_link(body: PaymentIn, user: dict = Depends(get_current_
 
     if body.provider == "stripe":
         record["session_id"], record["payment_link"] = await _create_stripe_link(body, amount, currency, payment_id, user)
+    elif body.provider == "manual":
+        # Offline/manual payment — no hosted link; the agent records it directly.
+        record["session_id"], record["payment_link"] = f"manual_{payment_id[:12]}", ""
     else:
         # Razorpay: real Payment Link when keys are present, else the simulated fallback link.
         simulated = (
@@ -2430,6 +2476,11 @@ async def create_payment_link(body: PaymentIn, user: dict = Depends(get_current_
     lead_set["currency"] = currency
     await db.leads.update_one({"id": body.lead_id}, {"$set": lead_set})
     await log_activity(body.lead_id, "payment", f"{body.provider.title()} payment link sent: {currency.upper()} {amount:.0f} (~${amount_usd:.0f})", user["name"])
+    # Manual payment already received -> mark Won immediately (G5: Won rides a real
+    # paid payment record). This is the path the FE "Mark paid" uses.
+    if body.provider == "manual" and body.mark_paid:
+        await _apply_payment_status(record, "complete", "paid")
+        record = await db.payments.find_one({"id": payment_id})
     return clean(record)
 
 @api.get("/payments/status/{session_id}", response_model=PaymentOut)
@@ -2437,6 +2488,7 @@ async def payment_status(session_id: str, user: dict = Depends(get_current_user)
     record = await db.payments.find_one({"session_id": session_id})
     if not record:
         raise HTTPException(status_code=404, detail="Payment not found")
+    await require_payment_access(user, record)
 
     if record["payment_status"] == "paid":
         return clean(record)
@@ -2456,20 +2508,27 @@ async def payment_status(session_id: str, user: dict = Depends(get_current_user)
 
 @api.post("/payments/simulate/{session_id}", response_model=PaymentOut)
 async def simulate_payment(session_id: str, user: dict = Depends(get_current_user)):
-    """Simulate completion of a Razorpay (mock) payment link."""
+    """Simulate completion of a (mock) payment link. DEMO ONLY — in production a deal
+    can only become Won via a real provider webhook against a real paid payment record."""
+    if IS_PROD:
+        raise HTTPException(status_code=403, detail="Disabled in production")
     record = await db.payments.find_one({"session_id": session_id})
     if not record:
         raise HTTPException(status_code=404, detail="Payment not found")
+    await require_payment_access(user, record)
     await _apply_payment_status(record, "complete", "paid")
     return clean(await db.payments.find_one({"session_id": session_id}))
 
 @api.post("/payments/fail/{session_id}", response_model=PaymentOut)
 async def fail_payment(session_id: str, user: dict = Depends(get_current_user)):
     """Simulate a failed payment link (demo) — moves the lead to the recoverable
-    'Payment Link Failed' status. Never crashes."""
+    'Payment Link Failed' status. DEMO ONLY; never crashes."""
+    if IS_PROD:
+        raise HTTPException(status_code=403, detail="Disabled in production")
     record = await db.payments.find_one({"session_id": session_id})
     if not record:
         raise HTTPException(status_code=404, detail="Payment not found")
+    await require_payment_access(user, record)
     await _apply_payment_status(record, "failed", "failed")
     return clean(await db.payments.find_one({"session_id": session_id}))
 
@@ -2480,13 +2539,10 @@ async def _apply_payment_status(record: dict, status: str, payment_status: str):
     await db.payments.update_one({"id": record["id"]}, {"$set": update})
     if payment_status == "paid":
         amt_usd = record.get("amount_usd", record["amount"])
-        lead_set = {
-            "stage": "Won", "sales_stage": "Payment Link Sent",
-            "outcome": "Won", "payment_status": "paid", "payment_state": "Paid",
-            "priority": "None", "owner_locked": True,
-            "won_at": now_iso(), "updated_at": now_iso(), "last_activity": now_iso(),
-            "next_action": "View customer / ask for referral",
-        }
+        # The ONE place a deal becomes Won (G5): always against a real paid payment
+        # record. Routed through status_set so all five status fields stay consistent.
+        lead_set = status_set("Payment Link Paid", priority="None",
+                              next_action="View customer / ask for referral")
         if record.get("product_line"):
             lead_set["product_line"] = record["product_line"]
         await db.leads.update_one({"id": record["lead_id"]}, {
@@ -2499,12 +2555,9 @@ async def _apply_payment_status(record: dict, status: str, payment_status: str):
     elif payment_status in ("failed", "expired", "canceled", "cancelled"):
         # Payment Link Failed -> recoverable (spec §4). Keep the lead in the active
         # journey; don't lock or count revenue.
-        await db.leads.update_one({"id": record["lead_id"]}, {"$set": {
-            "payment_state": "Failed", "sales_stage": "Payment Link Sent",
-            "priority": "Follow-up This Week",
-            "updated_at": now_iso(), "last_activity": now_iso(),
-            "next_action": "Retry payment link",
-        }})
+        await db.leads.update_one({"id": record["lead_id"]}, {"$set": status_set(
+            "Payment Link Failed", priority="Follow-up This Week",
+            next_action="Retry payment link")})
         await log_activity(record["lead_id"], "payment",
                            f"Payment link {payment_status} — recoverable", record.get("agent_name") or "System")
 
@@ -3265,6 +3318,23 @@ def _status_fields(status: str) -> dict:
     return dict(table.get(status, base))
 
 
+def status_set(status: str, **extra) -> dict:
+    """Single source of truth for a lead status write: projects a visible status onto
+    ALL five storage fields (stage/sales_stage/outcome/payment_status/payment_state) so
+    no writer can drift them. Merge extra fields (priority, next_action, …). 400 on a
+    bad status. 'Payment Link Paid' also locks the owner + stamps won_at."""
+    if status not in VISIBLE_STATUSES:
+        raise HTTPException(status_code=400, detail=f"Invalid status '{status}'")
+    fields = _status_fields(status)
+    fields["updated_at"] = now_iso()
+    fields["last_activity"] = now_iso()
+    if status == "Payment Link Paid":
+        fields["owner_locked"] = True
+        fields["won_at"] = now_iso()
+    fields.update(extra)
+    return fields
+
+
 # product_line -> (package_id, amount, currency) for seeded deals (USD default).
 _SEED_PRODUCT = {
     "Credit Top-Up":            ("credits_500", 100.0, "usd"),
@@ -3808,6 +3878,40 @@ async def _migrate_clean_reseed_v3():
     await db.migrations.update_one({"key": key}, {"$set": {"key": key, "done_at": now_iso()}}, upsert=True)
     logger.info("migrate: wiped test data + reseeded believable demo dataset")
 
+async def _migrate_dedupe_lead_emails():
+    """Merge duplicate-email leads into the OLDEST one so a unique index can be created
+    (D3.4). Idempotent + safe to run every boot. Reassigns meetings/payments/activities
+    to the keeper, unions notes, sums revenue/deals, lowercases the keeper email."""
+    try:
+        groups = await db.leads.aggregate([
+            {"$group": {"_id": {"$toLower": "$email"}, "ids": {"$addToSet": "$id"}, "n": {"$sum": 1}}},
+            {"$match": {"n": {"$gt": 1}}},
+        ]).to_list(10000)
+        merged = 0
+        for grp in groups:
+            leads = await db.leads.find({"id": {"$in": grp["ids"]}}).to_list(1000)
+            leads.sort(key=lambda l: l.get("created_at") or "")
+            keeper, losers = leads[0], leads[1:]
+            notes = list(keeper.get("notes") or [])
+            rev = float(keeper.get("total_revenue_usd") or 0)
+            deals = int(keeper.get("deals_won") or 0)
+            for lo in losers:
+                notes.extend(lo.get("notes") or [])
+                rev += float(lo.get("total_revenue_usd") or 0)
+                deals += int(lo.get("deals_won") or 0)
+                for coll in ("meetings", "payments", "activities"):
+                    await db[coll].update_many({"lead_id": lo["id"]}, {"$set": {"lead_id": keeper["id"]}})
+                await db.leads.delete_one({"id": lo["id"]})
+            await db.leads.update_one({"id": keeper["id"]}, {"$set": {
+                "notes": notes, "total_revenue_usd": rev, "deals_won": deals,
+                "email": (keeper.get("email") or "").lower(), "updated_at": now_iso()}})
+            merged += len(losers)
+        if merged:
+            logger.info(f"migrate: merged {merged} duplicate-email leads")
+    except Exception as e:
+        logger.warning(f"lead-email dedupe failed (continuing): {e}")
+
+
 async def bootstrap_production():
     """Always-safe, idempotent bootstrap that runs in EVERY mode: settings, the
     structural (non-destructive) migrations, and the single admin account. Contains
@@ -3847,20 +3951,47 @@ async def _run_startup():
         logger.error("MongoDB unreachable after retries; skipping startup seed")
         return
 
-    # Indexes: never let an index error block seeding/serving.
+    # De-duplicate lead emails BEFORE creating the unique index (D3.4).
+    await _migrate_dedupe_lead_emails()
+
+    # Non-unique / perf indexes — never block startup (D4.6 compounds included).
     index_specs = [
         ("users", "email", {"unique": True}),
-        ("leads", "email", {}),
         ("leads", "stage", {}),
+        ("leads", [("owner_id", 1), ("stage", 1)], {}),
         ("meetings", "agent_id", {}),
-        ("payments", "session_id", {}),
+        ("meetings", [("agent_id", 1), ("scheduled_at", 1)], {}),
+        ("meetings", "calendly_event_uri", {"sparse": True}),
+        ("payments", "lead_id", {}),
         ("coverage_snapshots", "date", {}),
+        ("webhook_events", "event_key", {"unique": True}),  # A4 idempotency
     ]
     for coll, field, kwargs in index_specs:
         try:
             await db[coll].create_index(field, **kwargs)
         except Exception as e:
             logger.warning(f"create_index {coll}.{field} failed (continuing): {e}")
+    # UNIQUE indexes that the data model depends on. Surface failure in production
+    # (do NOT silently leave them non-unique). We drop a stale NON-unique index of the
+    # same key first (transitioning an existing DB), then create the unique one.
+    async def _ensure_unique(coll, field, **kwargs):
+        info = await db[coll].index_information()
+        name = f"{field}_1"
+        if name in info and not info[name].get("unique"):
+            await db[coll].drop_index(name)
+        await db[coll].create_index(field, unique=True, **kwargs)
+
+    for coll, field, kw in (
+        ("leads", "email", {}),
+        # session_id partial so many not-yet-created links (null) don't collide.
+        ("payments", "session_id", {"partialFilterExpression": {"session_id": {"$type": "string"}}}),
+    ):
+        try:
+            await _ensure_unique(coll, field, **kw)
+        except Exception as e:
+            logger.error(f"UNIQUE {coll}.{field} failed: {e}")
+            if IS_PROD:
+                raise
 
     # Seed: must never crash startup; the app should still serve if seeding fails.
     try:
