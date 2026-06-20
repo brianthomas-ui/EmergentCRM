@@ -4,7 +4,7 @@ import {
   CreditCard, CalendarPlus, CheckCircle2, RefreshCw, Lock, Mail, MessageCircle, Loader2, StickyNote,
 } from "lucide-react";
 import client, { apiError } from "@/api";
-import { stageClass, STAGES, PRIORITIES, REGIONS, timeAgo, VISIBLE_STATUSES } from "@/components/helpers";
+import { stageClass, PRIORITIES, REGIONS, timeAgo, VISIBLE_STATUSES } from "@/components/helpers";
 import { Card, StatusBadge, Select, darkInput, btnEmerald, btnGhost } from "@/components/dark/Primitives";
 import Avatar from "@/components/dark/Avatar";
 
@@ -128,39 +128,20 @@ export function OverviewPanel({ lead, meta, onUpdate, onUpdateStage }) {
       <span className="text-[11px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--text-faint)] block mb-3">Overview</span>
       <div className="grid grid-cols-2 gap-x-4 gap-y-3">
         <div>
-          <FLabel>Pipeline Stage</FLabel>
-          <Select data-testid="stage-select" value={lead.stage || ""} onChange={(e) => onUpdateStage(e.target.value)}>
-            {STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
-          </Select>
-        </div>
-        <div>
-          <FLabel>Sales Status</FLabel>
-          <Select data-testid="status-select" value={lead.status || ""} onChange={(e) => onUpdate({ status: e.target.value }, "Status updated")}>
-            <option value="">—</option>
-            {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
+          <FLabel>Status</FLabel>
+          {/* Single editable status control -> /stage (single-writer model). "Payment
+              Link Paid" (Won) is set by recording a paid payment, not here (G5). */}
+          <Select data-testid="status-select" value={lead.status || ""} onChange={(e) => onUpdateStage(e.target.value)}>
+            {statuses.filter((s) => s !== "Payment Link Paid").map((s) => <option key={s} value={s}>{s}</option>)}
           </Select>
         </div>
         <div>
           <FLabel>Outcome</FLabel>
-          <Select data-testid="outcome-select" value={lead.outcome || ""} onChange={(e) => onUpdate({ outcome: e.target.value }, "Outcome updated")}>
-            <option value="">—</option>
-            <option>Interested</option>
-            <option>Won</option>
-            <option>Lost</option>
-            <option>No Response</option>
-            <option>Not Qualified</option>
-          </Select>
+          <div data-testid="outcome-chip" className="text-sm text-[var(--text)] py-1.5">{lead.outcome || "—"}</div>
         </div>
         <div>
-          <FLabel>Payment Status</FLabel>
-          <Select data-testid="payment-status-select" value={lead.payment_status || ""} onChange={(e) => onUpdate({ payment_status: e.target.value }, "Payment status updated")}>
-            <option value="">—</option>
-            <option>Not Started</option>
-            <option>Link Sent</option>
-            <option>Paid</option>
-            <option>Failed</option>
-            <option>Refunded</option>
-          </Select>
+          <FLabel>Payment</FLabel>
+          <div data-testid="payment-state-chip" className="text-sm text-[var(--text)] py-1.5">{lead.payment_state || "Not Sent"}</div>
         </div>
         <div>
           <FLabel>Priority</FLabel>

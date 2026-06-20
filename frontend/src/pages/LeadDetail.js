@@ -164,10 +164,16 @@ export default function LeadDetail() {
       toast.error(apiError(e));
     }
   };
+  // Won always rides a real paid payment (G5). With an amount, record a Manual
+  // payment (received); otherwise open the payment modal to set one.
   const markWon = async () => {
+    if (!lead.amount) { setPayModal(true); return; }
     try {
-      await client.put(`/leads/${id}/stage`, { stage: "Won" });
-      toast.success("Marked as Won");
+      await client.post(`/payments/link`, {
+        lead_id: id, provider: "manual",
+        amount: Number(lead.amount), currency: lead.currency || "usd", mark_paid: true,
+      });
+      toast.success("Payment recorded — deal won");
       load();
     } catch (e) {
       toast.error(apiError(e));

@@ -156,7 +156,7 @@ function DealTimeline({ timeline }) {
   );
 }
 
-function DealBody({ lead, action, statuses, timeline, onPatch }) {
+function DealBody({ lead, action, statuses, timeline, onStatus }) {
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
@@ -186,10 +186,11 @@ function DealBody({ lead, action, statuses, timeline, onPatch }) {
         </div>
         <Select
           value={lead.status}
-          onChange={(e) => onPatch({ stage: e.target.value, payment_status: e.target.value }, `Status → ${e.target.value}`)}
+          onChange={(e) => onStatus(e.target.value)}
           data-testid="drawer-status-select"
         >
-          {statuses.map((s) => (
+          {/* "Payment Link Paid" (Won) is set by recording a paid payment, not here. */}
+          {statuses.filter((s) => s !== "Payment Link Paid").map((s) => (
             <option key={s} value={s}>{s}</option>
           ))}
         </Select>
@@ -245,6 +246,41 @@ export default function DealDrawer({ leadId, open, onClose, meta, onChanged, onS
     }
   };
 
+  // Status changes go through the dedicated /stage endpoint (single-writer model).
+  const patchStatus = async (status) => {
+    setBusy(true);
+    try {
+      await client.put(`/leads/${leadId}/stage`, { stage: status });
+      toast.success(`Status → ${status}`);
+      await refresh();
+      onChanged?.();
+    } catch (e) {
+      toast.error(apiError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // "Mark paid" records an offline/Manual payment that's already received -> Won (G5).
+  // With no amount yet, open the payment modal instead so the agent sets one.
+  const markPaid = async () => {
+    if (!lead?.amount) { sendLink(); return; }
+    setBusy(true);
+    try {
+      await client.post(`/payments/link`, {
+        lead_id: leadId, provider: "manual",
+        amount: lead.amount, currency: lead.currency || "usd", mark_paid: true,
+      });
+      toast.success("Payment recorded — deal won");
+      await refresh();
+      onChanged?.();
+    } catch (e) {
+      toast.error(apiError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   // Opens the PaymentModal (hosted by the parent) pre-filled with the lead's product.
   const sendLink = () => {
     if (onSendLink) onSendLink(lead);
@@ -264,7 +300,7 @@ export default function DealDrawer({ leadId, open, onClose, meta, onChanged, onS
           action={action}
           busy={busy}
           onSendLink={sendLink}
-          onMarkPaid={() => patch({ payment_status: "Paid" }, "Marked paid")}
+          onMarkPaid={markPaid}
           onViewLead={onViewLead}
         />
       }
@@ -274,7 +310,7 @@ export default function DealDrawer({ leadId, open, onClose, meta, onChanged, onS
           <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading…
         </div>
       ) : (
-        <DealBody lead={lead} action={action} statuses={statuses} timeline={timeline} onPatch={patch} />
+        <DealBody lead={lead} action={action} statuses={statuses} timeline={timeline} onStatus={patchStatus} />
       )}
     </Drawer>
   );

@@ -185,11 +185,11 @@ export default function Deals() {
       return;
     }
     if (action.kind === "mark_paid") {
-      await updateLead(lead.id, { payment_status: "Paid" }, `${lead.name} marked paid`);
+      await recordManualPaid(lead);
       return;
     }
     if (action.kind === "follow_up") {
-      await updateLead(lead.id, { stage: "Contact in Future", next_action: "Follow up" }, "Follow-up set");
+      await setStatus(lead.id, "Contact in Future", "Follow-up set");
       return;
     }
     if (action.kind === "reschedule") {
@@ -201,7 +201,7 @@ export default function Deals() {
       return;
     }
     if (action.kind === "mark_interested") {
-      await updateLead(lead.id, { stage: "Interested" }, `${lead.name} → Interested`);
+      await setStatus(lead.id, "Interested", `${lead.name} → Interested`);
       return;
     }
     setSelected(lead);
@@ -211,6 +211,33 @@ export default function Deals() {
     try {
       await client.put(`/leads/${id}`, payload);
       toast.success(msg || "Updated");
+      load();
+    } catch (e) {
+      toast.error(apiError(e));
+    }
+  };
+
+  // Status changes go through the dedicated /stage endpoint (single-writer model).
+  const setStatus = async (id, status, msg) => {
+    try {
+      await client.put(`/leads/${id}/stage`, { stage: status });
+      toast.success(msg || `Status → ${status}`);
+      load();
+    } catch (e) {
+      toast.error(apiError(e));
+    }
+  };
+
+  // "Mark paid" records an offline/Manual payment (already received) -> Won (G5).
+  // No amount yet -> open the payment modal so the agent sets one.
+  const recordManualPaid = async (lead) => {
+    if (!lead.amount) { openPayModal(lead); return; }
+    try {
+      await client.post("/payments/link", {
+        lead_id: lead.id, provider: "manual",
+        amount: Number(lead.amount), currency: lead.currency || "usd", mark_paid: true,
+      });
+      toast.success(`${lead.name} — payment recorded, deal won`);
       load();
     } catch (e) {
       toast.error(apiError(e));
