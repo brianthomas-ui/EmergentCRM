@@ -11,11 +11,11 @@ const PEEK_KPIS = [
   { label: "Meetings", value: "142", icon: CalendarCheck },
 ];
 const PEEK_BOARD = [
-  { name: "Diyea", value: "$118k", pct: 100 },
-  { name: "Aryan", value: "$109k", pct: 92 },
-  { name: "Dipan", value: "$94k", pct: 79 },
-  { name: "Vinay", value: "$88k", pct: 74 },
-  { name: "Brian", value: "$47k", pct: 40 },
+  { name: "Olivia Hayes", value: "$118k", pct: 100 },
+  { name: "James Carter", value: "$109k", pct: 92 },
+  { name: "Sophie Bennett", value: "$94k", pct: 79 },
+  { name: "William Shaw", value: "$88k", pct: 74 },
+  { name: "Grace Walker", value: "$47k", pct: 40 },
 ];
 const PEEK_CHART = [38, 52, 47, 63, 58, 71, 66, 82, 78, 91, 86, 100];
 
@@ -63,7 +63,7 @@ function ConsolePeek() {
             {PEEK_BOARD.map((a, i) => (
               <div key={a.name} className="flex items-center gap-3">
                 <span className="text-[10px] font-mono text-zinc-500 w-3">{i + 1}</span>
-                <span className="text-xs text-zinc-300 w-14 shrink-0">{a.name}</span>
+                <span className="text-xs text-zinc-300 w-24 shrink-0 truncate">{a.name}</span>
                 <div className="flex-1 h-1.5 rounded-full bg-white/5 overflow-hidden">
                   <div className="h-full rounded-full bg-emerald-500" style={{ width: `${a.pct}%` }} />
                 </div>

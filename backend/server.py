@@ -3569,7 +3569,7 @@ async def _seed_agents():
         ("Dipan", "dipan@emergent.sh"),
         ("Vinay", "vinay.p@emergent.sh"),
         ("Brian", "brian@emergent.sh"),
-        ("Abhishek", "abhishek@emergent.sh"),
+        ("Abhishek", "abhishek.u@emergent.sh"),
     ]
     # Idempotent per-agent: ensures Abhishek (added later) lands even on an already-seeded DB.
     for i, (name, email) in enumerate(agents_data):
@@ -4382,6 +4382,39 @@ async def _migrate_clean_reseed_v3():
     logger.info("migrate: wiped test data + reseeded believable demo dataset")
 
 
+async def _migrate_fix_agent_emails():
+    """Normalize seeded agent emails to their canonical handles on an already-seeded DB
+    (reseeds don't touch users). Runs BEFORE _seed_agents so the rename happens first and
+    no empty duplicate is created. If both the old and the new email already exist, keep
+    whichever owns the leads and drop the other. Owner/agent links are by id, so the
+    surviving user keeps all its data. Demo-only."""
+    if IS_PROD:
+        return
+    fixes = [("abhishek@emergent.sh", "abhishek.u@emergent.sh"),
+             ("aryan@emergent.sh", "aryan.f@emergent.sh"),
+             ("vinay@emergent.sh", "vinay.p@emergent.sh")]
+    for old, new in fixes:
+        try:
+            old_u = await db.users.find_one({"email": old})
+            if not old_u:
+                continue
+            new_u = await db.users.find_one({"email": new})
+            if new_u and new_u["id"] != old_u["id"]:
+                # Duplicate: keep the one that owns leads, delete the empty one, the
+                # survivor takes the canonical `new` email.
+                old_n = await db.leads.count_documents({"owner_id": old_u["id"]})
+                new_n = await db.leads.count_documents({"owner_id": new_u["id"]})
+                keeper, dupe = (old_u, new_u) if old_n >= new_n else (new_u, old_u)
+                await db.users.delete_one({"id": dupe["id"]})
+                await db.users.update_one({"id": keeper["id"]}, {"$set": {"email": new}})
+                logger.info(f"migrate: merged duplicate {old}/{new} -> kept {keeper['id']} as {new}")
+            else:
+                await db.users.update_one({"email": old}, {"$set": {"email": new}})
+                logger.info(f"migrate: renamed agent email {old} -> {new}")
+        except Exception as e:
+            logger.warning(f"fix-agent-email {old} failed (continuing): {e}")
+
+
 async def _migrate_purge_test_leads():
     """Delete leads created by the live test suites (name 'T', emails like t_<hex>@x.com)
     plus their dependent meetings/payments/activities, so test runs never pollute the demo.
@@ -4499,6 +4532,7 @@ async def seed_demo():
     """DEMO ONLY: the 5 demo agents, the demo account, the one-time team-password
     reset, the believable demo dataset, and the clean-reseed wipe. None of this runs
     when APP_MODE=production."""
+    await _migrate_fix_agent_emails()
     await _seed_agents()
     await _seed_demo_account()
     await _migrate_reset_passwords()
