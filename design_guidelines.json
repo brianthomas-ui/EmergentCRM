@@ -1,0 +1,132 @@
+{
+  "theme": "light",
+  "archetype": "Archetype 4 (Swiss & High-Contrast)",
+  "design_philosophy": "Strictly structural, hyper-minimal, near-black/white monochromatic aesthetic matching emergent.sh. Gradients are completely removed. Reliance on sharp borders, generous whitespace, stark typography, and monospace accents.",
+  "colors": {
+    "css_variables": {
+      "root": {
+        "--background": "0 0% 100%",
+        "--foreground": "0 0% 4%",
+        "--card": "0 0% 100%",
+        "--card-foreground": "0 0% 4%",
+        "--popover": "0 0% 100%",
+        "--popover-foreground": "0 0% 4%",
+        "--primary": "0 0% 4%",
+        "--primary-foreground": "0 0% 98%",
+        "--secondary": "0 0% 96.1%",
+        "--secondary-foreground": "0 0% 9%",
+        "--muted": "0 0% 96.1%",
+        "--muted-foreground": "0 0% 45.1%",
+        "--accent": "0 0% 96.1%",
+        "--accent-foreground": "0 0% 9%",
+        "--destructive": "0 84.2% 60.2%",
+        "--destructive-foreground": "0 0% 98%",
+        "--border": "0 0% 89.8%",
+        "--input": "0 0% 89.8%",
+        "--ring": "0 0% 4%",
+        "--radius": "0.25rem"
+      }
+    },
+    "tailwind_palette": {
+      "brand_black": "#0A0A0A",
+      "brand_white": "#FFFFFF",
+      "brand_border": "#E4E4E7",
+      "brand_muted": "#71717A",
+      "brand_accent": "#F4F4F5"
+    }
+  },
+  "typography": {
+    "font_families": {
+      "heading": "General Sans, sans-serif",
+      "body": "General Sans, sans-serif",
+      "mono": "JetBrains Mono, monospace"
+    },
+    "hierarchy": {
+      "h1": "text-4xl font-semibold tracking-tight text-zinc-950",
+      "h2": "text-2xl font-semibold tracking-tight text-zinc-950",
+      "h3": "text-lg font-medium tracking-tight text-zinc-950",
+      "body": "text-sm text-zinc-700 leading-relaxed",
+      "metadata": "font-mono text-xs tracking-wider text-zinc-500 uppercase",
+      "numbers": "font-mono text-sm tracking-tight text-zinc-950"
+    }
+  },
+  "layout_and_spacing": {
+    "philosophy": "Generous padding inside containers. Elements breathe. Sharp 1px borders define structure instead of drop shadows.",
+    "spacing_scale": "p-4, p-6, p-8 for standard containers. p-12 for page headers.",
+    "borders": "Universal use of border-border (zinc-200). Avoid rounded-lg or larger; stick to rounded-sm (0.25rem)."
+  },
+  "components": {
+    "cards": {
+      "container": "bg-white border border-zinc-200 rounded-sm shadow-none",
+      "header": "px-6 py-4 border-b border-zinc-100",
+      "body": "p-6"
+    },
+    "buttons": {
+      "primary": "bg-zinc-950 text-white rounded-sm px-4 py-2 text-sm font-medium hover:bg-zinc-800 transition-colors active:scale-[0.98]",
+      "secondary": "bg-white text-zinc-950 border border-zinc-200 rounded-sm px-4 py-2 text-sm font-medium hover:bg-zinc-50 transition-colors active:scale-[0.98]",
+      "ghost": "bg-transparent text-zinc-600 rounded-sm px-4 py-2 text-sm font-medium hover:bg-zinc-100 hover:text-zinc-950 transition-colors active:scale-[0.98]"
+    },
+    "badges": {
+      "philosophy": "Do NOT use filled colored backgrounds to avoid 'rainbow overload'. Use outline badges with a single colored dot.",
+      "container": "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-sm border border-zinc-200 bg-transparent text-xs font-medium text-zinc-700 font-mono uppercase tracking-wider",
+      "status_dots": {
+        "new": "w-1.5 h-1.5 rounded-full bg-blue-500",
+        "contacted": "w-1.5 h-1.5 rounded-full bg-amber-500",
+        "qualified": "w-1.5 h-1.5 rounded-full bg-emerald-500",
+        "lost": "w-1.5 h-1.5 rounded-full bg-zinc-400"
+      }
+    },
+    "sidebar": {
+      "container": "w-64 border-r border-zinc-200 bg-zinc-50/50 flex flex-col h-screen",
+      "logo_lockup": "p-6 flex items-center gap-3. Use a pure black square or minimal grid SVG icon. Text is 'Emergent Labs' in General Sans, no gradients. 'Labs' can be in JetBrains Mono text-zinc-500 text-xs uppercase.",
+      "nav_item": "flex items-center gap-3 px-4 py-2 mx-2 rounded-sm text-sm font-medium transition-colors group",
+      "nav_item_active": "bg-white border border-zinc-200 text-zinc-950 shadow-sm",
+      "nav_item_inactive": "text-zinc-600 hover:bg-zinc-100/80 hover:text-zinc-950",
+      "footer": "p-4 mt-auto border-t border-zinc-200"
+    }
+  },
+  "specific_pages": {
+    "login": {
+      "layout": "Centered stark card on a pure white background. Minimalist. Container: w-full max-w-md mx-auto p-8 bg-white border border-zinc-200 rounded-sm shadow-sm",
+      "headline": "Left-aligned, text-3xl font-semibold tracking-tight text-zinc-950. Remove all gradients. 'Sign in to Emergent.'",
+      "demo_helper": "mt-8 p-4 bg-zinc-50 border border-zinc-200 border-dashed rounded-sm font-mono text-xs text-zinc-600 space-y-2. Clearly labels 'Demo Credentials' with a small copy icon.",
+      "inputs": "bg-transparent border-zinc-200 rounded-sm focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950"
+    },
+    "dashboard": {
+      "kpi_cards": "Flat cards, 1px border. Values in JetBrains Mono for a highly technical, precise feel. Small monochrome sparklines.",
+      "charts": "Recharts styling: stroke='#0A0A0A' for primary lines. Hide grid lines or make them extremely faint stroke='#F4F4F5'. Tooltips should have stark black backgrounds with white text.",
+      "tables": "Dense, clean. Header row uses font-mono text-xs uppercase text-zinc-500. Row borders are border-zinc-100."
+    },
+    "pipeline": {
+      "board": "flex gap-6 overflow-x-auto pb-4",
+      "column": "w-80 flex-shrink-0 flex flex-col gap-3",
+      "column_header": "flex items-center justify-between pb-2 border-b border-zinc-200. Title in font-mono uppercase text-xs font-semibold.",
+      "card": "bg-white p-4 border border-zinc-200 rounded-sm shadow-sm hover:border-zinc-300 transition-colors cursor-grab"
+    }
+  },
+  "micro_interactions": {
+    "buttons": "Subtle scale down active:scale-[0.98] with fast transition.",
+    "hover_states": "Background color shifts (white to zinc-50). No heavy drop shadows on hover. Keep it flat.",
+    "transitions": "Use transition-colors duration-150 ease-out for interactive elements."
+  },
+  "testing_attributes": {
+    "rule": "All interactive and key informational elements MUST include a data-testid attribute in kebab-case based on their role.",
+    "examples": {
+      "login_submit": "data-testid='login-submit-button'",
+      "sidebar_nav": "data-testid='nav-dashboard-link'",
+      "kanban_card": "data-testid='kanban-card-123'",
+      "demo_fill": "data-testid='demo-fill-button'"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Replace index.css :root with the specific CSS variables provided.",
+    "Update tailwind.config.js to set radius to 0.25rem.",
+    "Remove all references to bg-gradient-to-r, from-blue, via-indigo, to-violet in the entire app.",
+    "Convert General Sans heading classes to text-zinc-950 tracking-tight.",
+    "Implement the 'outline + dot' style for all Pipeline, Lead, and Priority badges to remove rainbow effect.",
+    "For the Login page, ensure the demo helper is styled like a code block (mono, gray bg, dashed border).",
+    "On charts (Recharts), strip out colorful palettes and use a monochromatic scale (zinc-900, zinc-500, zinc-300).",
+    "All components must be .js files not .tsx.",
+    "Add data-testid attributes to all buttons, links, and forms."
+  ]
+}

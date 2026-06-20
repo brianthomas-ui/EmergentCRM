@@ -1,0 +1,31 @@
+{
+  "summary": "Iteration 8 — Targeted frontend regression after backend startup-crash fix + P0 avatar fixes. ALL 7 requested flows pass end-to-end against the public preview URL. (1) ADMIN LOGIN (diyea@emergent.sh): dashboard loads fully without blanking — Revenue Closed $12.1k, Open Pipeline $15.1k, Meetings Today 6, Payment Pending 16, No-Shows 2, Conversion 100%, Revenue by Product donut, Pipeline by Stage (10 stages with counts: New/Needs 41, Contacted 12, Interested 7, Contact in Future 12, Payment Link Sent 16, Payment Link Paid 28, No-Show 2, etc.), Recent Activity (5+ rows with actor+lead names), Today's Meetings (3 visible), Top Agents leaderboard (Dipan/Aryan/Vinay/Brian/Abhishek). (2) GET /api/activities/recent returns 200 with real data (verified via direct fetch — actor='Diyea', lead_name='TEST PaymentLock', type='payment', etc.) — NO 404 in network log. (3) SELF AVATAR UPLOAD/REMOVE (P0): uploading 1x1 PNG via hidden input avatar-upload-input triggers POST /api/profile/avatar -> toast 'Picture updated', avatar-image renders in sidebar, avatar-upload-remove button appears; clicking Remove fires DELETE /api/profile/avatar -> toast 'Picture removed', avatar-initials reappears, Remove button hidden. (4) ADMIN REP AVATAR (P0): on Team page, clicking avatar-edit-toggle-{id} reveals inline AvatarUpload; setting file fires POST /api/team/{id}/avatar -> toast 'Avatar updated'; clicking Remove fires DELETE /api/team/{id}/avatar -> toast 'Avatar removed' (visible in screenshot). (5) NAVIGATION: every sidebar route loads without crashing — Dashboard, Leads, Campaigns, Meetings, Deals, Team, Payments, Audit Log — zero ErrorBoundary triggers, dark theme intact. (6) DEAD ROUTES: /pipeline and /coverage render empty body (18 chars) with NO white-screen JS error, no error overlay — app still functional after visiting. (7) AGENT LOGIN (aryan.f@emergent.sh): dashboard loads with 'Welcome, Aryan', admin-only nav items (nav-campaigns, nav-team, nav-audit) are CORRECTLY HIDDEN; visible nav: Dashboard, Leads, Meetings, Deals, Payments.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Leads page recent-notes side panel", "issue": "GET /api/leads/notes/recent returns 404 (silently caught, no UI crash). Not in this iteration's scope but appears in console. Source: /app/frontend/src/pages/Leads.js:201", "affected_selectors": []}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_8.json",
+    "/app/test_reports/iteration_7.json"
+  ],
+  "action_items": [
+    "(Out of scope, low priority) Leads.js line 201 calls /api/leads/notes/recent which returns 404 — either remove the call or add the endpoint. Does NOT affect this iteration's P0 fixes."
+  ],
+  "critical_code_review_comments": [
+    "AvatarUpload component (Avatar.js) and Layout.js onAvatarUpload contract are now correctly aligned: frontend posts {data_url} for upload and DELETEs for removal, matching the backend's POST/DELETE /api/profile/avatar and POST/DELETE /api/team/{id}/avatar contracts. P0 bug fully resolved.",
+    "Recent Activity endpoint /api/activities/recent verified returning enriched payload (actor + lead_name fields) — Dashboard component renders correctly.",
+    "Dead routes /pipeline and /coverage now resolve to empty body without throwing — App.js routing changes are safe."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend-only per request; iter 7 reported 48/48 pytest pass)", "frontend": "100% — all 7 requested flows verified, both P0 avatar flows pass, no app-breaking after sign-in, no console JS errors"},
+  "test_credentials": "Admin: diyea@emergent.sh / leader123 (used). Agent: aryan.f@emergent.sh / agent123 (used).",
+  "seed_data_creation": "Uploaded + removed 1x1 PNG avatars during self-avatar and rep-avatar tests (clean state restored — both ended with Remove so DB has no leftover test images).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "P0 avatar fixes confirmed working. Backend startup crash fix confirmed (login works, dashboard loads, no blanking). Side note: /api/leads/notes/recent (called from Leads.js) returns 404 silently — log this if Leads recent-notes panel is to be tested. Hidden file-input testid for AvatarUpload is 'avatar-upload-input' — use set_input_files() rather than clicking 'avatar-upload-pick' (the pick button) for reliable e2e testing. The Remove button only renders when the avatar src is non-null. For Team rep-avatar, click 'avatar-edit-toggle-{id}' first to reveal the inline AvatarUpload — then a SECOND avatar-upload-input appears in the DOM (use the last() element).",
+  "rca of the issue": "Previous 'stops working after sign in' bug RCA confirmed fixed: backend lifespan had an undefined _run_startup reference causing crash; with backend now stable, login -> /auth/me -> dashboard data fetches all succeed, and the dashboard renders the full layout (verified by screenshot showing Sales Console with all 6 KPI cards, Revenue by Product, Pipeline by Stage, Recent Activity, Today's Meetings, Top Agents). The two P0 avatar bugs were a payload-shape mismatch (frontend field name) and wrong HTTP method on removal — both now resolved as evidenced by the 'Picture updated/removed' and 'Avatar updated/removed' toasts firing in browser."
+}

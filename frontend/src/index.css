@@ -1,0 +1,237 @@
+@import url('https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600,700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ----------------------------------------------------------------------------
+   Emergent Dark Sales Console — dark theme tokens
+   Near-black/slate base, slightly lighter surfaces, subtle slate borders,
+   near-white primary text, muted gray secondary, emerald accent.
+---------------------------------------------------------------------------- */
+:root {
+  /* Raw palette */
+  --bg: #0B0F14;            /* near-black app background */
+  --surface-1: #11161D;     /* card / panel surface */
+  --surface-2: #161C25;     /* raised surface / hover */
+  --surface-3: #1B222D;     /* inputs, table header */
+  --border: #232A35;        /* subtle slate border */
+  --border-strong: #2D3643;
+  --text: #F2F4F7;          /* near-white primary */
+  --text-muted: #9AA4B2;    /* muted gray secondary */
+  --text-faint: #6B7585;    /* faint tertiary */
+
+  --emerald: #34D399;
+  --emerald-dim: rgba(52, 211, 153, 0.12);
+  --emerald-border: rgba(52, 211, 153, 0.30);
+  --amber: #F5B547;
+  --rose: #FB7185;
+  --info: #5EB4F5;
+  --accent-text: #34D399;   /* emerald text accent (dark default) */
+}
+
+* {
+  border-color: var(--border);
+}
+
+html, body {
+  margin: 0;
+  background-color: var(--bg);
+  font-family: 'General Sans', -apple-system, sans-serif;
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4, .font-heading {
+  font-family: 'General Sans', sans-serif;
+  letter-spacing: -0.02em;
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* tabular numerics for amounts */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Emergent label — small mono uppercase tag */
+.label-mono {
+  font-family: 'JetBrains Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #2A323E; border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: #3A4554; }
+
+::selection { background: var(--emerald); color: #06281C; }
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-up { animation: fadeInUp 0.3s ease-out both; }
+
+@keyframes drawerIn {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.animate-drawer-in { animation: drawerIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+@layer base {
+  :root {
+    /* shadcn/ui tokens remapped to the dark theme so prebuilt ui/* components
+       (dialog, select, command, etc.) render dark out of the box. HSL values. */
+    --background: 213 30% 6%;
+    --foreground: 210 20% 96%;
+    --card: 213 25% 9%;
+    --card-foreground: 210 20% 96%;
+    --popover: 213 25% 9%;
+    --popover-foreground: 210 20% 96%;
+    --primary: 210 20% 96%;
+    --primary-foreground: 213 30% 6%;
+    --secondary: 214 20% 16%;
+    --secondary-foreground: 210 20% 96%;
+    --muted: 214 20% 16%;
+    --muted-foreground: 215 14% 65%;
+    --accent: 156 64% 52%;
+    --accent-foreground: 160 70% 10%;
+    --destructive: 351 95% 71%;
+    --destructive-foreground: 210 20% 96%;
+    --border: 214 18% 18%;
+    --input: 214 18% 18%;
+    --ring: 156 64% 52%;
+    --radius: 0.5rem;
+    --chart-1: 156 64% 52%;
+    --chart-2: 205 86% 67%;
+    --chart-3: 40 90% 62%;
+    --chart-4: 351 95% 71%;
+    --chart-5: 215 14% 50%;
+  }
+}
+
+/* ----------------------------------------------------------------------------
+   LIGHT THEME — clean, airy light tokens. Opt-in via <html data-theme="light">.
+   Dark stays the default. The dark-safety pass below is disabled in light, so
+   the original light utility classes (bg-white, text-zinc-*) render correctly.
+---------------------------------------------------------------------------- */
+html[data-theme="light"] {
+  --bg: #F6F8FA;
+  --surface-1: #FFFFFF;
+  --surface-2: #F1F4F8;
+  --surface-3: #E9EDF2;
+  --border: #E2E7EE;
+  --border-strong: #CBD2DB;
+  --text: #0E141B;
+  --text-muted: #586273;
+  --text-faint: #8A93A1;
+  --emerald: #059669;
+  --emerald-dim: rgba(5, 150, 105, 0.10);
+  --emerald-border: rgba(5, 150, 105, 0.28);
+  --amber: #D97706;
+  --rose: #E11D48;
+  --info: #2563EB;
+  --accent-text: #047857;
+
+  /* shadcn/ui tokens (HSL). --border/--input intentionally omitted to avoid
+     clobbering the raw hex --border that components use directly. */
+  --background: 210 25% 98%;
+  --foreground: 213 35% 9%;
+  --card: 0 0% 100%;
+  --card-foreground: 213 35% 9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 213 35% 9%;
+  --primary: 213 35% 12%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 214 28% 93%;
+  --secondary-foreground: 213 35% 12%;
+  --muted: 214 28% 93%;
+  --muted-foreground: 215 16% 42%;
+  --accent: 156 64% 36%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 351 80% 50%;
+  --destructive-foreground: 0 0% 100%;
+  --ring: 156 64% 40%;
+}
+
+/* ----------------------------------------------------------------------------
+   DARK-SAFETY PASS
+   Existing pages (Leads / Meetings / Campaigns / Team / Dashboard etc.) were
+   written with light literal utility classes (bg-white, text-zinc-900, ...).
+   Until each is rebuilt, remap the most common light utilities to dark
+   equivalents so nothing renders white-on-white. The Deals page, Layout and
+   new dark primitives use semantic dark classes directly and are unaffected
+   (these overrides happen to be dark-correct for them too).
+---------------------------------------------------------------------------- */
+@layer utilities {
+  /* surfaces */
+  html:not([data-theme="light"]) .bg-white { background-color: var(--surface-1) !important; }
+  html:not([data-theme="light"]) .bg-zinc-50,
+  html:not([data-theme="light"]) .bg-zinc-100\/60,
+  html:not([data-theme="light"]) .bg-zinc-100\/80,
+  html:not([data-theme="light"]) .bg-zinc-100 { background-color: var(--surface-2) !important; }
+  html:not([data-theme="light"]) .bg-zinc-50\/70 { background-color: var(--surface-1) !important; }
+
+  /* primary text */
+  html:not([data-theme="light"]) .text-zinc-950,
+  html:not([data-theme="light"]) .text-zinc-900,
+  html:not([data-theme="light"]) .text-zinc-800 { color: var(--text) !important; }
+  /* secondary text */
+  html:not([data-theme="light"]) .text-zinc-700,
+  html:not([data-theme="light"]) .text-zinc-600 { color: #C4CCD6 !important; }
+  html:not([data-theme="light"]) .text-zinc-500 { color: var(--text-muted) !important; }
+  html:not([data-theme="light"]) .text-zinc-400,
+  html:not([data-theme="light"]) .text-zinc-300 { color: var(--text-faint) !important; }
+
+  /* borders */
+  html:not([data-theme="light"]) .border-zinc-200,
+  html:not([data-theme="light"]) .border-zinc-200\/70,
+  html:not([data-theme="light"]) .border-zinc-100,
+  html:not([data-theme="light"]) .border-zinc-300 { border-color: var(--border) !important; }
+  html:not([data-theme="light"]) .border-dashed.border-zinc-300 { border-color: var(--border-strong) !important; }
+
+  /* hovers */
+  html:not([data-theme="light"]) .hover\:bg-zinc-50:hover,
+  html:not([data-theme="light"]) .hover\:bg-zinc-100:hover,
+  html:not([data-theme="light"]) .hover\:bg-zinc-100\/80:hover { background-color: var(--surface-3) !important; }
+  html:not([data-theme="light"]) .hover\:text-zinc-950:hover,
+  html:not([data-theme="light"]) .hover\:text-zinc-900:hover { color: var(--text) !important; }
+  html:not([data-theme="light"]) .hover\:border-zinc-400:hover { border-color: var(--border-strong) !important; }
+
+  /* dark primary buttons (zinc-950 fill) become emerald-on-dark for contrast */
+  html:not([data-theme="light"]) .bg-zinc-950 { background-color: var(--emerald) !important; color: #06281C !important; }
+  html:not([data-theme="light"]) .hover\:bg-zinc-800:hover { background-color: #2CC08A !important; }
+  html:not([data-theme="light"]) .text-white { color: inherit; }
+}
+
+/* ----------------------------------------------------------------------------
+   LIGHT-THEME ACCENT PASS — components authored for dark use emerald/slate
+   literals that look too light on white. Remap just those accents in light.
+---------------------------------------------------------------------------- */
+@layer utilities {
+  html[data-theme="light"] .bg-slate-700\/60,
+  html[data-theme="light"] .bg-slate-800,
+  html[data-theme="light"] .bg-slate-700 { background-color: #E5E9EF !important; }
+  html[data-theme="light"] .text-emerald-300,
+  html[data-theme="light"] .text-emerald-400,
+  html[data-theme="light"] .text-emerald-300\/80,
+  html[data-theme="light"] .text-emerald-300\/90,
+  html[data-theme="light"] .text-emerald-400\/80 { color: #047857 !important; }
+  html[data-theme="light"] .text-amber-300,
+  html[data-theme="light"] .text-amber-400 { color: #B45309 !important; }
+  html[data-theme="light"] .text-rose-300,
+  html[data-theme="light"] .text-rose-400 { color: #DC2626 !important; }
+}
+
+/* Inputs in prebuilt forms shouldn't render as bright white boxes */
+input, textarea, select {
+  background-color: var(--surface-3);
+  color: var(--text);
+}
+input::placeholder, textarea::placeholder { color: var(--text-faint); }

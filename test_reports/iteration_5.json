@@ -1,0 +1,32 @@
+{
+  "summary": "Iteration 5 — Post-refactor regression validation for Emergent Upsell CRM. Verified the LeadDetail component split (LeadDetail.js orchestrating LeadPanels.js + LeadModals.js), the env-driven demo-credentials (REACT_APP_DEMO_LOGINS), and the backend refactors (import_leads, create_payment_link/_resolve_payment_amount/_create_stripe_link, _seed_demo_leads). Backend: 35/35 pytest tests PASS (100%) including stripe USD preset, INR->USD razorpay conversion, simulate paid -> Won + owner_locked, CSV import, sticky ownership, reopen flow, FX rate edits, coverage, audit. Frontend: LeadDetail renders all sub-panels (account-context-panel, lifetime-revenue, Update card, Notes, Meetings, Payment Links, Activity Timeline). All required data-testids present: lead-detail-name, stage-select, priority-select, region-select, note-input, add-note-btn, book-meeting-btn, send-payment-btn, reopen-btn. Modals work: meeting-modal (meet-datetime/meet-driver/confirm-meeting-btn), payment-modal (pay-provider/pay-package/pay-currency/pay-amount/fx-preview/generate-payment-btn — fx-preview shows '≈ $59 at ₹85/$1 · reported in USD' for INR 5000), reopen-modal (reopen-type/confirm-reopen-btn — confirmed Upsell reopen kept ownership with Dipan and toast 'New Upsell routed to Dipan'). Add Note: appends note instantly. Payment-link generation closes modal, advances stage to 'Payment Link Sent', and adds payment row. LOCKED TO OWNER badge visible on Won-derived lead. Login: typed login + demo-fill-sales-head + demo-fill-agent all work; env-driven demo credentials parsed correctly (diyea@emergent.sh / aryan.f@emergent.sh). Smoke nav: all 9 admin nav items + 5 agent nav items behave correctly; admin-only items (coverage/campaigns/team/audit) hidden for agent. 0 page errors, 0 JS errors during the entire run.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml",
+    "/app/test_reports/iteration_5.json"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "REFACTOR IS CLEAN: LeadDetail split into LeadPanels.js (LeadContextPanel/LeadMeetingsList/LeadPaymentsList/LeadActivityTimeline) and LeadModals.js (PaymentModal/ReopenModal/MeetingModal) preserves every data-testid; orchestration in LeadDetail.js (~250 lines) is the right call. Zero behavioral regression observed.",
+    "Env-driven demo credentials: REACT_APP_DEMO_LOGINS is parsed as JSON in Login.js and rendered as clickable demo-fill-* buttons. demo-fill-sales-head and demo-fill-agent both populate login-email/login-password correctly. Falls back gracefully if env not set (not tested but code path is straightforward).",
+    "Backend helper extractions (_resolve_payment_amount, _create_stripe_link, _seed_demo_leads) preserve behavior: Stripe USD preset (upsell_scale = $2500), INR conversion (8500 INR / 85 = $100 USD), invalid amount 400, simulate -> paid + Won + total_revenue_usd, all pass.",
+    "Minor pre-existing console warning (not introduced by this round): React hydration warning '<span> cannot be a child of <option>' from a Select component on the lead detail page. Should be cleaned up — option tags in HTML may not contain <span>. Find the offending Select rendering <option><span>...</span></option> and replace with plain text/title attribute.",
+    "Carry-over (not introduced by this round): server.py is still >1000 lines; CORS allow_origins='*' with allow_credentials=True from prior iterations is unchanged."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (updated admin/agent emails from @emergent.com to @emergent.sh / aryan.f@emergent.sh to match current seed; no functional changes)"
+  ],
+  "success_rate": {"backend": "100% (35/35 pytest)", "frontend": "100% — refactor introduced 0 regressions; all LeadDetail sub-components, modals, and flows verified"},
+  "test_credentials": "Admin: diyea@emergent.sh / leader123. Agent: aryan.f@emergent.sh / agent123. Confirmed via /app/memory/test_credentials.md and /app/frontend/.env REACT_APP_DEMO_LOGINS.",
+  "seed_data_creation": "Backend tests created TEST_-prefixed leads (Lead, Importee, Region, Sticky, NoOwner, PaymentLock, Rev), 2 INR razorpay payments simulated paid (+$1100 USD to revenue), 2 reopen audit entries. Frontend test added 1 note ('TEST regression note') to a TEST_paylock lead and triggered 1 Upsell reopen on TEST Sticky's Sam Patel — non-destructive on seed data.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All data-testids verified on LeadDetail after the split: lead-detail-name, account-context-panel, lifetime-revenue, stage-select, priority-select, region-select, note-input, add-note-btn, book-meeting-btn, send-payment-btn, reopen-btn (only on Won/Lost), meeting-modal{meet-datetime,meet-driver,confirm-meeting-btn}, payment-modal{pay-provider,pay-package,pay-currency,pay-amount,fx-preview,generate-payment-btn}, reopen-modal{reopen-type,confirm-reopen-btn}, payment-row-<id>. Login testids: login-email, login-password, login-submit, demo-fill-sales-head, demo-fill-agent. Layout testids: nav-dashboard/nav-leads/nav-pipeline/nav-meetings/nav-payments/nav-coverage/nav-campaigns/nav-team/nav-audit, logout-btn. Backend test file at /app/backend/tests/backend_test.py is up-to-date with the @emergent.sh emails and covers 35 scenarios.",
+  "rca of the issue": "N/A — no issues found. The refactor (LeadDetail split + env-driven demo creds + backend helper extraction) is a clean, behavior-preserving change. The only console message observed (hydration warning about <span> inside <option>) is a pre-existing minor issue unrelated to this refactor and not user-visible."
+}

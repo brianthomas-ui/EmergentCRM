@@ -1,0 +1,46 @@
+{
+  "summary": "End-to-end UI validation for the new feature batch (revenue-by-product fix, theme toggle, My Work workspace, view-as impersonation, role-specific tours, Settings with masked API keys + FX, historical CSV import) + agent role separation. Tested against REACT_APP_BACKEND_URL via Playwright. Backend pytest also re-run as sanity (35/35 pass).",
+  "scope": "All 9 review-request items verified on live preview URL with diyea@emergent.sh (admin) and aryan.f@emergent.sh (agent).",
+  "verified_flows": [
+    "Admin login (diyea@emergent.sh) lands on Dashboard. Revenue by Product donut + legend populated and RECONCILES with Revenue Closed: legend sums Credit Top-Up $100 (1%) + Annual Pro $0 + Dedicated Support $7k (69%) + Lifetime $0 + Other $3.2k (31%) = $10.3k WON, matches KPI 'Revenue Closed' $10.3k. /api/dashboard returns product_revenue dict with won_revenue and won_count per product line.",
+    "Theme toggle: data-testid='theme-toggle-btn' swaps documentElement[data-theme] dark<->light, body bg color changes (rgb(11,15,20) dark vs rgb(246,248,250) light), persists across reload via localStorage crm_theme; full app re-themes (sidebar, cards, page bodies) cleanly with readable contrast in light mode.",
+    "Workspace page (nav-workspace -> /workspace, workspace-page rendered) shows all 6 stat tiles (ws-stat-open=4, ws-stat-followups=0, ws-stat-pending=1, ws-stat-meetings=3, ws-stat-won=0, ws-stat-revenue=$3,200 for admin's own leads) and all 5 sections (ws-followups, ws-today, ws-pending, ws-attention, ws-conversations). Clicking workspace-lead-* row navigates to /leads/{id} which fully renders the lead detail.",
+    "View-as-agent impersonation (admin only): view-as-select dropdown lists 5 agents (Aryan/Dipan/Vinay/Brian/Abhishek). Selecting Aryan sets impersonation-banner text 'Viewing as Aryan · impersonated by Diyea', hides admin-only nav (nav-campaigns, nav-team, nav-audit and view-as-select itself all absent during impersonation). back-to-manager-btn restores manager view, banner clears, admin nav returns.",
+    "Settings page (/settings, settings-page) ALL 11 testids present (settings-org-keys, settings-my-keys, save-org-keys, save-my-keys, save-fx, reset-demo-btn, settings-import, import-type, import-preview-btn, import-commit-btn). Org API keys section: 7 inputs with masked secret placeholders (e.g. '•••••2345'), green 'set' badges next to configured keys (Stripe, Razorpay), placeholders like 'pk_live_...', 'eyJ...', 'cb_...', 'SG.'. Saving org-keys re-masks and persists. Save my-keys + Save FX both succeed.",
+    "Historical import: select 'Leads' via import-type, upload CSV via import-file -> Preview button enables, click import-preview-btn -> POST /api/import/historical 200 -> import-result table shows Rows:2 / Will create:2 / Skipped:0 with a preview table of the two TEST_IMP_ rows. Click import-commit-btn -> POST /api/import/historical 200 with commit=true -> toast 'Imported 2 leads' shown, import-result shows '✅ Imported'.",
+    "Manager tour (admin): auto-opens with manager-focused content - step 1 'Welcome, Sales Head 👋 This tour covers how to run the team: read performance at a glance, dig into any metric, manage agents and targets, configure integrations, import historical data, and even view the CRM exactly as one of your reps.' 11 steps total. Next/Back/Skip(X) work. After Skip, localStorage crm_tour_v2_done='1' is set; reload does NOT re-open.",
+    "Agent tour (aryan.f): auto-opens with agent-focused content - step 1 'Welcome to your sales console 👋 This 90-second tour shows you exactly how to run your day: see what needs attention, work your leads, log conversations, book meetings and send payment links.' 10 steps total. Next/Back/Skip all work.",
+    "Agent role separation (aryan.f): sidebar shows ONLY nav-workspace, nav-dashboard, nav-leads, nav-meetings, nav-deals, nav-payments, nav-settings. nav-campaigns, nav-team, nav-audit, view-as-select, and impersonation-banner all CORRECTLY ABSENT. Agent /workspace renders agent-scoped data (ws-stat-open=10 vs admin's 4).",
+    "Regression: nav-dashboard, nav-leads, nav-meetings, nav-deals, nav-payments still work in both themes; lead detail page (LeadDetail.js) opens correctly with account context, notes, activity timeline, payment links visible after workspace click-through."
+  ],
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "observations_non_blocking": [
+    "On the dashboard, Annual Pro Subscription and Lifetime Access product cards show $0 (0%). This is correct given the seeded data (no won deals on those lines yet); the donut + reconciliation with Revenue Closed proves the bucketing logic is working. Per main agent context, blank product_line payments intentionally bucket into 'Other' ($3.2k / 31%).",
+    "Legend rows in 'Revenue by Product' do not carry individual data-testids - they are still clickable buttons that fire onDrill, but for future Playwright drill-through verification a 'product-legend-{name}' testid would help.",
+    "Two background 401s on initial page load are from auth-state probing while the login form is shown (cosmetic; expected pattern, not a bug).",
+    "Two background third-party requests fail (cloudflare RUM beacon, PostHog flags) - external-network/preview-env noise, not app code."
+  ],
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/iteration_12.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Settings.js HistoricalImport uses FileReader correctly (async readAsText) and gates Preview by csvText / Commit by result - clean state machine.",
+    "ThemeContext.js sets data-theme on documentElement before React mounts (avoids FOUC) and persists via localStorage('crm_theme'). Good pattern.",
+    "Impersonation flow (AuthContext.startImpersonation -> /demo/impersonate -> token swap -> /auth/me) is implemented correctly; UI hides admin nav based on effective role, not original role.",
+    "Optional enhancement: add data-testid='product-legend-{name}' to RevenueByProduct legend buttons for granular drill-test coverage."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (35/35 pytest)", "frontend": "100% (all 9 review-request flows pass)"},
+  "test_credentials": "Admin: diyea@emergent.sh / emergent@12345; Agent: aryan.f@emergent.sh / emergent@12345 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Added 2 TEST_IMP_* leads via the historical-import flow (test_imp_a@example.com, test_imp_b@example.com). Per main agent context, main agent will POST /demo/reset as the final step to clean these up - no manual cleanup needed.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All new features in iteration 12 verified working end-to-end. Manager tour has 11 steps (crm_tour_v2_done flag); agent tour has 10 steps. View-as impersonation correctly hides nav-campaigns/nav-team/nav-audit/view-as-select during impersonation. Theme uses data-theme attribute on <html>, not tailwind dark class. Import preview button is gated by csvText state which only populates after FileReader.onload fires (~50ms) - in Playwright always use set_input_files with a real path (or buffer + 1s+ wait) before clicking import-preview-btn."
+}
