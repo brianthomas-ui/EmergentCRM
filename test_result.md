@@ -101,3 +101,56 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+backend:
+  - task: "M0 boot safety: APP_MODE non-destructive prod boot + fail-fast config"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Verified: prod-mode boot keeps real leads, seeds only admin, no demo data, no password reset; bad prod config refused at boot."
+  - task: "M1 IDOR ownership guard on all by-id endpoints + single-writer status + G5"
+    implemented: true
+    working: true
+    file: "backend/server.py, backend/tests/test_golive.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "test_golive.py: cross-agent read/write/payment -> 404; status round-trips; Won only via paid payment record."
+  - task: "M2 money correctness: multiplier floor, currency/rail guards, Stripe cents, webhook idempotency"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Verified multiplier 6x/10x clamp, currency+rail+amount rejection, $15k Lifetime, webhook dedupe; Stripe official-SDK cents path (needs live test charge to confirm units in prod)."
+  - task: "M3 integrations: returning-customer reopen, Calendly hardening, Meet, assign UI, test-connection"
+    implemented: true
+    working: true
+    file: "backend/server.py, frontend/src/components/dark/AssignControl.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Verified returning-customer reopen (owner+won-history kept), Calendly idempotency, B9 surfaces real errors, assign/round-robin."
+
+metadata:
+  created_by: "main_agent"
+  go_live_build: "M0-M4 complete; see EMERGENT_HANDOVER.md + docs/GO_LIVE_PLAN.md"
+
+agent_communication:
+  - agent: "main"
+    message: "Go-live build M0-M4 done off-platform and verified (backend/tests/test_golive.py 14/14 green on the live stack). Remaining = deploy actions (keys/webhooks/DNS) + backlog (theme polish, Coverage page, CSV export, Circleback, SendGrid). Demo login is emergent@12345; production needs APP_MODE=production. Do NOT reintroduce the unguarded reseed."

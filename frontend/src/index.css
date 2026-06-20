@@ -77,6 +77,7 @@ h1, h2, h3, h4, .font-heading {
   to { opacity: 1; transform: translateY(0); }
 }
 .animate-fade-up { animation: fadeInUp 0.3s ease-out both; }
+.animate-fadeIn { animation: fadeInUp 0.2s ease-out both; }
 
 @keyframes drawerIn {
   from { opacity: 0; transform: translateX(24px); }

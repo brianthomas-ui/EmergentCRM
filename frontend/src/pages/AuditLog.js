@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
-import client from "@/api";
+import { toast } from "sonner";
+import client, { apiError } from "@/api";
 import { timeAgo } from "@/components/helpers";
 import { ScrollText } from "lucide-react";
 
 export default function AuditLog() {
   const [logs, setLogs] = useState([]);
-  useEffect(() => { client.get("/audit-logs").then((r) => setLogs(r.data)); }, []);
+  useEffect(() => {
+    client.get("/audit-logs").then((r) => setLogs(r.data || [])).catch((e) => toast.error(apiError(e)));
+  }, []);
 
   return (
     <div className="space-y-5">
