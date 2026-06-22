@@ -296,7 +296,7 @@ export default function Deals() {
         lead_id: lead.id, provider: "manual",
         amount: Number(lead.amount), currency: lead.currency || "usd", mark_paid: true,
       });
-      toast.success(`${lead.name} — payment recorded, deal won`);
+      toast.success(`${lead.name} - payment recorded, deal won`);
       load();
     } catch (e) {
       toast.error(apiError(e));
@@ -353,7 +353,7 @@ export default function Deals() {
         setStatus={setStatus}
       />
 
-      {/* Filter row (dropdowns only — search lives in the top bar) */}
+      {/* Filter row (dropdowns only - search lives in the top bar) */}
       <DealsFilters
         product={product} setProduct={setProduct}
         status={status} setStatus={setStatus}

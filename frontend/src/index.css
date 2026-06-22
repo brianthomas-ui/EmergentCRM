@@ -6,7 +6,7 @@
 @tailwind utilities;
 
 /* ----------------------------------------------------------------------------
-   Emergent Dark Sales Console — dark theme tokens
+   Emergent Dark Sales Console, dark theme tokens.
    Near-black/slate base, slightly lighter surfaces, subtle slate borders,
    near-white primary text, muted gray secondary, emerald accent.
 ---------------------------------------------------------------------------- */
@@ -29,6 +29,10 @@
   --rose: #FB7185;
   --info: #5EB4F5;
   --accent-text: #34D399;   /* emerald text accent (dark default) */
+
+  /* Mobile app shell */
+  --bottom-nav-h: 56px;
+  --imp-banner-h: 44px;
 }
 
 * {
@@ -58,7 +62,7 @@ h1, h2, h3, h4, .font-heading {
   font-variant-numeric: tabular-nums;
 }
 
-/* Emergent label — small mono uppercase tag */
+/* Emergent label, small mono uppercase tag */
 .label-mono {
   font-family: 'JetBrains Mono', monospace;
   text-transform: uppercase;
@@ -84,6 +88,29 @@ h1, h2, h3, h4, .font-heading {
   to { opacity: 1; transform: translateX(0); }
 }
 .animate-drawer-in { animation: drawerIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+/* ---- Mobile app shell utilities (safe areas + touch targets + bottom sheet) ---- */
+@layer utilities {
+  .pt-safe { padding-top: env(safe-area-inset-top); }
+  .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+  /* clear the fixed bottom tab bar plus the iOS home indicator */
+  .pb-nav { padding-bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom) + 8px); }
+  /* minimum 44px finger target for icon-only buttons */
+  .tap-target { min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
+}
+
+@keyframes sheetUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+.animate-sheet-up { animation: sheetUp 0.26s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-up, .animate-fadeIn, .animate-drawer-in, .animate-sheet-up { animation: none !important; }
+}
+
+/* Hide the Emergent platform badge if its host script re-injects it (we want an app feel) */
+#emergent-badge { display: none !important; }
 
 @layer base {
   :root {
@@ -118,7 +145,7 @@ h1, h2, h3, h4, .font-heading {
 }
 
 /* ----------------------------------------------------------------------------
-   LIGHT THEME — clean, airy light tokens. Opt-in via <html data-theme="light">.
+   LIGHT THEME - clean, airy light tokens. Opt-in via <html data-theme="light">.
    Dark stays the default. The dark-safety pass below is disabled in light, so
    the original light utility classes (bg-white, text-zinc-*) render correctly.
 ---------------------------------------------------------------------------- */
@@ -212,7 +239,7 @@ html[data-theme="light"] {
 }
 
 /* ----------------------------------------------------------------------------
-   LIGHT-THEME ACCENT PASS — components authored for dark use emerald/slate
+   LIGHT-THEME ACCENT PASS - components authored for dark use emerald/slate
    literals that look too light on white. Remap just those accents in light.
 ---------------------------------------------------------------------------- */
 @layer utilities {

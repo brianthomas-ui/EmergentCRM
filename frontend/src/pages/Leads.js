@@ -10,7 +10,7 @@ import PeriodFilter, { DEFAULT_PERIOD, toParams } from "@/components/dark/Period
 import NewLeadModal from "@/components/dark/NewLeadModal";
 import { KpiCard, TodaysMeetings, RecentNotes, LeadsTable } from "@/components/leads/LeadsParts";
 
-// Named "views" — a single mechanism shared by the Leads KPI cards (clicked in place)
+// Named "views" - a single mechanism shared by the Leads KPI cards (clicked in place)
 // and the My Work tiles (which navigate here as /leads?view=...). Each is a client-side
 // predicate over the loaded leads.
 const VIEW_LABEL = {
@@ -90,7 +90,7 @@ export default function Leads() {
 
   useEffect(() => {
     client.get("/meta").then((r) => setMeta(r.data)).catch(() => {});
-    // Meetings for the sidebar "today" widget — scoped server-side (the collection is large).
+    // Meetings for the sidebar "today" widget - scoped server-side (the collection is large).
     client.get("/meetings", { params: { today: "true" } }).then((r) => setMeetings(r.data || [])).catch(() => {});
     // Recent notes across leads
     client.get("/leads/notes/recent").then((r) => setRecentNotes(r.data || [])).catch(() => {});

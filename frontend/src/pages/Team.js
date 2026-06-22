@@ -111,12 +111,16 @@ function AddAgentModal({ open, onClose, onCreated }) {
 
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex justify-center items-end lg:items-center p-0 lg:p-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <Card className="relative w-full max-w-md p-6 flex flex-col gap-4">
+      <Card className="relative w-full lg:max-w-md p-5 lg:p-6 flex flex-col gap-4 rounded-t-2xl lg:rounded-xl max-h-[92vh] overflow-y-auto pb-safe lg:pb-6 animate-sheet-up lg:animate-fade-up">
+        {/* mobile drag handle */}
+        <div className="lg:hidden flex justify-center -mt-1.5 -mb-1">
+          <span className="h-1.5 w-10 rounded-full bg-[var(--border-strong)]" />
+        </div>
         <div className="flex items-center justify-between">
           <h2 className="font-heading text-lg font-semibold text-[var(--text)] tracking-tight">Add Agent</h2>
-          <button onClick={onClose} className="text-[var(--text-faint)] hover:text-[var(--text)] transition-colors text-lg leading-none">✕</button>
+          <button onClick={onClose} className="tap-target text-[var(--text-faint)] hover:text-[var(--text)] transition-colors text-lg leading-none">✕</button>
         </div>
         <div className="flex flex-col gap-3">
           <label className="flex flex-col gap-1.5">
@@ -268,7 +272,7 @@ export default function Team() {
     const paymentsPaid = agents.reduce((s, m) => s + (m.stats?.revenue || 0), 0);
     const meetings = agents.reduce((s, m) => s + (m.stats?.meetings || 0), 0);
     const totalLeads = agents.reduce((s, m) => s + (m.stats?.leads || 0), 0);
-    const avgConv = totalLeads > 0 ? ((dealsWon / totalLeads) * 100).toFixed(1) + "%" : "—";
+    const avgConv = totalLeads > 0 ? ((dealsWon / totalLeads) * 100).toFixed(1) + "%" : "-";
     return { dealsWon, paymentsPaid, meetings, avgConv };
   }, [team]);
 
@@ -408,7 +412,7 @@ export default function Team() {
                   {/* Add-ons: approximate as won * avg package ~2 */}
                   <TD align="right"><span className="font-mono tabular-nums text-sm text-[var(--text)]">{won * 2}</span></TD>
                   <TD align="right"><span className="font-mono tabular-nums text-sm text-[var(--text)]">{meetings}</span></TD>
-                  {/* Payment Links Sent: approximate as won + 1–2 */}
+                  {/* Payment Links Sent: approximate as won + 1-2 */}
                   <TD align="right"><span className="font-mono tabular-nums text-sm text-sky-300">{won + Math.round(leads * 0.1)}</span></TD>
                   <TD align="right"><span className="font-mono tabular-nums text-sm text-emerald-300">{won}</span></TD>
                   <TD align="right">
@@ -450,7 +454,7 @@ export default function Team() {
 
       {/* ── Stage Conversion + Workload row ── */}
       <div className="grid lg:grid-cols-2 gap-4">
-        {/* Stage Conversion by Rep — grouped bar */}
+        {/* Stage Conversion by Rep - grouped bar */}
         <Card className="p-4 flex flex-col gap-3">
           <h2 className="text-sm font-semibold text-[var(--text)]">Stage Conversion by Rep</h2>
           <ResponsiveContainer width="100%" height={220}>
@@ -520,7 +524,7 @@ export default function Team() {
 }
 
 // ---------------------------------------------------------------------------
-// Rep avatar cell — inline AvatarUpload used in the leaderboard admin column.
+// Rep avatar cell - inline AvatarUpload used in the leaderboard admin column.
 // ---------------------------------------------------------------------------
 function RepAvatarCell({ member, onUpdated }) {
   const upload = async (dataUrl) => {

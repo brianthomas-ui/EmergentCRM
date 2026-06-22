@@ -74,7 +74,7 @@ function ConsolePeek() {
           Close more. <span className="text-emerald-400">Type less.</span>
         </motion.h2>
         <motion.p {...up(0.21)} className="text-sm text-zinc-400 mt-3 max-w-sm leading-relaxed">
-          Booked meetings, account context, pipeline and payment links — one console the whole team runs the day from.
+          Booked meetings, account context, pipeline and payment links - one console the whole team runs the day from.
         </motion.p>
 
         {/* KPI tiles */}
@@ -239,7 +239,7 @@ export default function Login() {
             {demoLoading ? "Loading demo…" : "Demo View"}
           </button>
           <p className="text-[11px] text-zinc-400 text-center mt-2.5">
-            Explore the full manager console with sample data — no sign-up.
+            Explore the full manager console with sample data - no sign-up.
           </p>
         </motion.div>
       </div>

@@ -84,7 +84,7 @@ export default function Workspace() {
           Good to see you, {firstName} 👋
         </h1>
         <p className="text-sm text-[var(--text-muted)] mt-1">
-          Your command center — clear this list to keep every active conversation moving.
+          Your command center - clear this list to keep every active conversation moving.
         </p>
       </div>
 

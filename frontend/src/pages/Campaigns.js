@@ -21,7 +21,7 @@ export default function Campaigns() {
   const [showNew, setShowNew] = useState(false);
   const [filterStatus, setFilterStatus] = useState("");
   const [notes, setNotes] = useState(
-    "Campaign momentum is solid this quarter — Email remains our top channel at ~37% of total reach. LinkedIn sequences saw a 2.1x lift in meeting-to-close rate. Follow up on the 3 campaigns still in draft status before end of month."
+    "Campaign momentum is solid this quarter - Email remains our top channel at ~37% of total reach. LinkedIn sequences saw a 2.1x lift in meeting-to-close rate. Follow up on the 3 campaigns still in draft status before end of month."
   );
   const [editingNotes, setEditingNotes] = useState(false);
 
@@ -44,7 +44,7 @@ export default function Campaigns() {
     const totalSent = campaigns.reduce((s, c) => s + (c.sent_count || 0), 0);
     const conversion = totalSent > 0
       ? ((campaigns.reduce((s, c) => s + (c.booked_count || 0), 0) / totalSent) * 100).toFixed(1) + "%"
-      : "—";
+      : "-";
     return { active, totalLeads, totalMeetings, conversion };
   }, [campaigns]);
 

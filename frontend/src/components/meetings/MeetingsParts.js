@@ -6,7 +6,7 @@ import {
   ArrowUpRight, XCircle, RefreshCcw, CheckCircle2,
 } from "lucide-react";
 
-// 12:00 (noon) → 24:00 = slot 0..47 (each = 30 min). We show 12:00–24:00.
+// 12:00 (noon) → 24:00 = slot 0..47 (each = 30 min). We show 12:00-24:00.
 export const SLOT_START_H = 12;
 export const SLOT_COUNT = 24;
 export const SLOT_H = 44;
@@ -68,7 +68,7 @@ function slotLayout(scheduledAt, durationMin = 30) {
 }
 
 function fmtTime(isoStr) {
-  if (!isoStr) return "—";
+  if (!isoStr) return "-";
   return new Date(isoStr).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }
 
@@ -117,7 +117,7 @@ function EventBlock({ meeting, color, onClick, overlaps = 0, overlapIdx = 0 }) {
       title={`${meeting.lead_name} · ${fmtTime(meeting.scheduled_at)}`}
     >
       <div className={`absolute top-1 right-1.5 w-1.5 h-1.5 rounded-full ${statusDot}`} />
-      <p className={`text-[11px] font-semibold leading-tight truncate ${color.text}`}>{meeting.lead_name || "—"}</p>
+      <p className={`text-[11px] font-semibold leading-tight truncate ${color.text}`}>{meeting.lead_name || "-"}</p>
       {layout.height >= SLOT_H && (
         <p className="text-[10px] text-[var(--text-faint)] font-mono leading-tight truncate mt-px">
           {fmtTime(meeting.scheduled_at)}
@@ -205,10 +205,10 @@ export function MeetingDrawer({ meeting, onClose, agentColorMap, onViewLead, onO
             {fmtDateFull(new Date(meeting.scheduled_at))} at {fmtTime(meeting.scheduled_at)}
           </DetailRow>
           <DetailRow icon={<Clock className="w-3.5 h-3.5" />} label="Duration">
-            {meeting.duration ? `${meeting.duration} min` : "—"}
+            {meeting.duration ? `${meeting.duration} min` : "-"}
           </DetailRow>
           <DetailRow icon={<User className="w-3.5 h-3.5" />} label="Agent">
-            <span className={`font-medium ${color.text}`}>{meeting.agent_name || "—"}</span>
+            <span className={`font-medium ${color.text}`}>{meeting.agent_name || "-"}</span>
           </DetailRow>
           {meeting.booking_driver && (
             <DetailRow icon={<FileText className="w-3.5 h-3.5" />} label="Driver">{meeting.booking_driver}</DetailRow>
@@ -235,7 +235,7 @@ export function MeetingDrawer({ meeting, onClose, agentColorMap, onViewLead, onO
         {/* Outcome + reschedule controls */}
         {isDemo ? (
           <p className="text-[11px] text-[var(--text-faint)] border-t border-[var(--border)] pt-3">
-            Demo meeting — outcome &amp; reschedule actions are available on real bookings.
+            Demo meeting - outcome &amp; reschedule actions are available on real bookings.
           </p>
         ) : (
           <div className="space-y-3 border-t border-[var(--border)] pt-4" data-testid="meeting-actions">

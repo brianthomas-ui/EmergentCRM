@@ -1,5 +1,5 @@
 /**
- * Dashboard — Emergent Dark Sales Console
+ * Dashboard - Emergent Dark Sales Console
  * Matches mockup-1.png. All metrics scoped by PeriodFilter.
  * Uses: dark/Primitives, dark/PeriodFilter, dark/Avatar, @/api, helpers.
  */
@@ -32,7 +32,7 @@ import {
 } from "@/components/helpers";
 
 // ---------------------------------------------------------------------------
-// Donut chart — pure SVG, no dep.
+// Donut chart - pure SVG, no dep.
 // ---------------------------------------------------------------------------
 const DONUT_COLORS = [
   "#10b981", // emerald-500
@@ -116,7 +116,7 @@ function KpiCard({ label, value, sub, delta, icon: Icon, accent = "text-[var(--t
 }
 
 // ---------------------------------------------------------------------------
-// Revenue by Product — donut + legend
+// Revenue by Product - donut + legend
 // ---------------------------------------------------------------------------
 function RevenueByProduct({ productRevenue, currency = "usd", onDrill }) {
   const lines = Object.entries(productRevenue || {});
@@ -185,7 +185,7 @@ function RevenueByProduct({ productRevenue, currency = "usd", onDrill }) {
 }
 
 // ---------------------------------------------------------------------------
-// Pipeline by Stage — HIGH-CONTRAST bars (emerald fill on slate track).
+// Pipeline by Stage - HIGH-CONTRAST bars (emerald fill on slate track).
 // ---------------------------------------------------------------------------
 const STATUS_ORDER = [
   "New / Needs Review",
@@ -238,7 +238,7 @@ function PipelineByStage({ statusCounts, statusMeta, onDrillStatus }) {
               title={r.status}
             >
               {/* label */}
-              <div className={`w-36 shrink-0 text-[10px] font-medium truncate text-left ${textCls} group-hover:opacity-90`}>
+              <div className={`w-24 lg:w-36 shrink-0 text-[10px] font-medium truncate text-left ${textCls} group-hover:opacity-90`}>
                 {r.status}
               </div>
 
@@ -267,7 +267,7 @@ function PipelineByStage({ statusCounts, statusMeta, onDrillStatus }) {
                         : "#64748b",
                   }}
                 />
-                {/* inline count label — always white so it's readable */}
+                {/* inline count label - always white so it's readable */}
                 {r.count > 0 && (
                   <span className="absolute inset-y-0 right-1.5 flex items-center text-[10px] font-semibold text-white font-mono">
                     {r.count}

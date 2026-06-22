@@ -24,6 +24,11 @@ emergentcrm.com, www.emergentcrm.com {
 		reverse_proxy backend:8001
 	}
 
+	# Service worker must never be cached, or clients get stuck on an old shell that
+	# can't pick up new builds. Force revalidation on every load.
+	@sw path /service-worker.js
+	header @sw Cache-Control "no-cache, no-store, must-revalidate"
+
 	# Single-page app: serve the built static files, fall back to index.html for client routes.
 	handle {
 		root * /srv

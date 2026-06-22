@@ -63,7 +63,8 @@
   "scripts": {
     "start": "craco start",
     "build": "craco build",
-    "test": "craco test"
+    "test": "craco test",
+    "lint:dashes": "node scripts/check-dashes.mjs"
   },
   "browserslist": {
     "production": [

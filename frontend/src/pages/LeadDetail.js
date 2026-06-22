@@ -175,7 +175,7 @@ export default function LeadDetail() {
         lead_id: id, provider: "manual",
         amount: Number(lead.amount), currency: lead.currency || "usd", mark_paid: true,
       });
-      toast.success("Payment recorded — deal won");
+      toast.success("Payment recorded - deal won");
       load();
     } catch (e) {
       toast.error(apiError(e));

@@ -118,7 +118,7 @@ function DealProfile({ lead }) {
         ].map(([label, value]) => (
           <div key={label} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] py-2">
             <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--text-faint)]">{label}</div>
-            <div className="text-xs text-[var(--text)] mt-1">{value || "—"}</div>
+            <div className="text-xs text-[var(--text)] mt-1">{value || "-"}</div>
           </div>
         ))}
       </div>
@@ -163,7 +163,7 @@ function DealBody({ lead, action, statuses, timeline, onStatus }) {
         <StatusBadge status={lead.status} tone={lead.status_tone} />
         <div className="text-right">
           <div className="text-lg font-semibold text-[var(--text)] tabular-nums">
-            {lead.amount ? money(lead.amount, lead.currency) : "—"}
+            {lead.amount ? money(lead.amount, lead.currency) : "-"}
           </div>
           <ProviderTag provider={lead.provider} />
         </div>
@@ -271,7 +271,7 @@ export default function DealDrawer({ leadId, open, onClose, meta, onChanged, onS
         lead_id: leadId, provider: "manual",
         amount: lead.amount, currency: lead.currency || "usd", mark_paid: true,
       });
-      toast.success("Payment recorded — deal won");
+      toast.success("Payment recorded - deal won");
       await refresh();
       onChanged?.();
     } catch (e) {

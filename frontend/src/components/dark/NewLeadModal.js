@@ -140,7 +140,7 @@ function LeadFields({ form, set, products, meta, packages, pkgOptions }) {
         </Field>
         <Field label="Product Line">
           <Select value={form.product_line} onChange={(e) => { set("product_line", e.target.value); set("package_id", ""); }}>
-            <option value="">—</option>
+            <option value="">-</option>
             {products.map((p) => (
               <option key={p} value={p}>{p}</option>
             ))}
@@ -151,7 +151,7 @@ function LeadFields({ form, set, products, meta, packages, pkgOptions }) {
       {pkgOptions.length > 0 && (
         <Field label="Package">
           <Select value={form.package_id} onChange={(e) => set("package_id", e.target.value)}>
-            <option value="">—</option>
+            <option value="">-</option>
             {pkgOptions.map((id) => (
               <option key={id} value={id}>{packages[id]?.name || id}</option>
             ))}

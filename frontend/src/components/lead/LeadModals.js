@@ -58,7 +58,7 @@ function CreditFields({ payForm, setPayForm, mb, preview }) {
   const { mult, amt, usdForCredits, liveCredits } = preview;
   return (
     <>
-      <Field label={`Multiplier — ${mult}× (max ${mb.max})`}>
+      <Field label={`Multiplier - ${mult}× (max ${mb.max})`}>
         <div className="flex items-center gap-3">
           <input
             type="range"
@@ -72,11 +72,11 @@ function CreditFields({ payForm, setPayForm, mb, preview }) {
           />
           <span className="text-sm font-semibold tabular-nums w-12 text-right">{mult}×</span>
         </div>
-        <div className="text-[11px] text-zinc-400 mt-1">Range {mb.min}–{mb.max} · max 10</div>
+        <div className="text-[11px] text-zinc-400 mt-1">Range {mb.min}-{mb.max} · max 10</div>
       </Field>
       <div className="-mt-1 mb-3 text-sm" data-testid="credits-preview">
         Credits delivered: <span className="font-semibold text-zinc-800">{liveCredits.toLocaleString()}</span>
-        <span className="text-zinc-400"> &nbsp;({amt ? (payForm.currency === "inr" ? `≈$${Math.round(usdForCredits).toLocaleString()}` : `$${amt.toLocaleString()}`) : "—"} × {mult})</span>
+        <span className="text-zinc-400"> &nbsp;({amt ? (payForm.currency === "inr" ? `≈$${Math.round(usdForCredits).toLocaleString()}` : `$${amt.toLocaleString()}`) : "-"} × {mult})</span>
       </div>
     </>
   );
@@ -102,7 +102,7 @@ export function PaymentModal({ open, onClose, payForm, setPayForm, packages, fxR
       {standalone && (
         <div className="mb-3 grid grid-cols-2 gap-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3">
           <div className="col-span-2 text-[11px] font-medium text-zinc-500">
-            Standalone link — leave the email blank, or enter a customer email to auto-attach it to a matching lead.
+            Standalone link - leave the email blank, or enter a customer email to auto-attach it to a matching lead.
           </div>
           <Field label="Customer email (optional)">
             <input className={inputCls} value={payForm.customer_email || ""} onChange={(e) => setPayForm({ ...payForm, customer_email: e.target.value })} placeholder="customer@company.com" data-testid="pay-customer-email" />
@@ -136,7 +136,7 @@ export function PaymentModal({ open, onClose, payForm, setPayForm, packages, fxR
         <div className="col-span-2">
           <Field label={isCredit
             ? `Amount (${payForm.currency.toUpperCase()})`
-            : `Amount (${payForm.currency.toUpperCase()}) — edit to discount`}>
+            : `Amount (${payForm.currency.toUpperCase()}) - edit to discount`}>
             <input type="number" className={inputCls} value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} data-testid="pay-amount" placeholder={isCredit ? "200" : "1999"} />
           </Field>
         </div>
@@ -156,7 +156,7 @@ export function PaymentModal({ open, onClose, payForm, setPayForm, packages, fxR
         <CheckCircle2 className="w-3 h-3" />
         {isCredit
           ? "Credits = amount × multiplier. Link copied automatically."
-          : "Fixed-price line — edit the amount to discount. Link copied automatically."}
+          : "Fixed-price line - edit the amount to discount. Link copied automatically."}
       </p>
     </Modal>
   );

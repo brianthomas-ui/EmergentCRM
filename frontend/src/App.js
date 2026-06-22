@@ -1,21 +1,25 @@
+import { lazy } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { Toaster } from "@/components/ui/sonner";
 import Layout from "@/components/Layout";
 import Login from "@/pages/Login";
-import Dashboard from "@/pages/Dashboard";
-import Workspace from "@/pages/Workspace";
-import Settings from "@/pages/Settings";
-import Leads from "@/pages/Leads";
-import LeadDetail from "@/pages/LeadDetail";
-import Deals from "@/pages/Deals";
-import Meetings from "@/pages/Meetings";
-import Payments from "@/pages/Payments";
-import Campaigns from "@/pages/Campaigns";
-import Team from "@/pages/Team";
-import AuditLog from "@/pages/AuditLog";
-import PaymentReturn from "@/pages/PaymentReturn";
+
+// Route pages are code-split so the first mobile paint ships only the shell + the
+// landed route, not every recharts-heavy page. Login stays eager (it is the entry).
+const Dashboard = lazy(() => import("@/pages/Dashboard"));
+const Workspace = lazy(() => import("@/pages/Workspace"));
+const Settings = lazy(() => import("@/pages/Settings"));
+const Leads = lazy(() => import("@/pages/Leads"));
+const LeadDetail = lazy(() => import("@/pages/LeadDetail"));
+const Deals = lazy(() => import("@/pages/Deals"));
+const Meetings = lazy(() => import("@/pages/Meetings"));
+const Payments = lazy(() => import("@/pages/Payments"));
+const Campaigns = lazy(() => import("@/pages/Campaigns"));
+const Team = lazy(() => import("@/pages/Team"));
+const AuditLog = lazy(() => import("@/pages/AuditLog"));
+const PaymentReturn = lazy(() => import("@/pages/PaymentReturn"));
 
 function Protected({ children, adminOnly }) {
   const { user, isAdmin } = useAuth();

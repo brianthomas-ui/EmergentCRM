@@ -344,7 +344,7 @@ export function CampaignsTable({ loading, filtered, campaigns, filterStatus, set
           {!loading && filtered.length === 0 && (
             <TR>
               <TD align="center" className="py-10 text-[var(--text-faint)] text-xs">
-                No campaigns yet — create your first segment above.
+                No campaigns yet - create your first segment above.
               </TD>
             </TR>
           )}

@@ -53,7 +53,7 @@ function SectionHead({ children, action }) {
 }
 
 // ---------------------------------------------------------------------------
-// DataRow — icon + label + value
+// DataRow - icon + label + value
 // ---------------------------------------------------------------------------
 function DataRow({ icon: Icon, label, value, valueClass = "" }) {
   if (value == null || value === "") return null;
@@ -91,7 +91,7 @@ export function LeadContextPanel({ lead, onRefresh }) {
 
       <div className="grid grid-cols-2 gap-3 mb-3">
         {[
-          { label: "Plan", value: lead.plan || "—" },
+          { label: "Plan", value: lead.plan || "-" },
           {
             label: "Monthly Spend",
             value: money(lead.monthly_spend),
@@ -107,7 +107,7 @@ export function LeadContextPanel({ lead, onRefresh }) {
             value: (
               <span className="flex items-center gap-1 capitalize">
                 <TrendIco className="w-3.5 h-3.5" />
-                {lead.usage_trend || "—"}
+                {lead.usage_trend || "-"}
               </span>
             ),
           },
@@ -144,11 +144,11 @@ export function LeadContextPanel({ lead, onRefresh }) {
       <div className="border-t border-[var(--border)] pt-3 flex items-center justify-between text-xs">
         <span className="text-[var(--text-faint)]">
           Region:{" "}
-          <span className="text-[var(--text-muted)] font-medium">{lead.region || "—"}</span>
+          <span className="text-[var(--text-muted)] font-medium">{lead.region || "-"}</span>
         </span>
         <span className="text-[var(--text-faint)]">
           Source:{" "}
-          <span className="text-[var(--text-muted)] font-medium">{lead.source || "—"}</span>
+          <span className="text-[var(--text-muted)] font-medium">{lead.source || "-"}</span>
         </span>
       </div>
 
@@ -278,7 +278,7 @@ export function LeadPaymentsList({ payments, onNewLink }) {
                 </TD>
                 <TD>
                   <span className="text-xs text-[var(--text-muted)] truncate max-w-[180px] block">
-                    {p.description || "—"}
+                    {p.description || "-"}
                   </span>
                 </TD>
                 <TD>
@@ -314,7 +314,7 @@ export function LeadPaymentsList({ payments, onNewLink }) {
 }
 
 // ---------------------------------------------------------------------------
-// Activity timeline (dark) — including Circleback recordings
+// Activity timeline (dark) - including Circleback recordings
 // ---------------------------------------------------------------------------
 function activityIcon(type) {
   const t = (type || "").toLowerCase();

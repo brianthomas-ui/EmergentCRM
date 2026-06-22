@@ -18,7 +18,8 @@ export default function AuditLog() {
       </div>
 
       <div className="bg-white border border-zinc-200 rounded-lg overflow-hidden" data-tour="audit-table">
-        <table className="w-full">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[640px] lg:min-w-0">
           <thead>
             <tr className="bg-zinc-50 border-b border-zinc-200">
               {["Action", "Actor", "Target", "Details", "When"].map((h) => (
@@ -42,6 +43,7 @@ export default function AuditLog() {
             )}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

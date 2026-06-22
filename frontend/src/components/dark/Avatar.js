@@ -1,7 +1,7 @@
-// Avatar — shows the user's avatar_url image if present, else INITIALS on a
+// Avatar - shows the user's avatar_url image if present, else INITIALS on a
 // dark circle. Sizes: sm / md / lg.
 //
-// AvatarUpload — click-to-pick an image file, read it as a base64 data URL,
+// AvatarUpload - click-to-pick an image file, read it as a base64 data URL,
 // and hand it to onUpload(dataUrl). Includes a Remove option that calls
 // onUpload(null).
 import { useRef, useState } from "react";
@@ -62,7 +62,7 @@ function fileToDataUrl(file) {
   });
 }
 
-// AvatarUpload — wraps an Avatar with a click-to-pick control + Remove.
+// AvatarUpload - wraps an Avatar with a click-to-pick control + Remove.
 // onUpload(dataUrl) is called with the base64 string, or null on Remove.
 export function AvatarUpload({
   src,

@@ -68,7 +68,7 @@ IS_PROD = APP_MODE == "production"
 # back to JWT_SECRET in demo so local dev needs no extra env.
 INTEGRATION_ENC_KEY = os.environ.get("INTEGRATION_ENC_KEY", "")
 # Server-side public base URL used to build webhook/success URLs (never trust a
-# client-supplied origin_url for those — see GO_LIVE_PLAN P2-e).
+# client-supplied origin_url for those - see GO_LIVE_PLAN P2-e).
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
 
 def _assert_prod_config():
@@ -215,13 +215,13 @@ BOOKING_DRIVERS = [
 
 # Usage tiers (by spend or LTV) and regions for coverage analytics
 USAGE_TIERS = [
-    ("Free–$20", 0, 20),
-    ("$21–100", 21, 100),
-    ("$101–500", 101, 500),
-    ("$501–1k", 501, 1000),
-    ("$1k–2k", 1001, 2000),
-    ("$2k–5k", 2001, 5000),
-    ("$5k–15k", 5001, 15000),
+    ("Free-$20", 0, 20),
+    ("$21-100", 21, 100),
+    ("$101-500", 101, 500),
+    ("$501-1k", 501, 1000),
+    ("$1k-2k", 1001, 2000),
+    ("$2k-5k", 2001, 5000),
+    ("$5k-15k", 5001, 15000),
     ("$15k+", 15001, 10**12),
 ]
 REGIONS = ["North America", "Europe", "APAC", "LATAM", "MEA", "Other"]
@@ -234,7 +234,7 @@ def tier_label(value) -> str:
     return USAGE_TIERS[-1][0]
 
 # ----------------------------------------------------------------------------
-# PRODUCTS — 4 product lines, USD default (Emergent Dark Sales Console).
+# PRODUCTS - 4 product lines, USD default (Emergent Dark Sales Console).
 # INR is an edge-case override an agent can apply to a single link; the catalog
 # is USD-first. The credit ladder is priced at ~$0.20/credit with a +50% boost
 # (free bonus credits). Pro/Support/Lifetime are fixed placeholder packages.
@@ -257,7 +257,7 @@ MAX_PAYMENT_AMOUNT = 1_000_000.0
 
 PRESET_PACKAGES = {
     # --- Credit Top-Up ladder (USD default, ~$0.20/credit, +50% boost free) ---
-    # Credit ladder repriced to the 7.5x default (>=6x floor) — boost folded into the
+    # Credit ladder repriced to the 7.5x default (>=6x floor) - boost folded into the
     # headline credits so the "min 6x" invariant holds for the catalog itself (G14).
     "credits_100":  {"product_line": "Credit Top-Up", "name": "150 Credits",   "amount": 20.0,   "currency": "usd", "category": "Credits", "credits": 150,  "boost_credits": 0},
     "credits_250":  {"product_line": "Credit Top-Up", "name": "375 Credits",   "amount": 50.0,   "currency": "usd", "category": "Credits", "credits": 375,  "boost_credits": 0},
@@ -274,10 +274,10 @@ PRESET_PACKAGES = {
     # --- Legacy aliases kept so existing links/tests/serializers never break ---
     "plan_pro_annual":  {"product_line": "Annual Pro Subscription", "name": "Pro Plan (Annual, 750 cr/mo)", "amount": 2004.0, "currency": "usd", "category": "Plan", "interval": "year"},
     "plan_team_annual": {"product_line": "Annual Pro Subscription", "name": "Team Plan (Annual, 1,250 cr/mo)", "amount": 2490.0, "currency": "usd", "category": "Plan", "interval": "year"},
-    "support_1m":  {"product_line": "Dedicated Support", "name": "Dedicated Support — 1 Month",  "amount": 500.0,  "currency": "usd", "category": "Support", "duration_months": 1},
-    "support_3m":  {"product_line": "Dedicated Support", "name": "Dedicated Support — 3 Months", "amount": 1350.0, "currency": "usd", "category": "Support", "duration_months": 3},
-    "support_6m":  {"product_line": "Dedicated Support", "name": "Dedicated Support — 6 Months", "amount": 2400.0, "currency": "usd", "category": "Support", "duration_months": 6},
-    "support_12m": {"product_line": "Dedicated Support", "name": "Dedicated Support — 12 Months","amount": 4200.0, "currency": "usd", "category": "Support", "duration_months": 12},
+    "support_1m":  {"product_line": "Dedicated Support", "name": "Dedicated Support - 1 Month",  "amount": 500.0,  "currency": "usd", "category": "Support", "duration_months": 1},
+    "support_3m":  {"product_line": "Dedicated Support", "name": "Dedicated Support - 3 Months", "amount": 1350.0, "currency": "usd", "category": "Support", "duration_months": 3},
+    "support_6m":  {"product_line": "Dedicated Support", "name": "Dedicated Support - 6 Months", "amount": 2400.0, "currency": "usd", "category": "Support", "duration_months": 6},
+    "support_12m": {"product_line": "Dedicated Support", "name": "Dedicated Support - 12 Months","amount": 4200.0, "currency": "usd", "category": "Support", "duration_months": 12},
 }
 
 # Catalog grouped by the 4 product lines for the product-cards UI. Legacy aliases
@@ -664,8 +664,8 @@ def _emergent_mock_enrichment(email: str) -> dict:
     """Deterministic, stable-per-email mock so demo data looks real with no API key."""
     import hashlib
     h = int(hashlib.sha256((email or "").lower().encode("utf-8")).hexdigest(), 16)
-    lifetime_value = round(200 + (h % 8801), 2)          # ~$200–$9000
-    monthly_spend = round(20 + ((h >> 8) % 381), 2)       # ~$20–$400
+    lifetime_value = round(200 + (h % 8801), 2)          # ~$200-$9000
+    monthly_spend = round(20 + ((h >> 8) % 381), 2)       # ~$20-$400
     region = REGIONS[(h >> 16) % len(REGIONS)]
     plans = ["Free", "Standard", "Pro", "Team"]
     plan = plans[(h >> 24) % len(plans)]
@@ -836,7 +836,7 @@ class PaymentIn(BaseModel):
     multiplier: Optional[float] = None      # Credit Top-Up: credits delivered = amount * multiplier
     origin_url: str = ""
     # Manual provider only: record an offline payment that's ALREADY received so the
-    # deal becomes Won immediately (G5 — Won always rides a real paid payment record).
+    # deal becomes Won immediately (G5 - Won always rides a real paid payment record).
     mark_paid: bool = False
 
 class SettingsIn(BaseModel):
@@ -1140,7 +1140,7 @@ async def login(body: LoginIn, request: Request, response: Response):
 
 @api.post("/auth/demo-login")
 async def demo_login(response: Response):
-    """One-click 'Demo View' — signs the visitor in as the seeded demo admin account so the
+    """One-click 'Demo View' - signs the visitor in as the seeded demo admin account so the
     landing page never has to surface credentials. Demo-only; disabled in production."""
     if IS_PROD:
         raise HTTPException(status_code=403, detail="Demo login is disabled in production")
@@ -1174,7 +1174,7 @@ async def logout(response: Response):
 # exactly as one of their agents. The minted token's effective identity is the
 # agent (so all RBAC works), with extra claims recording the original admin so
 # we can switch back. Stop-impersonate does NOT use require_admin (the active
-# token is agent-role) — it trusts the signed imp_by claim, re-verified vs DB.
+# token is agent-role) - it trusts the signed imp_by claim, re-verified vs DB.
 # ----------------------------------------------------------------------------
 class ImpersonateIn(BaseModel):
     agent_id: str
@@ -1506,11 +1506,11 @@ def _apply_lead_update_mappings(updates: dict) -> dict:
     legacy mirroring; an outcome of Won locks the owner and sets the legacy Won stage."""
     if "stage" in updates and updates["stage"] in SALES_STAGES:
         updates["sales_stage"] = updates.pop("stage")
-    # G5: a lead becomes Won ONLY via a real paid payment record — never by a direct
+    # G5: a lead becomes Won ONLY via a real paid payment record - never by a direct
     # lead edit. Reject attempts to set Paid/Won here; the FE records a Manual payment.
     if updates.get("payment_status") == "Paid" or updates.get("payment_state") == "Paid" or updates.get("outcome") == "Won":
         raise HTTPException(status_code=400,
-                            detail="Record a paid payment (incl. Manual) to mark Won — not a lead edit.")
+                            detail="Record a paid payment (incl. Manual) to mark Won - not a lead edit.")
     if "payment_status" in updates and updates["payment_status"] in PAYMENT_STATES:
         updates["payment_state"] = updates.pop("payment_status")
         if updates["payment_state"] == "Link Sent":
@@ -1554,7 +1554,7 @@ async def update_stage(lead_id: str, body: StageIn, user: dict = Depends(get_cur
     # never by directly setting the status. The FE "Mark paid" records a payment.
     if status == "Payment Link Paid":
         raise HTTPException(status_code=400,
-                            detail="Record a paid payment (incl. Manual) to mark Won — not a status change.")
+                            detail="Record a paid payment (incl. Manual) to mark Won - not a status change.")
     lead = await db.leads.find_one({"id": lead_id})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
@@ -1689,7 +1689,7 @@ _TOUCH_LABELS = {"email": "Emailed lead", "whatsapp": "WhatsApped lead", "call":
 @api.post("/leads/{lead_id}/touch")
 async def touch_lead(lead_id: str, body: TouchIn, user: dict = Depends(get_current_user)):
     # Convenience touch + logged activity only. Intentionally does NOT change stage,
-    # priority, or revenue — these are NOT used for agent accountability/metrics.
+    # priority, or revenue - these are NOT used for agent accountability/metrics.
     if body.channel not in _TOUCH_LABELS:
         raise HTTPException(status_code=400, detail="Invalid touch channel")
     lead = await db.leads.find_one({"id": lead_id})
@@ -1854,7 +1854,7 @@ async def import_historical(body: ImportIn, admin: dict = Depends(require_admin)
                 created += 1
             if len(preview) < 8:
                 preview.append({"name": name, "email": email, "company": doc["company"],
-                                "status": status, "owner": doc["owner_name"] or "—",
+                                "status": status, "owner": doc["owner_name"] or "-",
                                 "action": ("update" if existing and body.update_existing else ("skip" if existing else "create"))})
 
         elif itype == "payments":
@@ -1938,7 +1938,7 @@ _IMPORT_TEMPLATES = {
     ),
     "meetings": (
         ["email", "scheduled_at", "status", "duration", "driver", "notes"],
-        [["jane@acme.io", "2026-04-10T14:30:00Z", "completed", "30", "Top-Up Credits", "Great call — sending link"],
+        [["jane@acme.io", "2026-04-10T14:30:00Z", "completed", "30", "Top-Up Credits", "Great call - sending link"],
          ["raj@northstar.in", "2026-04-12T15:00:00Z", "scheduled", "30", "Renewal", "Renewal discussion"]],
     ),
 }
@@ -2001,7 +2001,7 @@ async def list_meetings(request: Request, user: dict = Depends(get_current_user)
 async def create_google_meet(agent: dict, lead: dict, scheduled_at: str, duration: int):
     """Create a Google Calendar event with a Meet link on the ASSIGNED AGENT's calendar
     (impersonated via domain-wide delegation, so the agent is the organiser/host).
-    Returns the hangoutLink, or None if creds/libs are missing or anything fails — in
+    Returns the hangoutLink, or None if creds/libs are missing or anything fails - in
     which case the caller keeps the existing mock/Calendly-provided link."""
     sa_json = await get_secret("google_service_account_json", "GOOGLE_SERVICE_ACCOUNT_JSON")
     if not sa_json:
@@ -2155,7 +2155,7 @@ async def reschedule_meeting(meeting_id: str, body: RescheduleIn, user: dict = D
     if resched_count >= 3:
         await db.leads.update_one({"id": meeting["lead_id"]}, {"$set": {
             "priority": "Follow-up This Week", "updated_at": now_iso(), "last_activity": now_iso()}})
-        raise HTTPException(status_code=400, detail="Reschedule limit reached (3) — flagged for follow-up")
+        raise HTTPException(status_code=400, detail="Reschedule limit reached (3) - flagged for follow-up")
     m_set = {
         "scheduled_at": body.scheduled_at,
         "status": "scheduled",
@@ -2238,8 +2238,8 @@ def _verify_calendly_signature(raw: bytes, request: Request, signing_key: str):
 
 async def _calendly_get_or_create_lead(info: dict) -> dict:
     """Upsert a lead by email for a Calendly booking; enrich + log when newly created.
-    A RETURNING customer who already converted is routed into a new upsell cycle (G2) —
-    same owner, fresh LTV, +1 upsell_cycle — instead of being left stuck in Won while a
+    A RETURNING customer who already converted is routed into a new upsell cycle (G2) -
+    same owner, fresh LTV, +1 upsell_cycle - instead of being left stuck in Won while a
     new meeting is booked (which would corrupt the won record)."""
     lead = await db.leads.find_one({"email": info["email"]})
     if lead:
@@ -2252,7 +2252,7 @@ async def _calendly_get_or_create_lead(info: dict) -> dict:
                          "monthly_spend": enr["monthly_spend"], "lifetime_value": enr["lifetime_value"]},
                 "$inc": {"upsell_cycles": 1},
             })  # deals_won / total_revenue_usd preserved (historical)
-            await log_activity(lead["id"], "reopen", "Returning customer re-booked — new upsell cycle", "Calendly")
+            await log_activity(lead["id"], "reopen", "Returning customer re-booked - new upsell cycle", "Calendly")
             lead = await db.leads.find_one({"id": lead["id"]})
         return lead
     ldoc = {
@@ -2332,7 +2332,7 @@ async def calendly_webhook(request: Request):
     if info.get("event_uri") and not await _dedupe_webhook("calendly", info["event_uri"]):
         return {"received": True}
 
-    # Upsert lead by email — keep existing owner sticky, else round-robin among agents
+    # Upsert lead by email - keep existing owner sticky, else round-robin among agents
     # (round-robin queries role="agent", so the admin/sales-head is excluded).
     lead = await _calendly_get_or_create_lead(info)
     if lead.get("owner_id"):
@@ -2340,7 +2340,7 @@ async def calendly_webhook(request: Request):
     else:
         agent = await _round_robin_agent()
     if not agent:
-        # Never lose a paid-intent booking — park it for manual assignment.
+        # Never lose a paid-intent booking - park it for manual assignment.
         await db.pending_bookings.insert_one({"id": new_id(), "lead_id": lead["id"],
             "info": info, "created_at": now_iso()})
         logger.warning("calendly: no active agent -> pending_bookings")
@@ -2443,7 +2443,7 @@ def _resolve_credit_topup_amount(body: "PaymentIn", pkg: Optional[dict]):
     currency = (body.currency or (pkg["currency"] if pkg else "usd")).lower()
 
     mult = body.multiplier if body.multiplier is not None else CREDIT_MULTIPLIER_DEFAULT
-    # Floor at the advertised minimum (was 1.0 — A3 bug); cap at the max.
+    # Floor at the advertised minimum (was 1.0 - A3 bug); cap at the max.
     mult = max(float(CREDIT_MULTIPLIER_MIN), min(float(mult), float(CREDIT_MULTIPLIER_MAX)))
 
     amount_for_credits = amount
@@ -2560,7 +2560,7 @@ async def _create_stripe_link(body, amount, currency, payment_id, user, desc="")
 
 async def _create_razorpay_link(body, amount, currency, payment_id, lead, fallback):
     """Real Razorpay Payment Link when RAZORPAY_KEY_ID/SECRET are set; else the simulated link.
-    Returns (session_id, payment_link). Never raises — any error falls back to the mock."""
+    Returns (session_id, payment_link). Never raises - any error falls back to the mock."""
     key_id = os.environ.get("RAZORPAY_KEY_ID")
     key_secret = os.environ.get("RAZORPAY_KEY_SECRET")
     if not key_id or not key_secret:
@@ -2608,7 +2608,7 @@ async def create_payment_link(body: PaymentIn, user: dict = Depends(get_current_
     amount, currency, desc, credits, boost_credits, multiplier = _resolve_payment_amount(body)
     # Rail guard (B4): Razorpay handles INR only; USD goes to Stripe. (Manual = any.)
     if body.provider == "razorpay" and currency != "inr":
-        raise HTTPException(status_code=400, detail="Razorpay handles INR only — use Stripe for USD")
+        raise HTTPException(status_code=400, detail="Razorpay handles INR only - use Stripe for USD")
     if body.provider == "stripe" and currency == "inr":
         raise HTTPException(status_code=400, detail="Use Razorpay for INR payments")
     fx_rate = await get_inr_rate()
@@ -2697,7 +2697,7 @@ async def payment_status(session_id: str, user: dict = Depends(get_current_user)
 
 @api.post("/payments/simulate/{session_id}", response_model=PaymentOut)
 async def simulate_payment(session_id: str, user: dict = Depends(get_current_user)):
-    """Simulate completion of a (mock) payment link. DEMO ONLY — in production a deal
+    """Simulate completion of a (mock) payment link. DEMO ONLY - in production a deal
     can only become Won via a real provider webhook against a real paid payment record."""
     if IS_PROD:
         raise HTTPException(status_code=403, detail="Disabled in production")
@@ -2710,7 +2710,7 @@ async def simulate_payment(session_id: str, user: dict = Depends(get_current_use
 
 @api.post("/payments/fail/{session_id}", response_model=PaymentOut)
 async def fail_payment(session_id: str, user: dict = Depends(get_current_user)):
-    """Simulate a failed payment link (demo) — moves the lead to the recoverable
+    """Simulate a failed payment link (demo) - moves the lead to the recoverable
     'Payment Link Failed' status. DEMO ONLY; never crashes."""
     if IS_PROD:
         raise HTTPException(status_code=403, detail="Disabled in production")
@@ -2753,7 +2753,7 @@ async def _apply_payment_status(record: dict, status: str, payment_status: str):
                 "Payment Link Failed", priority="Follow-up This Week",
                 next_action="Retry payment link")})
             await log_activity(lead_id, "payment",
-                               f"Payment link {payment_status} — recoverable", record.get("agent_name") or "System")
+                               f"Payment link {payment_status} - recoverable", record.get("agent_name") or "System")
 
 class LinkLeadIn(BaseModel):
     lead_id: str
@@ -3413,7 +3413,7 @@ _DRILL_HANDLERS = {
 
 
 async def _drill_prefixed(metric, lead_scope, win_start, win_end):
-    """status:/group:/stage: drilldowns — leads windowed by created_at."""
+    """status:/group:/stage: drilldowns - leads windowed by created_at."""
     kind, value = metric.split(":", 1)
     rows = await db.leads.find(lead_scope, {"_id": 0}).sort("updated_at", -1).to_list(5000)
     rows = [l for l in rows if _in_window(l.get("created_at"), win_start, win_end)]
@@ -3527,7 +3527,7 @@ async def _seed_admin():
             "monthly_target": 120000.0, "weekly_target": 30000.0, "active": True, "created_at": now_iso(),
         })
         logger.info(f"seed: admin {'created' if created else 'already present (race)'} -> {admin_email}")
-    # NOTE: no per-boot password self-heal — so a user's self-service password change persists.
+    # NOTE: no per-boot password self-heal - so a user's self-service password change persists.
 
 
 async def _seed_demo_account():
@@ -3662,7 +3662,7 @@ async def _seed_demo_leads():
     def pick_owner():
         return pick(rng.choice(_weighted_owner_names))
 
-    # Per-agent MONTHLY won-revenue targets — the inside-sales floor is ~$100k/agent/month.
+    # Per-agent MONTHLY won-revenue targets - the inside-sales floor is ~$100k/agent/month.
     # The won generator books deals until each (agent, month) reaches its number, so the
     # leaderboard reads ~$100k/agent for any month, Diyea/Aryan top, Brian unambiguously last.
     monthly_target = {"Diyea": 110000, "Aryan": 105000, "Abhishek": 95000,
@@ -3737,7 +3737,7 @@ async def _seed_demo_leads():
     _anchor_iter = iter(companies)
 
     def next_identity():
-        """A fresh (company, name, email, region, plan, spend, ltv, trend) — hand-written
+        """A fresh (company, name, email, region, plan, spend, ltv, trend) - hand-written
         anchors first, then unique generated leads. Real names only, never a placeholder."""
         a = next(_anchor_iter, None)
         if a is not None:
@@ -3776,19 +3776,19 @@ async def _seed_demo_leads():
 
     note_templates = {
         "New / Needs Review": [
-            "Inbound from the pricing page — needs qualification.",
+            "Inbound from the pricing page - needs qualification.",
             "Signed up recently and already hitting credit limits.",
         ],
         "Contacted": [
             "Left a voicemail and sent an intro email. Awaiting reply.",
-            "Connected briefly — booking a discovery call this week.",
+            "Connected briefly - booking a discovery call this week.",
         ],
         "Interested": [
             "Great call. Wants annual plan pricing in writing.",
             "Loves the product; comparing Pro vs Team tier.",
         ],
         "Contact in Future": [
-            "Budget opens next quarter — follow up in a few weeks.",
+            "Budget opens next quarter - follow up in a few weeks.",
             "Champion is on leave; reconnect later this month.",
         ],
         "Payment Link Sent": [
@@ -3796,20 +3796,20 @@ async def _seed_demo_leads():
             "Following up tomorrow if the link isn't paid.",
         ],
         "Payment Link Failed": [
-            "Card was declined — sent a fresh link via another provider.",
+            "Card was declined - sent a fresh link via another provider.",
             "Customer retrying payment with a corporate card.",
         ],
         "Payment Link Paid": [
             "Closed! Upgraded to the annual plan. Ask for a referral.",
-            "Paid in full — onboarding call scheduled.",
+            "Paid in full - onboarding call scheduled.",
         ],
         "No-Show": [
-            "No-show on the demo — sent a reschedule link.",
+            "No-show on the demo - sent a reschedule link.",
             "Missed the call; trying to re-book for later this week.",
         ],
         "Not Interested": [
             "Going with a competitor for now. Logged the loss reason.",
-            "Too early stage — not a fit this cycle.",
+            "Too early stage - not a fit this cycle.",
         ],
         "Changed Their Mind": [
             "Was ready to buy but paused after internal review.",
@@ -3831,7 +3831,7 @@ async def _seed_demo_leads():
     }
 
     sources = ["Q1 Power User Outreach", "Inbound - Pricing Page", "Product Qualified Lead",
-               "Webinar Follow-up", "March Campaign — Power Users", "April Reactivation",
+               "Webinar Follow-up", "March Campaign - Power Users", "April Reactivation",
                "May Upgrade Push", "June Renewal Drive"]
 
     leads_buf, pay_buf, act_buf = [], [], []
@@ -4220,7 +4220,7 @@ async def put_my_integrations(body: dict, user: dict = Depends(get_current_user)
 @api.post("/settings/integrations/test/{name}")
 async def test_integration(name: str, admin: dict = Depends(require_admin)):
     """B9: verify an integration before go-live. Returns {ok, detail} with the real
-    provider error on failure — turns silent mock-fallback into visible failure."""
+    provider error on failure - turns silent mock-fallback into visible failure."""
     name = (name or "").lower()
     try:
         if name == "stripe":
@@ -4343,7 +4343,7 @@ async def workspace(user: dict = Depends(get_current_user)):
     }
 
 # ----------------------------------------------------------------------------
-# Demo data reset (admin) — wipe + reseed the believable demo dataset on demand.
+# Demo data reset (admin) - wipe + reseed the believable demo dataset on demand.
 # ----------------------------------------------------------------------------
 async def _wipe_demo_data():
     for coll in ("leads", "payments", "meetings", "activities", "coverage_snapshots"):
@@ -4369,7 +4369,7 @@ async def demo_reset(admin: dict = Depends(require_admin)):
 
 async def _migrate_clean_reseed_v3():
     """One-time: wipe the test-polluted demo data and reseed the believable dataset.
-    DEMO ONLY — short-circuits in production BEFORE any wipe decision (it calls
+    DEMO ONLY - short-circuits in production BEFORE any wipe decision (it calls
     delete_many({}) on real collections; the migration key is absent on a fresh
     prod DB, so without this guard the first prod boot would wipe real data)."""
     if IS_PROD:
@@ -4422,8 +4422,8 @@ async def _migrate_purge_test_leads():
     if IS_PROD:
         return
     try:
-        # The live suites create leads on throwaway domains (@x.com / @nobody.test) — real
-        # demo leads never use these — plus the classic name "T". Purge all of them.
+        # The live suites create leads on throwaway domains (@x.com / @nobody.test) - real
+        # demo leads never use these - plus the classic name "T". Purge all of them.
         patt = {"$or": [
             {"email": {"$regex": r"@(x\.com|nobody\.test)$", "$options": "i"}},
             {"name": "T"},
@@ -4563,7 +4563,7 @@ async def _run_startup():
     # De-duplicate lead emails BEFORE creating the unique index (D3.4).
     await _migrate_dedupe_lead_emails()
 
-    # Non-unique / perf indexes — never block startup (D4.6 compounds included).
+    # Non-unique / perf indexes - never block startup (D4.6 compounds included).
     index_specs = [
         ("users", "email", {"unique": True}),
         ("leads", "stage", {}),
@@ -4629,7 +4629,7 @@ app.include_router(api)
 
 # CORS fail-closed: cookie auth requires an explicit origin allowlist. In production
 # we refuse to boot with '*'/unset; in demo we fall back to '*' but then DISABLE
-# credentials (the '*' + credentials combo is invalid and browsers reject it — G18).
+# credentials (the '*' + credentials combo is invalid and browsers reject it - G18).
 _cors_raw = os.environ.get("CORS_ORIGINS", "").strip()
 if IS_PROD and (not _cors_raw or _cors_raw == "*"):
     raise RuntimeError("CORS_ORIGINS must be an explicit allowlist in production")

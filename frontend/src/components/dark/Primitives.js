@@ -2,9 +2,10 @@
 // Used by the Deals page first; later pages reuse these.
 import { X } from "lucide-react";
 import { money, moneyCompact, statusToneClass, statusAction } from "@/components/helpers";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 
 // ---------------------------------------------------------------------------
-// Card — dark surface, subtle slate border.
+// Card - dark surface, subtle slate border.
 // ---------------------------------------------------------------------------
 export function Card({ children, className = "", onClick, ...rest }) {
   return (
@@ -21,7 +22,7 @@ export function Card({ children, className = "", onClick, ...rest }) {
 }
 
 // ---------------------------------------------------------------------------
-// StatusBadge — driven by backend STATUS_META tone.
+// StatusBadge - driven by backend STATUS_META tone.
 // ---------------------------------------------------------------------------
 export function StatusBadge({ status, tone, className = "" }) {
   if (!status) return null;
@@ -48,12 +49,12 @@ export function ProviderTag({ provider }) {
     stripe: "text-violet-300",
     manual: "text-slate-300",
   };
-  const label = { razorpay: "Razorpay", stripe: "Stripe", manual: "Manual" }[p] || "—";
+  const label = { razorpay: "Razorpay", stripe: "Stripe", manual: "Manual" }[p] || "-";
   return <span className={`text-xs font-medium ${map[p] || "text-slate-400"}`}>{label}</span>;
 }
 
 // ---------------------------------------------------------------------------
-// Dense Table primitives — uppercase letter-spaced muted headers, sticky head.
+// Dense Table primitives - uppercase letter-spaced muted headers, sticky head.
 // ---------------------------------------------------------------------------
 export function Table({ children, className = "" }) {
   return (
@@ -99,7 +100,7 @@ export function TD({ children, align = "left", className = "" }) {
 }
 
 // ---------------------------------------------------------------------------
-// ProductCard — won revenue, won count, open pipeline value.
+// ProductCard - won revenue, won count, open pipeline value.
 // ---------------------------------------------------------------------------
 export function ProductCard({ name, currency = "usd", wonRevenue = 0, wonCount = 0, openValue = 0, onClick }) {
   return (
@@ -123,7 +124,7 @@ export function ProductCard({ name, currency = "usd", wonRevenue = 0, wonCount =
 }
 
 // ---------------------------------------------------------------------------
-// StagePill — clickable summary pill (count + value).
+// StagePill - clickable summary pill (count + value).
 // ---------------------------------------------------------------------------
 export function StagePill({ label, tone, count, value, currency = "usd", active = false, onClick }) {
   return (
@@ -214,14 +215,25 @@ export function RowActionButton({ status, onClick }) {
 }
 
 // ---------------------------------------------------------------------------
-// Drawer — right-side panel for row detail.
+// Drawer - right-side panel for row detail.
 // ---------------------------------------------------------------------------
 export function Drawer({ open, onClose, title, subtitle, children, footer, testid }) {
+  const isMobile = useIsMobile();
   if (!open) return null;
+  // Mobile: a bottom sheet (rounded top, drag handle, slides up). Desktop: the
+  // original right-side panel. Same DOM, switched with responsive classes.
   return (
-    <div className="fixed inset-0 z-50 flex justify-end" data-testid={testid}>
+    <div className="fixed inset-0 z-50 flex justify-center items-end lg:items-stretch lg:justify-end" data-testid={testid}>
       <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" onClick={onClose} />
-      <div className="relative h-full w-full max-w-[480px] bg-[var(--surface-1)] border-l border-[var(--border)] shadow-2xl flex flex-col animate-drawer-in">
+      <div
+        className={`relative w-full h-[88vh] lg:h-full lg:max-w-[480px] bg-[var(--surface-1)] border-t lg:border-t-0 lg:border-l border-[var(--border)] shadow-2xl flex flex-col rounded-t-2xl lg:rounded-none ${
+          isMobile ? "animate-sheet-up" : "animate-drawer-in"
+        }`}
+      >
+        {/* mobile drag handle */}
+        <div className="lg:hidden flex justify-center pt-2.5 pb-1 shrink-0">
+          <span className="h-1.5 w-10 rounded-full bg-[var(--border-strong)]" />
+        </div>
         <div className="flex items-start justify-between px-5 py-4 border-b border-[var(--border)]">
           <div className="min-w-0">
             <h3 className="font-heading text-lg font-semibold text-[var(--text)] tracking-tight truncate">{title}</h3>
@@ -230,13 +242,13 @@ export function Drawer({ open, onClose, title, subtitle, children, footer, testi
           <button
             onClick={onClose}
             data-testid="drawer-close"
-            className="text-[var(--text-faint)] hover:text-[var(--text)] hover:bg-[var(--surface-3)] rounded-md p-1.5 transition-colors shrink-0"
+            className="tap-target text-[var(--text-faint)] hover:text-[var(--text)] hover:bg-[var(--surface-3)] rounded-md transition-colors shrink-0"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto px-5 py-4">{children}</div>
-        {footer && <div className="border-t border-[var(--border)] px-5 py-4">{footer}</div>}
+        <div className="flex-1 overflow-y-auto px-5 pt-4 pb-safe lg:py-4">{children}</div>
+        {footer && <div className="border-t border-[var(--border)] px-5 pt-4 pb-safe lg:py-4">{footer}</div>}
       </div>
     </div>
   );

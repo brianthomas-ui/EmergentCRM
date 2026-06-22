@@ -153,7 +153,7 @@ export function OverviewPanel({ lead, meta, onUpdate, onUpdateStage }) {
         </div>
         <div>
           <FLabel>Outcome</FLabel>
-          <div data-testid="outcome-chip" className="text-sm text-[var(--text)] py-1.5">{lead.outcome || "—"}</div>
+          <div data-testid="outcome-chip" className="text-sm text-[var(--text)] py-1.5">{lead.outcome || "-"}</div>
         </div>
         <div>
           <FLabel>Payment</FLabel>
@@ -179,7 +179,7 @@ export function OverviewPanel({ lead, meta, onUpdate, onUpdateStage }) {
         )}
       </div>
 
-      {/* Next follow-up — so the rep always knows whom/when to chase next. */}
+      {/* Next follow-up - so the rep always knows whom/when to chase next. */}
       <div className="mt-4 pt-3 border-t border-[var(--border)]" data-tour="lead-followup">
         <FLabel>Next follow-up</FLabel>
         <div className="flex flex-wrap items-center gap-2">

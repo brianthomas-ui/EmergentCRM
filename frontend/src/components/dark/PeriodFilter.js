@@ -1,4 +1,4 @@
-// PeriodFilter — reusable dark segmented control for date-range scoping.
+// PeriodFilter - reusable dark segmented control for date-range scoping.
 // Segments: Today / This Week / This Month / This Quarter / Custom.
 // "Custom" reveals two date inputs (from / to).
 //

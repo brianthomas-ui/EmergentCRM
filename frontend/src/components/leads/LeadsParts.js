@@ -2,6 +2,8 @@ import { useMemo } from "react";
 import { CalendarCheck, ChevronRight, Users } from "lucide-react";
 import { timeAgo } from "@/components/helpers";
 import { Card, Table, THead, TH, TR, TD, StatusBadge } from "@/components/dark/Primitives";
+import { MobileCard, CardList } from "@/components/dark/MobileCard";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import Avatar from "@/components/dark/Avatar";
 
 export function KpiCard({ label, value, sub, accent = false, onClick, active = false }) {
@@ -28,7 +30,7 @@ export function KpiCard({ label, value, sub, accent = false, onClick, active = f
 }
 
 function SourceTag({ source }) {
-  if (!source) return <span className="text-[var(--text-faint)]">—</span>;
+  if (!source) return <span className="text-[var(--text-faint)]">-</span>;
   return (
     <span className="inline-block px-2 py-0.5 rounded-md text-[11px] font-medium bg-[var(--surface-3)] text-[var(--text-muted)] border border-[var(--border)]">
       {source}
@@ -63,7 +65,7 @@ export function TodaysMeetings({ meetings }) {
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 mt-1.5 shrink-0" />
               <div className="min-w-0">
                 <div className="text-sm text-[var(--text)] font-medium truncate">
-                  {m.lead_name || "—"}
+                  {m.lead_name || "-"}
                 </div>
                 <div className="text-[11px] text-[var(--text-faint)]">
                   {new Date(m.scheduled_at).toLocaleTimeString(undefined, {
@@ -130,7 +132,7 @@ function LeadRow({ lead, meta, onRowClick }) {
       <TD><SourceTag source={l.source} /></TD>
       <TD>
         <span className="text-sm text-[var(--text-muted)]">
-          {l.product_line || l.plan || <span className="text-[var(--text-faint)]">—</span>}
+          {l.product_line || l.plan || <span className="text-[var(--text-faint)]">-</span>}
         </span>
       </TD>
       <TD>
@@ -139,7 +141,7 @@ function LeadRow({ lead, meta, onRowClick }) {
             {l.referred_by_name}
           </span>
         ) : (
-          <span className="text-[var(--text-faint)]">—</span>
+          <span className="text-[var(--text-faint)]">-</span>
         )}
       </TD>
       <TD>
@@ -153,14 +155,14 @@ function LeadRow({ lead, meta, onRowClick }) {
             {timeAgo(l.next_followup_at)}
           </span>
         ) : (
-          <span className="text-[var(--text-faint)] text-xs">—</span>
+          <span className="text-[var(--text-faint)] text-xs">-</span>
         )}
       </TD>
       <TD>
         {l.status ? (
           <StatusBadge status={l.status} tone={(meta?.status_meta || {})[l.status]?.tone} />
         ) : (
-          <span className="text-[var(--text-faint)] text-xs">—</span>
+          <span className="text-[var(--text-faint)] text-xs">-</span>
         )}
       </TD>
       <TD align="right">
@@ -170,7 +172,64 @@ function LeadRow({ lead, meta, onRowClick }) {
   );
 }
 
-export function LeadsTable({ filtered, leads, loading, meta, onRowClick }) {
+// Mobile: each lead as a tappable card (name + company, status, key follow-up fields).
+function LeadsCardList({ filtered, leads, loading, meta, onRowClick }) {
+  if (loading) {
+    return <div className="py-10 text-center text-xs text-[var(--text-faint)]">Loading…</div>;
+  }
+  if (filtered.length === 0) {
+    return (
+      <div className="py-14 text-center">
+        <Users className="w-8 h-8 mx-auto mb-2 text-[var(--text-faint)]" />
+        <p className="text-sm text-[var(--text-faint)]">No leads found.</p>
+      </div>
+    );
+  }
+  const overdue = (iso) => iso && new Date(iso) < new Date();
+  return (
+    <div className="space-y-2.5">
+      <CardList>
+        {filtered.map((l) => (
+          <MobileCard
+            key={l.id}
+            testid={`lead-row-${l.id}`}
+            onClick={() => onRowClick(l.id)}
+            leading={<Avatar name={l.name} size="md" src={l.avatar_url} />}
+            title={l.name}
+            subtitle={l.company || l.email}
+            trailingBottom={
+              l.status ? <StatusBadge status={l.status} tone={(meta?.status_meta || {})[l.status]?.tone} /> : null
+            }
+            meta={[
+              { label: "Source", value: l.source || "-" },
+              { label: "Product", value: l.product_line || l.plan || "-" },
+              { label: "Last contacted", value: l.last_contacted_at ? timeAgo(l.last_contacted_at) : "Never" },
+              {
+                label: "Next follow-up",
+                value: l.next_followup_at ? (
+                  <span className={overdue(l.next_followup_at) ? "text-amber-400 font-medium" : ""}>
+                    {timeAgo(l.next_followup_at)}
+                  </span>
+                ) : "-",
+              },
+            ]}
+          />
+        ))}
+      </CardList>
+      <div className="text-[10px] text-[var(--text-faint)] font-mono text-center pt-1">
+        Showing {filtered.length} / {leads.length} leads
+      </div>
+    </div>
+  );
+}
+
+export function LeadsTable(props) {
+  const isMobile = useIsMobile();
+  if (isMobile) return <LeadsCardList {...props} />;
+  return <LeadsTableDesktop {...props} />;
+}
+
+function LeadsTableDesktop({ filtered, leads, loading, meta, onRowClick }) {
   return (
     <Card className="overflow-hidden">
       <Table>

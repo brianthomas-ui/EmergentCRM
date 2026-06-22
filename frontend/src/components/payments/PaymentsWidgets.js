@@ -3,6 +3,8 @@ import { toast } from "sonner";
 import { money, Badge, paymentStatusClass, fmtDateTime } from "@/components/helpers";
 import { Copy, RefreshCw, CheckCircle2, Link2, ExternalLink } from "lucide-react";
 import Modal from "@/components/Modal";
+import { MobileCard, CardList } from "@/components/dark/MobileCard";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 
 export function FxRateCard({ isAdmin, fxRate, rateInput, setRateInput, onSave, saving }) {
   return (
@@ -39,24 +41,83 @@ export function FxRateCard({ isAdmin, fxRate, rateInput, setRateInput, onSave, s
 
 export function PaymentsSummary({ totalPaid, totalPending, count }) {
   return (
-    <div className="grid grid-cols-3 gap-4">
-      <div className="bg-white border border-zinc-200 rounded-lg p-5">
-        <div className="text-[10px] uppercase tracking-widest text-zinc-400 font-semibold">Collected</div>
-        <div className="font-heading text-3xl font-bold text-emerald-600">{money(totalPaid)}</div>
+    <div className="grid grid-cols-3 gap-2 sm:gap-4">
+      <div className="bg-white border border-zinc-200 rounded-lg p-3 sm:p-5 min-w-0">
+        <div className="text-[10px] uppercase tracking-widest text-zinc-400 font-semibold truncate">Collected</div>
+        <div className="font-heading text-lg sm:text-3xl font-bold text-emerald-600 tabular-nums truncate">{money(totalPaid)}</div>
       </div>
-      <div className="bg-white border border-zinc-200 rounded-lg p-5">
-        <div className="text-[10px] uppercase tracking-widest text-zinc-400 font-semibold">Pending</div>
-        <div className="font-heading text-3xl font-bold text-amber-600">{money(totalPending)}</div>
+      <div className="bg-white border border-zinc-200 rounded-lg p-3 sm:p-5 min-w-0">
+        <div className="text-[10px] uppercase tracking-widest text-zinc-400 font-semibold truncate">Pending</div>
+        <div className="font-heading text-lg sm:text-3xl font-bold text-amber-600 tabular-nums truncate">{money(totalPending)}</div>
       </div>
-      <div className="bg-white border border-zinc-200 rounded-lg p-5">
-        <div className="text-[10px] uppercase tracking-widest text-zinc-400 font-semibold">Links Sent</div>
-        <div className="font-heading text-3xl font-bold text-zinc-900">{count}</div>
+      <div className="bg-white border border-zinc-200 rounded-lg p-3 sm:p-5 min-w-0">
+        <div className="text-[10px] uppercase tracking-widest text-zinc-400 font-semibold truncate">Links Sent</div>
+        <div className="font-heading text-lg sm:text-3xl font-bold text-zinc-900 tabular-nums">{count}</div>
       </div>
     </div>
   );
 }
 
-export function PaymentsTable({ payments, onRefresh, onSimulate, onLinkLead, onRowClick }) {
+// Action buttons shared by the table row and the mobile card (copy, refresh, simulate, link).
+function PaymentRowActions({ p, onRefresh, onSimulate, onLinkLead }) {
+  return (
+    <>
+      {p.payment_link && (
+        <button onClick={() => { navigator.clipboard?.writeText(p.payment_link); toast.success("Copied"); }} className="tap-target text-zinc-400 hover:text-zinc-900" title="Copy link"><Copy className="w-4 h-4" /></button>
+      )}
+      {p.payment_status !== "paid" && p.provider === "stripe" && (
+        <button onClick={() => onRefresh(p)} className="tap-target text-zinc-400 hover:text-zinc-900" title="Refresh status" data-testid={`refresh-${p.id}`}><RefreshCw className="w-4 h-4" /></button>
+      )}
+      {p.payment_status !== "paid" && p.provider === "razorpay" && (
+        <button onClick={() => onSimulate(p)} className="tap-target text-emerald-600 hover:text-emerald-800" title="Mark paid (Razorpay sim)" data-testid={`simulate-${p.id}`}><CheckCircle2 className="w-4 h-4" /></button>
+      )}
+      {!p.lead_id && onLinkLead && (
+        <button onClick={() => onLinkLead(p)} className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 hover:text-emerald-900 px-2 py-2" title="Attach this payment to a lead" data-testid={`link-lead-${p.id}`}><Link2 className="w-4 h-4" /> Link to lead</button>
+      )}
+    </>
+  );
+}
+
+// Mobile: each payment as a card with the same actions in the footer.
+function PaymentsCardList({ payments, onRefresh, onSimulate, onLinkLead, onRowClick }) {
+  if (payments.length === 0) {
+    return <div className="p-12 text-center text-zinc-400 text-sm">No payment links yet.</div>;
+  }
+  return (
+    <CardList>
+      {payments.map((p) => (
+        <MobileCard
+          key={p.id}
+          testid={`pay-row-${p.id}`}
+          onClick={() => onRowClick?.(p)}
+          title={p.lead_name || p.customer_email || "Standalone"}
+          subtitle={p.description || (p.lead_id ? "" : "Standalone link")}
+          trailingTop={money(p.amount, p.currency)}
+          trailingBottom={<Badge className={paymentStatusClass(p.payment_status)}>{p.payment_status}</Badge>}
+          meta={[
+            { label: "Provider", value: <span className="capitalize">{p.provider}</span> },
+            { label: "Agent", value: p.agent_name || "-" },
+            { label: "Created", value: fmtDateTime(p.created_at) },
+            p.currency !== "usd" ? { label: "USD", value: `≈ ${money(p.amount_usd ?? p.amount)}` } : null,
+          ].filter(Boolean)}
+          footer={
+            <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+              <PaymentRowActions p={p} onRefresh={onRefresh} onSimulate={onSimulate} onLinkLead={onLinkLead} />
+            </div>
+          }
+        />
+      ))}
+    </CardList>
+  );
+}
+
+export function PaymentsTable(props) {
+  const isMobile = useIsMobile();
+  if (isMobile) return <PaymentsCardList {...props} />;
+  return <PaymentsTableDesktop {...props} />;
+}
+
+function PaymentsTableDesktop({ payments, onRefresh, onSimulate, onLinkLead, onRowClick }) {
   return (
     <div className="bg-white border border-zinc-200 rounded-lg overflow-hidden">
       <table className="w-full">
@@ -128,7 +189,7 @@ function DetailRow({ label, children }) {
   );
 }
 
-// Full detail of a single payment — opened by clicking a row in PaymentsTable.
+// Full detail of a single payment - opened by clicking a row in PaymentsTable.
 export function PaymentDetailModal({ payment, onClose }) {
   const p = payment;
   if (!p) return null;
@@ -159,8 +220,8 @@ export function PaymentDetailModal({ payment, onClose }) {
       <div className="grid sm:grid-cols-2 gap-x-8">
         <div>
           <DetailRow label="Provider"><span className="capitalize">{p.provider}</span></DetailRow>
-          <DetailRow label="Product">{p.product_line || "—"}</DetailRow>
-          <DetailRow label="Description">{p.description || "—"}</DetailRow>
+          <DetailRow label="Product">{p.product_line || "-"}</DetailRow>
+          <DetailRow label="Description">{p.description || "-"}</DetailRow>
           <DetailRow label="Customer">
             {p.lead_id
               ? <Link to={`/leads/${p.lead_id}`} className="text-emerald-700 hover:underline">{p.lead_name || "View lead"}</Link>
@@ -170,8 +231,8 @@ export function PaymentDetailModal({ payment, onClose }) {
         <div>
           <DetailRow label="Sent">{fmtDateTime(p.created_at)}</DetailRow>
           <DetailRow label="Paid">{paid ? fmtDateTime(paidAt) : <span className="text-zinc-400">Not yet</span>}</DetailRow>
-          <DetailRow label="Agent">{p.agent_name || "—"}</DetailRow>
-          <DetailRow label="Session"><code className="text-xs text-zinc-500">{p.session_id || "—"}</code></DetailRow>
+          <DetailRow label="Agent">{p.agent_name || "-"}</DetailRow>
+          <DetailRow label="Session"><code className="text-xs text-zinc-500">{p.session_id || "-"}</code></DetailRow>
         </div>
       </div>
     </Modal>

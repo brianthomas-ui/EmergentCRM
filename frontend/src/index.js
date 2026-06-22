@@ -21,3 +21,13 @@ root.render(
     </QueryClientProvider>
   </React.StrictMode>,
 );
+
+// Register the service worker in production only (CRA dev server has no SW and the
+// extra cache layer would fight hot-reload). Enables install + instant relaunch.
+if (process.env.NODE_ENV === "production" && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/service-worker.js").catch(() => {
+      /* SW registration is best-effort; the app works fine without it. */
+    });
+  });
+}

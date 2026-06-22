@@ -106,7 +106,7 @@ export function statusToneClass(status, toneFromApi) {
   return TONE_CLASSES[tone] || TONE_CLASSES.slate;
 }
 
-// Legacy stage tones (dark) — used by old Pipeline/Leads pages.
+// Legacy stage tones (dark) - used by old Pipeline/Leads pages.
 export function stageClass(stage) {
   const map = {
     "New Booking": "text-slate-300 border-slate-600/40 bg-slate-600/10",
@@ -146,12 +146,12 @@ export function paymentStatusClass(s) {
 // Provider display label + chip tone.
 export function providerLabel(p) {
   const map = { razorpay: "Razorpay", stripe: "Stripe", manual: "Manual" };
-  return map[(p || "").toLowerCase()] || (p ? p[0].toUpperCase() + p.slice(1) : "—");
+  return map[(p || "").toLowerCase()] || (p ? p[0].toUpperCase() + p.slice(1) : "-");
 }
 
 // ---------------------------------------------------------------------------
 // Contextual primary action per status (handoff spec §6).
-// Returns { label, kind } — kind drives which flow the Deals page runs.
+// Returns { label, kind } - kind drives which flow the Deals page runs.
 // ---------------------------------------------------------------------------
 export function statusAction(status) {
   const map = {
@@ -193,7 +193,7 @@ export function timeAgo(iso) {
 }
 
 export function fmtDate(iso) {
-  if (!iso) return "—";
+  if (!iso) return "-";
   return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 

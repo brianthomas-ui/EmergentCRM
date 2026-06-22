@@ -1,5 +1,5 @@
-// Meetings — Google-Calendar-style week + day grid (dark theme).
-// Booking window: 12:00–24:00 IST (24 half-hour slots).
+// Meetings - Google-Calendar-style week + day grid (dark theme).
+// Booking window: 12:00-24:00 IST (24 half-hour slots).
 // Manager/admin: agent color-coded toggle. Agent role: own calendar only.
 // API: GET /api/calendar?date=YYYY-MM-DD (one call per visible date range).
 import { useEffect, useState, useCallback } from "react";
@@ -7,6 +7,7 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import client, { apiError } from "@/api";
 import { useAuth } from "@/context/AuthContext";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import {
   MONTH_NAMES,
@@ -27,10 +28,12 @@ import {
 export default function Meetings() {
   const { isAdmin } = useAuth();
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const [view, setView] = useState("week"); // "week" | "day"
+  // Phones default to the single-day column (the 7-day grid is unreadable at 375px).
+  const [view, setView] = useState(isMobile ? "day" : "week"); // "week" | "day"
   const [anchorDate, setAnchorDate] = useState(today);
   const [selectedMeeting, setSelectedMeeting] = useState(null);
   const [actionBusy, setActionBusy] = useState(false);
@@ -50,8 +53,8 @@ export default function Meetings() {
     weekStart.getMonth() === weekEnd.getMonth()
       ? `${MONTH_NAMES[weekStart.getMonth()]} ${weekStart.getFullYear()}`
       : weekStart.getFullYear() === weekEnd.getFullYear()
-      ? `${MONTH_NAMES[weekStart.getMonth()]} – ${MONTH_NAMES[weekEnd.getMonth()]} ${weekStart.getFullYear()}`
-      : `${MONTH_NAMES[weekStart.getMonth()]} ${weekStart.getFullYear()} – ${MONTH_NAMES[weekEnd.getMonth()]} ${weekEnd.getFullYear()}`;
+      ? `${MONTH_NAMES[weekStart.getMonth()]} - ${MONTH_NAMES[weekEnd.getMonth()]} ${weekStart.getFullYear()}`
+      : `${MONTH_NAMES[weekStart.getMonth()]} ${weekStart.getFullYear()} - ${MONTH_NAMES[weekEnd.getMonth()]} ${weekEnd.getFullYear()}`;
   const headingDay = fmtDateFull(anchorDate);
 
   // Build agent → color map (stable index).
@@ -174,7 +177,7 @@ export default function Meetings() {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Agent toggle — manager/admin only */}
+            {/* Agent toggle - manager/admin only */}
             {isAdmin && agents.length > 1 && (
               <div className="flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-0.5">
                 <AgentPill label="All" active={agentFilter === "all"} onClick={() => setAgentFilter("all")} />
@@ -237,10 +240,10 @@ export default function Meetings() {
         )}
       </div>
 
-      {/* Calendar grid — bounded height with internal scroll so the header is never clipped */}
+      {/* Calendar grid - bounded height with internal scroll so the header is never clipped */}
       <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] overflow-hidden">
         <div className="overflow-auto h-[calc(100vh-260px)] min-h-[440px]">
-          <div className="flex min-w-[640px]">
+          <div className={`flex ${view === "day" ? "min-w-0" : "min-w-[640px]"}`}>
             <TimeGutter />
             <div className="flex-1 flex min-w-0">
               {displayDates.map((date) => (

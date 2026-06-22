@@ -36,7 +36,7 @@ export default function Tour({ run, steps, onClose }) {
         setTimeout(() => setRect(el.getBoundingClientRect()), 180);
         return;
       }
-      if (++tries > 40) { // ~4s — give up and center the card
+      if (++tries > 40) { // ~4s - give up and center the card
         clearInterval(pollRef.current);
         setRect(null);
       }

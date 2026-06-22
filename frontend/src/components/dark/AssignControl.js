@@ -66,7 +66,7 @@ export default function AssignControl({ lead, onAssigned }) {
         disabled={busy || lead.owner_locked}
         onClick={roundRobin}
         data-testid="assign-round-robin"
-        title={lead.owner_locked ? "Locked to owner — reassign via the dropdown" : "Round-robin to the next agent"}
+        title={lead.owner_locked ? "Locked to owner - reassign via the dropdown" : "Round-robin to the next agent"}
       >
         ↻ RR
       </button>

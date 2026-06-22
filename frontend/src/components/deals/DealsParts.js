@@ -14,6 +14,8 @@ import {
   Select,
   RowActionButton,
 } from "@/components/dark/Primitives";
+import { MobileCard, CardList, CardGroupHeader } from "@/components/dark/MobileCard";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 
 export function DealsSummary({ products, productStats, statuses, stageStats, statusMeta, product, setProduct, status, setStatus }) {
   return (
@@ -112,15 +114,15 @@ function DealRow({ lead, selected, setSelected, onRowAction }) {
           )}
         </div>
       </TD>
-      <TD className="text-[var(--text-muted)] whitespace-nowrap text-xs">{l.product_line || "—"}</TD>
+      <TD className="text-[var(--text-muted)] whitespace-nowrap text-xs">{l.product_line || "-"}</TD>
       <TD align="right" className="font-medium tabular-nums whitespace-nowrap">
-        {l.amount ? money(l.amount, l.currency) : "—"}
+        {l.amount ? money(l.amount, l.currency) : "-"}
       </TD>
       <TD><ProviderTag provider={l.provider} /></TD>
       <TD><StatusBadge status={l.status} tone={l.status_tone} /></TD>
       <TD className="text-[var(--text-muted)] whitespace-nowrap text-xs">{l.owner_name || "Unassigned"}</TD>
-      <TD className="text-[var(--text-faint)] whitespace-nowrap text-xs">{timeAgo(l.last_activity || l.updated_at) || "—"}</TD>
-      <TD className="text-[var(--text-muted)] text-xs max-w-[150px] truncate">{l.next_action || "—"}</TD>
+      <TD className="text-[var(--text-faint)] whitespace-nowrap text-xs">{timeAgo(l.last_activity || l.updated_at) || "-"}</TD>
+      <TD className="text-[var(--text-muted)] text-xs max-w-[150px] truncate">{l.next_action || "-"}</TD>
       <TD className="text-[var(--text-faint)] whitespace-nowrap text-xs">{fmtDate(l.created_at)}</TD>
       <TD align="right">
         <RowActionButton status={l.status} onClick={(a) => onRowAction(l, a)} />
@@ -147,7 +149,65 @@ function SortTH({ label, sortKey, currentKey, dir, onSort, align }) {
   );
 }
 
-export function DealsTable({ loading, sections, rowCount, leads, selected, setSelected, onRowAction, sortKey, sortDir, onSort }) {
+// Mobile: the same recency-grouped pipeline as a stack of cards instead of a 10-col table.
+function DealsCardList({ loading, sections, rowCount, leads, selected, setSelected, onRowAction }) {
+  if (loading) {
+    return (
+      <div className="py-16 text-center text-[var(--text-muted)]">
+        <Loader2 className="w-5 h-5 animate-spin inline mr-2" /> Loading pipeline…
+      </div>
+    );
+  }
+  if (!sections || sections.length === 0) {
+    return <div className="py-16 text-center text-sm text-[var(--text-faint)]">No deals match these filters.</div>;
+  }
+  return (
+    <div className="space-y-5">
+      {sections.map((sec) => {
+        const total = sec.rows.reduce((s, l) => s + Number(l.amount || 0), 0);
+        return (
+          <div key={sec.key} className="space-y-2.5" data-testid={`deals-group-${sec.key}`}>
+            <CardGroupHeader label={sec.label} count={sec.rows.length} right={money(total)} />
+            <CardList>
+              {sec.rows.map((l) => (
+                <MobileCard
+                  key={l.id}
+                  testid="deal-card"
+                  onClick={() => setSelected(l)}
+                  active={selected?.id === l.id}
+                  title={l.name}
+                  subtitle={l.company || l.email}
+                  trailingTop={l.amount ? money(l.amount, l.currency) : "-"}
+                  trailingBottom={<StatusBadge status={l.status} tone={l.status_tone} />}
+                  meta={[
+                    { label: "Product", value: l.product_line || "-" },
+                    { label: "Owner", value: l.owner_name || "Unassigned" },
+                    { label: "Provider", value: <ProviderTag provider={l.provider} /> },
+                    { label: "Last activity", value: timeAgo(l.last_activity || l.updated_at) || "-" },
+                  ]}
+                  footer={<RowActionButton status={l.status} onClick={(a) => onRowAction(l, a)} />}
+                />
+              ))}
+            </CardList>
+          </div>
+        );
+      })}
+      {rowCount > 0 && (
+        <div className="text-[11px] text-[var(--text-faint)] font-mono text-center pt-1">
+          Showing {rowCount} of {leads.length} deals
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function DealsTable(props) {
+  const isMobile = useIsMobile();
+  if (isMobile) return <DealsCardList {...props} />;
+  return <DealsTableDesktop {...props} />;
+}
+
+function DealsTableDesktop({ loading, sections, rowCount, leads, selected, setSelected, onRowAction, sortKey, sortDir, onSort }) {
   return (
     <Card className="overflow-hidden">
       <div className="max-h-[calc(100vh-420px)] overflow-y-auto">

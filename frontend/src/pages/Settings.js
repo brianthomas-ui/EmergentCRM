@@ -61,7 +61,7 @@ function KeyFields({ fields, values, current, onChange }) {
   );
 }
 
-// Expected columns per import type — mirrors the backend _IMPORT_TEMPLATES headers
+// Expected columns per import type - mirrors the backend _IMPORT_TEMPLATES headers
 // so users see the format before downloading the template.
 const TEMPLATE_COLUMNS = {
   leads: "name, email, company, phone, plan, monthly_spend, lifetime_value, region, status, owner, product_line, source, created_at",
@@ -171,7 +171,7 @@ function HistoricalImport() {
             <span>{result.committed ? "Created" : "Will create"}: <b className="text-emerald-500">{result.created}</b></span>
             {result.updated > 0 && <span>Updated: <b className="text-[var(--text)]">{result.updated}</b></span>}
             <span>Skipped: <b className="text-amber-500">{result.skipped}</b></span>
-            <span>{result.committed ? "✅ Imported" : "Preview only — click Import to commit"}</span>
+            <span>{result.committed ? "✅ Imported" : "Preview only - click Import to commit"}</span>
           </div>
           {result.preview?.length > 0 && (
             <div className="mt-3 overflow-x-auto">
