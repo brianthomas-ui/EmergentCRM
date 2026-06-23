@@ -71,9 +71,9 @@ export default function Layout({ children }) {
     try {
       force = sessionStorage.getItem("crm_force_tour") === "1";
       done = localStorage.getItem("crm_tour_v2_done") === "1";
-    } catch (e) { done = true; }
+    } catch (e) { console.warn("Tour flags read failed:", e); done = true; }
     if (force || !done) setRunTour(true);
-    try { sessionStorage.removeItem("crm_force_tour"); } catch (e) { /* storage blocked */ }
+    try { sessionStorage.removeItem("crm_force_tour"); } catch (e) { console.warn("Tour flag clear failed:", e); }
   }, [user]);
 
   const onAvatarUpload = async (dataUrl) => {

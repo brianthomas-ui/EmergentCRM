@@ -22,7 +22,7 @@ export function ThemeProvider({ children }) {
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
-    try { localStorage.setItem(STORAGE_KEY, theme); } catch (e) { /* storage blocked */ }
+    try { localStorage.setItem(STORAGE_KEY, theme); } catch (e) { console.warn("Theme persist failed:", e); }
   }, [theme]);
 
   const toggleTheme = useCallback(() => {

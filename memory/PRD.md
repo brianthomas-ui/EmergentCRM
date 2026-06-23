@@ -4,6 +4,14 @@
 > The sections below this changelog are LEGACY (pre-redesign, light theme) — defer to the handoff.
 
 ## Changelog
+### 2026-06-23 — Code-quality fixes (post-sync)
+Applied genuine structural/perf/security fixes from the review; skipped verified false positives. Backend 73/73 pytest pass; frontend compiles; Deals/DealDrawer render verified.
+- **Backend**: refactored `import_historical()` (cyclomatic ~62) into pure builders (`_import_build_lead/payment/meeting`) + per-type async handlers + a `_IMPORT_HANDLERS` dispatch — thin endpoint, same behavior (verified: 1 created / 1 skipped-with-error on a 2-row CSV).
+- **Frontend perf**: `useMemo` for DealDrawer timeline (`buildTimeline`) + move-status filter, and LeadDetail OverviewPanel status filter.
+- **Frontend robustness**: replaced empty `catch{}` with `console.warn` in ThemeContext, Tour, Layout (×2), Login, InstallApp (×2). Stable React keys in Settings import preview/errors + Login peek-chart.
+- **Skipped (verified FALSE POSITIVES — would break app or are non-issues):** 71 "missing hook deps" (intentional eslint-disables preventing refetch loops), 41 "is vs ==" (all correct `is None`), "weak random" `server.py` (deterministic `Random(42)` demo seed — `secrets` would break determinism), localStorage "insecure storage" (theme/install/tour flags are non-sensitive), inline motion-config objects (over-engineering), component-split re-flags (Deals/Layout/DealDrawer/NewLeadModal/Tour already modular). Payment-fn refactor deferred (financial code, avoid churn pre-redeploy).
+- Reset preview demo data to pristine enriched dataset (802 leads / 587 payments / 12,357 meetings, no TEST).
+
 ### 2026-06-23 — GitHub sync (Claude Code) + redeploy prep
 - Fast-forwarded preview `/app` to `origin/main` (commit `d21a2e9`) — clean FF, no work lost. Pulled in user's Claude Code work: marketing landing page, demo data enrichment (~252 leads, $394k closed, all 4 product lines populated), mobile PWA app-shell + install button, broadened test-lead purge. `.env` gitignored (untouched).
 - Deployment readiness: added `memory/test_credentials.md` to `.gitignore`. CORS flagged by deploy agent but **intentionally kept as explicit allowlist** (app uses httpOnly-cookie auth; `allow_origins="*"` would force `allow_credentials=False` and break login). Production domain already allowlisted.

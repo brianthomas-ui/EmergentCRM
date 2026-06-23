@@ -118,7 +118,7 @@ function ConsolePeek() {
         <div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-2">Revenue · last 12 weeks</div>
         <div className="flex items-end gap-1.5 h-20">
           {PEEK_CHART.map((h, i) => (
-            <motion.div key={i} className="flex-1 rounded-t bg-gradient-to-t from-emerald-600/40 to-emerald-400/90"
+            <motion.div key={`bar-${i}-${h}`} className="flex-1 rounded-t bg-gradient-to-t from-emerald-600/40 to-emerald-400/90"
               initial={{ height: reduce ? `${h}%` : "0%" }}
               animate={{ height: `${h}%` }}
               transition={{ duration: 0.6, delay: reduce ? 0 : 0.8 + i * 0.05, ease: [0.16, 1, 0.3, 1] }} />
@@ -159,7 +159,7 @@ export default function Login() {
     try {
       await demoLogin();
       // Always walk demo visitors through the guided tour, even if this browser saw it before.
-      try { sessionStorage.setItem("crm_force_tour", "1"); } catch (e) { /* storage blocked */ }
+      try { sessionStorage.setItem("crm_force_tour", "1"); } catch (e) { console.warn("Demo tour flag failed:", e); }
       navigate("/");
     } catch (err) {
       setError(apiError(err));

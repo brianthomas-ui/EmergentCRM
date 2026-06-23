@@ -177,8 +177,8 @@ function HistoricalImport() {
             <div className="mt-3 overflow-x-auto">
               <table className="w-full text-xs">
                 <tbody>
-                  {result.preview.map((p, i) => (
-                    <tr key={i} className="border-t border-[var(--border)]">
+                  {result.preview.map((p) => (
+                    <tr key={Object.values(p).join("|")} className="border-t border-[var(--border)]">
                       {Object.entries(p).map(([k, v]) => (
                         <td key={k} className="py-1.5 pr-4 text-[var(--text-muted)] whitespace-nowrap">{String(v)}</td>
                       ))}
@@ -190,7 +190,7 @@ function HistoricalImport() {
           )}
           {result.errors?.length > 0 && (
             <div className="mt-2 text-xs text-rose-400">
-              {result.errors.slice(0, 5).map((e, i) => <div key={i}>Row {e.row}: {e.message}</div>)}
+              {result.errors.slice(0, 5).map((e) => <div key={`${e.row}-${e.message}`}>Row {e.row}: {e.message}</div>)}
               {result.errors.length > 5 && <div>…and {result.errors.length - 5} more</div>}
             </div>
           )}

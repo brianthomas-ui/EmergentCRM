@@ -1793,10 +1793,127 @@ class ImportIn(BaseModel):
     commit: bool = False
     update_existing: bool = False
 
+def _import_build_lead(row, users_by, now):
+    """Pure: normalized CSV row -> lead doc (+ transient _status for preview). Returns (doc, error)."""
+    email = _pick(row, "email", "e_mail").lower()
+    name = _pick(row, "name", "full_name", "contact", "contact_name")
+    if not email or not name:
+        return None, "missing name or email"
+    status = _resolve_import_status(_pick(row, "status", "stage"))
+    owner = users_by.get(_pick(row, "owner", "owner_name", "agent", "rep").lower())
+    pl = _pick(row, "product_line", "product") or PRODUCT_LINE_NAMES[0]
+    doc = {
+        "id": new_id(), "name": name, "email": email,
+        "company": _pick(row, "company", "account", "organization"),
+        "phone": _pick(row, "phone", "mobile", "phone_number"),
+        "plan": _pick(row, "plan", "current_plan"),
+        "monthly_spend": _parse_amount(_pick(row, "monthly_spend", "mrr", "spend")),
+        "lifetime_value": _parse_amount(_pick(row, "lifetime_value", "ltv")),
+        "usage_trend": _pick(row, "usage_trend", "trend") or "stable",
+        "product_history": [], "source": _pick(row, "source") or "Historical Import",
+        "region": _pick(row, "region", "geo") or "Other", "priority": "None",
+        "product_line": pl if pl in PRODUCT_LINE_NAMES else PRODUCT_LINE_NAMES[0],
+        "owner_id": owner["id"] if owner else None,
+        "owner_name": owner["name"] if owner else None,
+        "notes": [], "ownership_history": [],
+        "last_meeting_at": None, "next_meeting_at": None,
+        "created_at": _pick(row, "created_at", "created", "date") or now, "updated_at": now,
+        "_status": status, **_status_fields(status),
+    }
+    return doc, None
+
+
+def _import_build_payment(row, lead, users_by, now):
+    """Pure: normalized CSV row + matched lead -> payment doc."""
+    amount = _parse_amount(_pick(row, "amount_usd", "amount", "value"))
+    ps = (_pick(row, "status", "payment_status") or "paid").lower()
+    ps = "paid" if ps in ("paid", "complete", "completed", "won") else ("failed" if "fail" in ps else "pending")
+    owner = users_by.get((lead.get("owner_name") or "").lower())
+    return {
+        "id": new_id(), "lead_id": lead["id"], "lead_name": lead["name"],
+        "agent_id": (owner or {}).get("id") or lead.get("owner_id"), "agent_name": lead.get("owner_name"),
+        "provider": _pick(row, "provider") or "manual",
+        "amount": amount, "currency": "usd", "amount_usd": amount, "fx_rate": 85.0,
+        "product_line": _pick(row, "product_line", "product") or lead.get("product_line") or PRODUCT_LINE_NAMES[0],
+        "package_id": lead.get("package_id"), "description": _pick(row, "description") or "Historical import",
+        "status": "complete" if ps == "paid" else "initiated", "payment_status": ps,
+        "session_id": f"import_{new_id()[:10]}", "payment_link": None,
+        "created_at": _pick(row, "created_at", "date", "paid_at") or now, "updated_at": now,
+    }
+
+
+def _import_build_meeting(row, lead, users_by, now):
+    """Pure: normalized CSV row + matched lead -> meeting doc."""
+    owner = users_by.get((lead.get("owner_name") or "").lower())
+    mstatus = (_pick(row, "status") or "completed").lower().replace(" ", "_")
+    mstatus = mstatus if mstatus in ("completed", "scheduled", "no_show") else "completed"
+    sched = _pick(row, "scheduled_at", "time", "date", "meeting_time") or now
+    return {
+        "id": new_id(), "lead_id": lead["id"], "lead_name": lead["name"],
+        "agent_id": (owner or {}).get("id") or lead.get("owner_id"), "agent_name": lead.get("owner_name"),
+        "scheduled_at": sched, "duration": int(_parse_amount(_pick(row, "duration")) or 30),
+        "status": mstatus, "source": _pick(row, "source") or "Historical Import",
+        "booking_driver": _pick(row, "driver", "booking_driver") or "Renewal",
+        "no_show_reason": "", "reschedule_status": "",
+        "outcome_notes": _pick(row, "notes", "outcome_notes") or "",
+        "completed_at": sched if mstatus in ("completed", "no_show") else None,
+        "recording_url": None, "summary": None, "created_at": now,
+    }
+
+
+async def _import_leads_row(row, users_by, now, commit, update_existing):
+    doc, err = _import_build_lead(row, users_by, now)
+    if err:
+        return "error", err, None
+    status = doc.pop("_status")
+    existing = await db.leads.find_one({"email": doc["email"]})
+    if existing and not update_existing:
+        action = "skip"
+    elif existing:
+        if commit:
+            upd = {k: v for k, v in doc.items() if k not in ("id", "created_at", "notes", "ownership_history")}
+            await db.leads.update_one({"id": existing["id"]}, {"$set": upd})
+        action = "update"
+    else:
+        if commit:
+            await db.leads.insert_one(doc)
+        action = "create"
+    return action, None, {"name": doc["name"], "email": doc["email"], "company": doc["company"],
+                          "status": status, "owner": doc["owner_name"] or "-", "action": action}
+
+
+async def _import_payments_row(row, users_by, now, commit, update_existing):
+    email = _pick(row, "email", "lead_email", "customer_email").lower()
+    lead = await db.leads.find_one({"email": email}) if email else None
+    if not lead:
+        return "error", f"no lead matched email '{email}'", None
+    doc = _import_build_payment(row, lead, users_by, now)
+    if commit:
+        await db.payments.insert_one(doc)
+    return "create", None, {"lead": lead["name"], "amount": doc["amount"],
+                            "status": doc["payment_status"], "product_line": doc["product_line"], "action": "create"}
+
+
+async def _import_meetings_row(row, users_by, now, commit, update_existing):
+    email = _pick(row, "email", "lead_email").lower()
+    lead = await db.leads.find_one({"email": email}) if email else None
+    if not lead:
+        return "error", f"no lead matched email '{email}'", None
+    doc = _import_build_meeting(row, lead, users_by, now)
+    if commit:
+        await db.meetings.insert_one(doc)
+    return "create", None, {"lead": lead["name"], "scheduled_at": doc["scheduled_at"],
+                            "status": doc["status"], "action": "create"}
+
+
+_IMPORT_HANDLERS = {"leads": _import_leads_row, "payments": _import_payments_row, "meetings": _import_meetings_row}
+
+
 @api.post("/import/historical")
 async def import_historical(body: ImportIn, admin: dict = Depends(require_admin)):
     itype = (body.type or "").strip().lower()
-    if itype not in ("leads", "payments", "meetings"):
+    handler = _IMPORT_HANDLERS.get(itype)
+    if not handler:
         raise HTTPException(status_code=400, detail="type must be leads, payments or meetings")
     try:
         reader = csv.DictReader(io.StringIO(body.csv_text or ""))
@@ -1810,108 +1927,17 @@ async def import_historical(body: ImportIn, admin: dict = Depends(require_admin)
     now = now_iso()
 
     for idx, row in enumerate(rows):
-        line = idx + 2  # account for header line
-        if itype == "leads":
-            email = _pick(row, "email", "e_mail").lower()
-            name = _pick(row, "name", "full_name", "contact", "contact_name")
-            if not email or not name:
-                errors.append({"row": line, "message": "missing name or email"}); skipped += 1; continue
-            status = _resolve_import_status(_pick(row, "status", "stage"))
-            owner = users_by.get(_pick(row, "owner", "owner_name", "agent", "rep").lower())
-            sf = _status_fields(status)
-            pl = _pick(row, "product_line", "product") or PRODUCT_LINE_NAMES[0]
-            doc = {
-                "id": new_id(), "name": name, "email": email,
-                "company": _pick(row, "company", "account", "organization"),
-                "phone": _pick(row, "phone", "mobile", "phone_number"),
-                "plan": _pick(row, "plan", "current_plan"),
-                "monthly_spend": _parse_amount(_pick(row, "monthly_spend", "mrr", "spend")),
-                "lifetime_value": _parse_amount(_pick(row, "lifetime_value", "ltv")),
-                "usage_trend": _pick(row, "usage_trend", "trend") or "stable",
-                "product_history": [], "source": _pick(row, "source") or "Historical Import",
-                "region": _pick(row, "region", "geo") or "Other",
-                "priority": "None",
-                "product_line": pl if pl in PRODUCT_LINE_NAMES else PRODUCT_LINE_NAMES[0],
-                "owner_id": owner["id"] if owner else None,
-                "owner_name": owner["name"] if owner else None,
-                "notes": [], "ownership_history": [],
-                "last_meeting_at": None, "next_meeting_at": None,
-                "created_at": _pick(row, "created_at", "created", "date") or now, "updated_at": now,
-                **sf,
-            }
-            existing = await db.leads.find_one({"email": email})
-            if existing:
-                if body.update_existing:
-                    if body.commit:
-                        upd = {k: v for k, v in doc.items() if k not in ("id", "created_at", "notes", "ownership_history")}
-                        await db.leads.update_one({"id": existing["id"]}, {"$set": upd})
-                    updated += 1
-                else:
-                    skipped += 1
-            else:
-                if body.commit:
-                    await db.leads.insert_one(doc)
-                created += 1
-            if len(preview) < 8:
-                preview.append({"name": name, "email": email, "company": doc["company"],
-                                "status": status, "owner": doc["owner_name"] or "-",
-                                "action": ("update" if existing and body.update_existing else ("skip" if existing else "create"))})
-
-        elif itype == "payments":
-            email = _pick(row, "email", "lead_email", "customer_email").lower()
-            lead = await db.leads.find_one({"email": email}) if email else None
-            if not lead:
-                errors.append({"row": line, "message": f"no lead matched email '{email}'"}); skipped += 1; continue
-            amount = _parse_amount(_pick(row, "amount_usd", "amount", "value"))
-            ps = (_pick(row, "status", "payment_status") or "paid").lower()
-            ps = "paid" if ps in ("paid", "complete", "completed", "won") else ("failed" if "fail" in ps else "pending")
-            owner = users_by.get((lead.get("owner_name") or "").lower())
-            doc = {
-                "id": new_id(), "lead_id": lead["id"], "lead_name": lead["name"],
-                "agent_id": (owner or {}).get("id") or lead.get("owner_id"),
-                "agent_name": lead.get("owner_name"),
-                "provider": _pick(row, "provider") or "manual",
-                "amount": amount, "currency": "usd", "amount_usd": amount, "fx_rate": 85.0,
-                "product_line": _pick(row, "product_line", "product") or lead.get("product_line") or PRODUCT_LINE_NAMES[0],
-                "package_id": lead.get("package_id"), "description": _pick(row, "description") or "Historical import",
-                "status": "complete" if ps == "paid" else "initiated", "payment_status": ps,
-                "session_id": f"import_{new_id()[:10]}", "payment_link": None,
-                "created_at": _pick(row, "created_at", "date", "paid_at") or now, "updated_at": now,
-            }
-            if body.commit:
-                await db.payments.insert_one(doc)
+        action, err, prev = await handler(row, users_by, now, body.commit, body.update_existing)
+        if action == "error":
+            errors.append({"row": idx + 2, "message": err}); skipped += 1; continue
+        if action == "create":
             created += 1
-            if len(preview) < 8:
-                preview.append({"lead": lead["name"], "amount": amount, "status": ps,
-                                "product_line": doc["product_line"], "action": "create"})
-
-        else:  # meetings
-            email = _pick(row, "email", "lead_email").lower()
-            lead = await db.leads.find_one({"email": email}) if email else None
-            if not lead:
-                errors.append({"row": line, "message": f"no lead matched email '{email}'"}); skipped += 1; continue
-            owner = users_by.get((lead.get("owner_name") or "").lower())
-            mstatus = (_pick(row, "status") or "completed").lower().replace(" ", "_")
-            mstatus = mstatus if mstatus in ("completed", "scheduled", "no_show") else "completed"
-            sched = _pick(row, "scheduled_at", "time", "date", "meeting_time") or now
-            doc = {
-                "id": new_id(), "lead_id": lead["id"], "lead_name": lead["name"],
-                "agent_id": (owner or {}).get("id") or lead.get("owner_id"),
-                "agent_name": lead.get("owner_name"),
-                "scheduled_at": sched, "duration": int(_parse_amount(_pick(row, "duration")) or 30),
-                "status": mstatus, "source": _pick(row, "source") or "Historical Import",
-                "booking_driver": _pick(row, "driver", "booking_driver") or "Renewal",
-                "no_show_reason": "" , "reschedule_status": "",
-                "outcome_notes": _pick(row, "notes", "outcome_notes") or "",
-                "completed_at": sched if mstatus in ("completed", "no_show") else None,
-                "recording_url": None, "summary": None,
-                "created_at": now,
-            }
-            if body.commit:
-                await db.meetings.insert_one(doc)
-            created += 1
-            if len(preview) < 8:
-                preview.append({"lead": lead["name"], "scheduled_at": sched, "status": mstatus, "action": "create"})
+        elif action == "update":
+            updated += 1
+        else:
+            skipped += 1
+        if prev and len(preview) < 8:
+            preview.append(prev)
 
     if body.commit:
         await log_audit("import_historical", admin["name"], itype,

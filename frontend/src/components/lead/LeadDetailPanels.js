@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   CreditCard, CalendarPlus, CheckCircle2, RefreshCw, Lock, Mail, MessageCircle, Loader2, StickyNote,
@@ -139,6 +139,7 @@ export function TasksPanel({ tasks = [] }) {
 
 export function OverviewPanel({ lead, meta, onUpdate, onUpdateStage }) {
   const statuses = meta?.statuses || VISIBLE_STATUSES;
+  const editableStatuses = useMemo(() => statuses.filter((s) => s !== "Payment Link Paid"), [statuses]);
   return (
     <Card className="p-4">
       <span className="text-[11px] font-mono font-semibold uppercase tracking-[0.12em] text-[var(--text-faint)] block mb-3">Overview</span>
@@ -148,7 +149,7 @@ export function OverviewPanel({ lead, meta, onUpdate, onUpdateStage }) {
           {/* Single editable status control -> /stage (single-writer model). "Payment
               Link Paid" (Won) is set by recording a paid payment, not here (G5). */}
           <Select data-testid="status-select" value={lead.status || ""} onChange={(e) => onUpdateStage(e.target.value)}>
-            {statuses.filter((s) => s !== "Payment Link Paid").map((s) => <option key={s} value={s}>{s}</option>)}
+            {editableStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
           </Select>
         </div>
         <div>

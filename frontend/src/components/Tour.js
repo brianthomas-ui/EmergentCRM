@@ -83,7 +83,7 @@ export default function Tour({ run, steps, onClose }) {
 
   const finish = () => {
     clearInterval(pollRef.current);
-    try { localStorage.setItem("crm_tour_v2_done", "1"); } catch (e) { /* storage blocked */ }
+    try { localStorage.setItem("crm_tour_v2_done", "1"); } catch (e) { console.warn("Tour flag persist failed:", e); }
     onClose?.();
   };
   const next = () => (i >= steps.length - 1 ? finish() : setI(i + 1));

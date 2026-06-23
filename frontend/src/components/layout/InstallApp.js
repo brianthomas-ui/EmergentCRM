@@ -62,7 +62,7 @@ export function InstallBanner() {
   const { canInstall, canPrompt, iosInstructions, promptInstall } = useInstallPrompt();
   const [iosOpen, setIosOpen] = useState(false);
   const [dismissed, setDismissed] = useState(() => {
-    try { return localStorage.getItem(DISMISS_KEY) === "1"; } catch (e) { return false; }
+    try { return localStorage.getItem(DISMISS_KEY) === "1"; } catch (e) { console.warn("Install banner read failed:", e); return false; }
   });
 
   if (!canInstall || dismissed) return null;
@@ -73,7 +73,7 @@ export function InstallBanner() {
   };
   const dismiss = () => {
     setDismissed(true);
-    try { localStorage.setItem(DISMISS_KEY, "1"); } catch (e) { /* storage blocked */ }
+    try { localStorage.setItem(DISMISS_KEY, "1"); } catch (e) { console.warn("Install banner persist failed:", e); }
   };
 
   return (

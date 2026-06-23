@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   Loader2,
@@ -157,6 +157,7 @@ function DealTimeline({ timeline }) {
 }
 
 function DealBody({ lead, action, statuses, timeline, onStatus }) {
+  const moveStatuses = useMemo(() => statuses.filter((s) => s !== "Payment Link Paid"), [statuses]);
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
@@ -190,7 +191,7 @@ function DealBody({ lead, action, statuses, timeline, onStatus }) {
           data-testid="drawer-status-select"
         >
           {/* "Payment Link Paid" (Won) is set by recording a paid payment, not here. */}
-          {statuses.filter((s) => s !== "Payment Link Paid").map((s) => (
+          {moveStatuses.map((s) => (
             <option key={s} value={s}>{s}</option>
           ))}
         </Select>
@@ -227,7 +228,7 @@ export default function DealDrawer({ leadId, open, onClose, meta, onChanged, onS
   const lead = detail?.lead;
   const statuses = meta?.statuses || VISIBLE_STATUSES;
   const action = lead ? statusAction(lead.status) : null;
-  const timeline = buildTimeline(detail);
+  const timeline = useMemo(() => buildTimeline(detail), [detail]);
 
   const refresh = () =>
     client.get(`/leads/${leadId}`).then((r) => setDetail(r.data)).catch(() => {});
