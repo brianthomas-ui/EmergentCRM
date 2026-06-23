@@ -4,6 +4,23 @@
 > The sections below this changelog are LEGACY (pre-redesign, light theme) — defer to the handoff.
 
 ## Changelog
+### 2026-06-23 — GitHub sync (Claude Code) + redeploy prep
+- Fast-forwarded preview `/app` to `origin/main` (commit `d21a2e9`) — clean FF, no work lost. Pulled in user's Claude Code work: marketing landing page, demo data enrichment (~252 leads, $394k closed, all 4 product lines populated), mobile PWA app-shell + install button, broadened test-lead purge. `.env` gitignored (untouched).
+- Deployment readiness: added `memory/test_credentials.md` to `.gitignore`. CORS flagged by deploy agent but **intentionally kept as explicit allowlist** (app uses httpOnly-cookie auth; `allow_origins="*"` would force `allow_credentials=False` and break login). Production domain already allowlisted.
+- Verified merged app compiles + renders on desktop (dashboard, sidebar, View-as, theme toggle all intact). User to click Deploy to push to production (agent cannot deploy).
+
+### 2026-06-20 — Major feature batch (revenue fix, demo views, theme, settings, import)
+Backend pytest passing; frontend iteration_12 = 100% (9/9 review flows). All verified end-to-end.
+- **Revenue-by-Product bug FIXED**: `_compute_product_revenue` now derives product line from lead/package when a payment's is blank and buckets unknowns into "Other" so cards reconcile with Revenue Closed (protects real data, not just demo).
+- **Believable demo reseed**: `_seed_demo_leads` generator — realistic companies/contacts, varied created dates (new + older in-pipeline + won across weeks), conversation notes, meetings, payments w/ product_line. Diyea (manager) also sells. Agents: Brian/Aryan/Vinay/Dipan/Abhishek. `POST /demo/reset` (admin) + one-time clean-reseed migration.
+- **My Work page** (`/workspace`, `GET /api/workspace`): agent command center — follow-ups due, today's meetings, payment pending, needs-attention (stale), recent conversations + 6 stat tiles.
+- **Demo Manager/Agent view toggle**: secure JWT impersonation (`POST /demo/impersonate` + `/demo/stop-impersonate`, `imp_by` claim). Admin sidebar "View as agent" dropdown + amber banner + Back to Manager. RBAC scopes via effective role.
+- **Light mode**: clean light tokens, dark stays default, toggle in sidebar (localStorage `crm_theme`), dark-safety pass scoped to dark-only + light accent remap.
+- **Role-specific deep tours**: separate Manager (11-step) and Agent (10-step) tracks in `tourSteps.js`.
+- **Settings page** (`/settings`): org API keys (Stripe/Razorpay/Calendly/Circleback/SendGrid) + per-agent keys, Fernet-encrypted at rest (key from JWT_SECRET), masked on read; FX rate; Reset demo data.
+- **Historical import** (`POST /import/historical`): leads + payments + meetings CSV, auto column-mapping, dedupe (leads by email), preview-then-commit UI in Settings.
+- Demo password externalized to `.env` (`DEMO_PASSWORD`); `Layout.js` nav `useMemo`; backend complexity refactors (dashboard_drilldown dispatch table, list_team/list_leads/update_lead/razorpay_webhook helpers).
+
 ### 2026-06-19 — Code-quality batch #5 (P0/P1 + full P2 refactor)
 Behavior-preserving. Backend 48/48 pytest pass + curl-verified endpoints; frontend regression (iter_11) 100% (8/8 flows), zero regressions.
 - **P0 — demo password externalized**: `server.py:_seed_demo_account` now reads `DEMO_EMAIL`/`DEMO_PASSWORD` from backend `.env` (defaults preserved). No credential literal remains in source. (Note: this is the *advertised* demo login, not a true secret — externalized for cleanliness.)
