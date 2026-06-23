@@ -4,6 +4,11 @@
 > The sections below this changelog are LEGACY (pre-redesign, light theme) — defer to the handoff.
 
 ## Changelog
+### 2026-06-23 — Backend tests (payments/import) + final mobile QA (deploy-ready)
+- **Backend tests**: new `backend/tests/test_payments_import.py` (25 tests) covering credit-top-up multiplier pricing + 6x/10x clamping, INR→credits conversion, legacy fixed-credit presets, custom-amount-overrides-preset (agent discount), currency/amount/rail validation guards, manual mark-paid→Won, simulate→Won+credits persisted, and the historical import preview→commit→dedupe→update-existing semantics + email-linking + per-row error reporting + templates/RBAC. **Full suite: 98/98 pass** (73 prior + 25 new). Cleaned all TEST_ artifacts from the demo DB afterward.
+- **Final mobile QA** (testing agent iteration_14, 390x844): 6/6 mobile flows pass — mobile shell, Global Search overlay, right-anchored Notification panel (on-screen), /leads tappable cards (bulk checkboxes correctly desktop-only), Settings go-live checklist + Test button toast. ZERO horizontal overflow on every route, zero non-401 console errors. No code changes required.
+- Status: feature-complete & verified. Pending only user action: **Save to GitHub** + **Deploy** (agent cannot trigger). Reminder: swap the placeholder Stripe test key for a valid `sk_test_*` for clean live demos.
+
 ### 2026-06-23 — Backlog frontend (Search, Bulk, Saved Views, Notifications) + Settings go-live
 Backend endpoints already existed (curl-verified). Built the FE; testing agent iteration_13 = 100% (7/7 flows), 0 bugs, 0 console errors.
 - **Global Search** (`components/layout/GlobalSearch.jsx`): debounced (250ms, >=2 chars) cross-entity search via `GET /api/search` → grouped Leads/Meetings/Payments dropdown; click navigates. Desktop = sidebar input; mobile = top-bar icon → full-screen overlay.
