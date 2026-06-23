@@ -16,3 +16,10 @@ deploy/certs/*
 # NOTE: tools/ (the emergentintegrations shim) IS committed now — the self-host backend
 # build COPYs it. It is a local drop-in and never re-imported to the Emergent platform.
 memory/test_credentials.md
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
