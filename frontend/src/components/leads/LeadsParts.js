@@ -119,10 +119,21 @@ export function RecentNotes({ notes }) {
   );
 }
 
-function LeadRow({ lead, meta, onRowClick }) {
+function LeadRow({ lead, meta, onRowClick, selectable, checked, onToggle }) {
   const l = lead;
   return (
-    <TR key={l.id} data-testid={`lead-row-${l.id}`} onClick={() => onRowClick(l.id)}>
+    <TR key={l.id} data-testid={`lead-row-${l.id}`} onClick={() => onRowClick(l.id)} active={checked}>
+      {selectable && (
+        <TD className="w-8" onClick={(e) => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            data-testid={`lead-select-${l.id}`}
+            checked={!!checked}
+            onChange={() => onToggle(l.id)}
+            className="accent-emerald-500 w-4 h-4 cursor-pointer align-middle"
+          />
+        </TD>
+      )}
       <TD>
         <div className="flex items-center gap-2.5">
           <Avatar name={l.name} size="sm" src={l.avatar_url} />
@@ -234,11 +245,23 @@ export function LeadsTable(props) {
   return <LeadsTableDesktop {...props} />;
 }
 
-function LeadsTableDesktop({ filtered, leads, loading, meta, onRowClick }) {
+function LeadsTableDesktop({ filtered, leads, loading, meta, onRowClick, selectable, selected, onToggle, onToggleAll, allSelected }) {
+  const span = selectable ? 9 : 8;
   return (
     <Card className="overflow-hidden">
       <Table>
         <THead>
+          {selectable && (
+            <TH className="w-8">
+              <input
+                type="checkbox"
+                data-testid="lead-select-all"
+                checked={!!allSelected}
+                onChange={onToggleAll}
+                className="accent-emerald-500 w-4 h-4 cursor-pointer align-middle"
+              />
+            </TH>
+          )}
           <TH>Name / Company</TH>
           <TH>Source</TH>
           <TH>Product Interest</TH>
@@ -250,11 +273,19 @@ function LeadsTableDesktop({ filtered, leads, loading, meta, onRowClick }) {
         </THead>
         <tbody>
           {filtered.map((l) => (
-            <LeadRow key={l.id} lead={l} meta={meta} onRowClick={onRowClick} />
+            <LeadRow
+              key={l.id}
+              lead={l}
+              meta={meta}
+              onRowClick={onRowClick}
+              selectable={selectable}
+              checked={!!selected?.has(l.id)}
+              onToggle={onToggle}
+            />
           ))}
           {!loading && filtered.length === 0 && (
             <tr>
-              <td colSpan={8} className="py-14 text-center">
+              <td colSpan={span} className="py-14 text-center">
                 <Users className="w-8 h-8 mx-auto mb-2 text-[var(--text-faint)]" />
                 <p className="text-sm text-[var(--text-faint)]">No leads found.</p>
               </td>
@@ -262,7 +293,7 @@ function LeadsTableDesktop({ filtered, leads, loading, meta, onRowClick }) {
           )}
           {loading && (
             <tr>
-              <td colSpan={8} className="py-10 text-center text-xs text-[var(--text-faint)]">
+              <td colSpan={span} className="py-10 text-center text-xs text-[var(--text-faint)]">
                 Loading…
               </td>
             </tr>

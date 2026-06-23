@@ -9,6 +9,8 @@ import { Select, darkInput, btnEmerald, btnGhost } from "@/components/dark/Primi
 import PeriodFilter, { DEFAULT_PERIOD, toParams } from "@/components/dark/PeriodFilter";
 import NewLeadModal from "@/components/dark/NewLeadModal";
 import { KpiCard, TodaysMeetings, RecentNotes, LeadsTable } from "@/components/leads/LeadsParts";
+import SavedViews from "@/components/leads/SavedViews";
+import BulkBar from "@/components/leads/BulkBar";
 
 // Named "views" - a single mechanism shared by the Leads KPI cards (clicked in place)
 // and the My Work tiles (which navigate here as /leads?view=...). Each is a client-side
@@ -44,6 +46,8 @@ export default function Leads() {
   const [meta, setMeta] = useState(null);
   const [meetings, setMeetings] = useState([]);
   const [recentNotes, setRecentNotes] = useState([]);
+  const [agents, setAgents] = useState([]);
+  const [selected, setSelected] = useState(() => new Set());
   const [loading, setLoading] = useState(true);
 
   // filters
@@ -94,6 +98,8 @@ export default function Leads() {
     client.get("/meetings", { params: { today: "true" } }).then((r) => setMeetings(r.data || [])).catch(() => {});
     // Recent notes across leads
     client.get("/leads/notes/recent").then((r) => setRecentNotes(r.data || [])).catch(() => {});
+    // Team list powers the bulk "Assign to…" picker (admins only).
+    if (isAdmin) client.get("/team").then((r) => setAgents(r.data || [])).catch(() => {});
   }, [isAdmin]);
 
   // KPI derivations
@@ -121,6 +127,37 @@ export default function Leads() {
     [leads]
   );
 
+  // Bulk selection (over the currently filtered rows).
+  const visibleIds = useMemo(() => filtered.map((l) => l.id), [filtered]);
+  const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
+  const toggle = (id) =>
+    setSelected((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  const toggleAll = () =>
+    setSelected((s) => {
+      const n = new Set(s);
+      if (allSelected) visibleIds.forEach((id) => n.delete(id));
+      else visibleIds.forEach((id) => n.add(id));
+      return n;
+    });
+  const clearSelection = () => setSelected(new Set());
+
+  // Saved views: persist/restore the simple filter set.
+  const currentFilters = { search, statusFilter, productFilter, sourceFilter, view };
+  const applyView = (f) => {
+    setSearch(f.search || "");
+    setStatusFilter(f.statusFilter || "");
+    setProductFilter(f.productFilter || "");
+    setSourceFilter(f.sourceFilter || "");
+    const v = f.view || "all";
+    setView(v);
+    setSearchParams(v === "all" ? {} : { view: v }, { replace: true });
+  };
+
   const importCsv = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -145,6 +182,7 @@ export default function Leads() {
           <p className="text-xs text-[var(--text-muted)] mt-0.5">Manage and qualify inbound prospects</p>
         </div>
         <div className="flex items-center gap-2">
+          <SavedViews currentFilters={currentFilters} onApply={applyView} />
           {isAdmin && (
             <>
               <input ref={fileRef} type="file" accept=".csv" hidden onChange={importCsv} data-testid="csv-input" />
@@ -226,12 +264,33 @@ export default function Leads() {
           </div>
 
           <div data-tour="leads-table">
+            {selected.size > 0 && (
+              <div className="mb-3">
+                <BulkBar
+                  count={selected.size}
+                  ids={[...selected]}
+                  statuses={statuses}
+                  agents={agents}
+                  isAdmin={isAdmin}
+                  onClear={clearSelection}
+                  onDone={() => {
+                    clearSelection();
+                    load();
+                  }}
+                />
+              </div>
+            )}
             <LeadsTable
               filtered={filtered}
               leads={leads}
               loading={loading}
               meta={meta}
               onRowClick={(id) => navigate(`/leads/${id}`)}
+              selectable
+              selected={selected}
+              onToggle={toggle}
+              onToggleAll={toggleAll}
+              allSelected={allSelected}
             />
           </div>
         </div>

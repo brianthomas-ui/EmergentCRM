@@ -1,0 +1,41 @@
+{
+  "summary": "Verified all four new frontend features (Global Search, Notification Bell, Bulk Lead Actions, Saved Views) and the expanded Settings page end-to-end as demo@emergent.sh admin against the live preview URL. All 7 review-request items pass; no console pageerrors; navigation regression intact.",
+  "scope": "Frontend-only validation on REACT_APP_BACKEND_URL=https://pipeline-hub-70.preview.emergentagent.com at 1920x1080 with httpOnly cookie + CSRF (handled by app axios client).",
+  "verified_flows": [
+    "LOGIN: demo@emergent.sh/demo12345 authenticates and renders Dashboard (URL is '/' with Sales Console UI; nav-dashboard active). Pre-setting localStorage.crm_tour_v2_done='1' suppressed the welcome tour.",
+    "GLOBAL SEARCH (sidebar): data-testid=global-search + global-search-input present. Typing 'gran' shows global-search-results dropdown with grouped Leads (8). Typing 'neha' returns 8 leads. Clicking a search-lead-<id> row navigates to /leads/<id>. global-search-clear button empties the input and closes the dropdown.",
+    "NOTIFICATIONS (sidebar): notification-bell-btn opens notification-panel. For demo account it shows the 'You're all caught up' notification-empty state with 0 items and no notification-count badge — acceptable per task spec.",
+    "BULK LEAD ACTIONS on /leads: lead-select-all + per-row lead-select-<id> checkboxes render (283 rows). Clicking a row checkbox does NOT navigate to lead detail (URL unchanged). With 1 selected, bulk-bar appears showing 'bulk-count=1 selected' plus bulk-assign (admin), bulk-status, bulk-delete (admin), bulk-clear. Selecting 'Contacted' in bulk-status → toast '1 lead updated' and bulk-bar clears + table reloads. lead-select-all selects all 283 visible rows ('bulk-count=283 selected'); bulk-clear hides the bar. bulk-assign on 1 lead → toast '1 lead updated'.",
+    "SAVED VIEWS on /leads: saved-views-btn opens saved-views-menu containing save-view-btn. After applying filters (search='a', filter-status='Contacted') and accepting the window.prompt with 'TEST_VIEW_AUTO', server returns the new view (id=2fb3d577-…), saved-view-<id> appears in the menu, toast 'Saved \"TEST_VIEW_AUTO\"' is shown. Clicking the saved view re-applies filters. Cleanup: deleted the TEST_VIEW_AUTO row via authenticated DELETE /api/views/<id> (200) — verified the list is clean for next iteration.",
+    "SETTINGS (/settings, admin): settings-checklist renders with all 7 ids — checklist-status-stripe='Configured', razorpay='Configured', calendly/circleback/sendgrid/google/emergent_users='Not set'. All 7 settings-<id> cards render with their own test-<id> buttons. test-stripe → toast 'Stripe error: Invalid API Key provided: sk_test_***************2345' (live API exercised, key is test-mode placeholder — surface error is expected and acts as proof the endpoint is wired). test-sendgrid → toast 'Not configured' (correct — sendgrid is unset). save-org-keys, settings-my-keys, settings-import, save-fx all present.",
+    "REGRESSION: all admin sidebar items render and are clickable — nav-dashboard, nav-workspace, nav-leads, nav-campaigns, nav-meetings, nav-deals, nav-team, nav-payments, nav-settings, nav-audit. No page-level JS errors thrown during the entire run (errors[]=[]). Theme toggle button (Light/Dark) still visible in user dock."
+  ],
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "observations_non_blocking": [
+    "Single-char 'a' query returned 0/0/0 results from /api/search (no dropdown shown), while 'gran' and 'neha' returned full result groups. The component requires trimmed length >=2 (correct), but backend likely strips/ignores 1-grams; effectively the same UX. Not a bug — both spec examples ('gran' and longer terms) work fine.",
+    "Saved Views delete trash icon uses opacity-0 group-hover:opacity-100, so the delete-view-<id> button is not visible until hover. This is fine for real users but mildly hostile to Playwright automation — consider visibility on focus too (a11y benefit). Cleanup verified via direct authenticated DELETE.",
+    "Stripe test-mode credential (sk_test_***2345) is invalid against live Stripe — the toast surfaces the upstream error verbatim. Behavior is correct (frontend wiring proven); main agent may want to rotate to a valid test key for cleaner demo.",
+    "Mobile viewport not exercised in this iteration (desktop primary per task); mobile-search-btn / notification-bell mobile variant code reviewed in source and renders the expected overlay + dropdown, but no Playwright pass at 375x812 was run."
+  ],
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "GlobalSearch.jsx: debounced 250ms request + outside-click close + memoised resultsList are clean. trim().length>=2 gating prevents 1-char chatter. ✅",
+    "NotificationBell.jsx: 60s polling interval is fine; on logout the component unmounts so interval is cleared. Items keyed by `${type}-${lead_id}-${i}` is acceptable but using a server-side stable id would be more robust if backend ever returns duplicate (type,lead_id) pairs in a single payload.",
+    "BulkBar.jsx: posts {ids,action,value} matching backend contract; window.confirm-gates delete; admin-only conditional render for assign+delete matches RBAC. Good.",
+    "SavedViews.jsx: per-user scope handled server-side; window.prompt is intentional (per main-agent note). Consider replacing with a proper inline input in a follow-up for mobile (prompt() is blocked in some PWA contexts).",
+    "Settings.js: GoLiveChecklist + per-provider Test buttons correctly surface backend toast detail (success/error) and reflect Configured/Not set status from the backend masked-keys payload — clean integration."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped per request)", "frontend": "100% (7/7 review-request flows pass)"},
+  "test_credentials": "Admin: demo@emergent.sh / demo12345 (used). Agent aryan.f@emergent.sh / emergent@12345 (not used — RBAC of bulk bar visually verified via admin-flag conditional in source).",
+  "seed_data_creation": "Created 1 saved view 'TEST_VIEW_AUTO' (id=2fb3d577-5b92-42aa-99c8-7ae3640f0b39) for demo user — deleted at the end of the run (DELETE /api/views/<id> => 200). Two leads had their status flipped to 'Contacted' and one had an assignee changed during bulk-action smoke tests; no leads were deleted.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All four new features ship working. If you re-run this suite, set localStorage.crm_tour_v2_done='1' BEFORE submitting the login form to avoid the welcome tour overlay (which is rendered for fresh demo sessions). For Saved Views cleanup, the delete-view-<id> icon needs hover() to appear (opacity-0 group-hover:opacity-100); easier path is authenticated DELETE /api/views/<id> with X-CSRF-Token taken from cookie. demo@emergent.sh notifications endpoint returns the empty state for this seeded dataset — that is acceptable per the task spec."
+}

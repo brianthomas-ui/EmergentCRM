@@ -97,8 +97,12 @@ export function TR({ children, onClick, active = false, className = "" }) {
   );
 }
 
-export function TD({ children, align = "left", className = "" }) {
-  return <td className={`px-3 py-3 text-${align} align-middle ${className}`}>{children}</td>;
+export function TD({ children, align = "left", className = "", ...rest }) {
+  return (
+    <td className={`px-3 py-3 text-${align} align-middle ${className}`} {...rest}>
+      {children}
+    </td>
+  );
 }
 
 // ---------------------------------------------------------------------------

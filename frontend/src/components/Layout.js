@@ -24,6 +24,8 @@ import ChangePasswordModal from "@/components/ChangePasswordModal";
 import ImpersonationBanner from "@/components/ImpersonationBanner";
 import { SidebarNav, SidebarUserCard } from "@/components/layout/SidebarParts";
 import { ViewAsPicker } from "@/components/layout/ViewAsPicker";
+import GlobalSearch from "@/components/layout/GlobalSearch";
+import NotificationBell from "@/components/layout/NotificationBell";
 import MobileTopBar from "@/components/layout/MobileTopBar";
 import MobileTabBar from "@/components/layout/MobileTabBar";
 import MoreSheet from "@/components/layout/MoreSheet";
@@ -196,10 +198,16 @@ export default function Layout({ children }) {
             </div>
           </div>
 
+          <div className="px-3 pt-3 pb-1 flex items-center gap-2">
+            <div className="flex-1 min-w-0">
+              <GlobalSearch />
+            </div>
+            <NotificationBell />
+          </div>
+
           <SidebarNav items={visibleNavItems} />
 
           {isAdmin && !impersonating && <ViewAsPicker />}
-
           <SidebarUserCard
             user={user}
             isAdmin={isAdmin}

@@ -1,5 +1,7 @@
 import { useLocation } from "react-router-dom";
 import Avatar from "@/components/dark/Avatar";
+import GlobalSearch from "@/components/layout/GlobalSearch";
+import NotificationBell from "@/components/layout/NotificationBell";
 
 // Map a pathname to the page title shown in the top bar. Falls back to the brand
 // name on routes that are not in the nav (deep detail pages keep their own header).
@@ -32,6 +34,8 @@ export default function MobileTopBar({ navItems, user, onOpenMore }) {
             {title}
           </div>
         </div>
+        <GlobalSearch variant="mobile" />
+        <NotificationBell variant="mobile" />
         <button
           type="button"
           onClick={onOpenMore}
