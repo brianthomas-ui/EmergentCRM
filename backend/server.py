@@ -22,6 +22,7 @@ import asyncio
 import secrets
 import time
 import re
+import httpx
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta, date
 from collections import Counter, defaultdict, deque
@@ -622,18 +623,50 @@ async def require_admin(user: dict = Depends(get_current_user)) -> dict:
 def _is_admin(user: dict) -> bool:
     return user.get("role") == "admin"
 
+# ----------------------------------------------------------------------------
+# Workspace isolation (Demo vs Real). Every user/lead/payment/meeting/activity/
+# view carries an `is_demo` flag. A demo user (is_demo=True) can ONLY read/write
+# is_demo=True documents and vice-versa. This is enforced at the query level
+# (scope helpers below) AND the per-record access guards, so the two datasets are
+# absolutely isolated even for managers (who otherwise see "everything").
+# ----------------------------------------------------------------------------
+def _ws(user: dict) -> bool:
+    """The current actor's workspace flag: True = demo, False = real."""
+    return bool(user.get("is_demo"))
+
+def _lead_scope(user: dict) -> dict:
+    """Base lead/customer query: workspace-isolated + RBAC (agents see only their own)."""
+    s = {"is_demo": _ws(user)}
+    if user["role"] != "admin":
+        s["owner_id"] = user["id"]
+    return s
+
+def _agent_scope(user: dict) -> dict:
+    """Base meeting/payment query: workspace-isolated + RBAC (agents see only their own)."""
+    s = {"is_demo": _ws(user)}
+    if user["role"] != "admin":
+        s["agent_id"] = user["id"]
+    return s
+
 def _owns_lead(user: dict, lead: dict) -> bool:
-    return _is_admin(user) or (lead is not None and lead.get("owner_id") == user["id"])
+    if lead is None:
+        return _is_admin(user)
+    if bool(lead.get("is_demo")) != _ws(user):
+        return False
+    return _is_admin(user) or lead.get("owner_id") == user["id"]
 
 def require_lead_access(user: dict, lead: dict) -> None:
     if not _owns_lead(user, lead):
         raise HTTPException(status_code=404, detail="Lead not found")
 
 def require_meeting_access(user: dict, meeting: dict) -> None:
-    if not (_is_admin(user) or meeting.get("agent_id") == user["id"]):
+    if (meeting is None or bool(meeting.get("is_demo")) != _ws(user)
+            or not (_is_admin(user) or meeting.get("agent_id") == user["id"])):
         raise HTTPException(status_code=404, detail="Meeting not found")
 
 async def require_payment_access(user: dict, record: dict) -> None:
+    if record is not None and bool(record.get("is_demo")) != _ws(user):
+        raise HTTPException(status_code=404, detail="Payment not found")
     if _is_admin(user) or record.get("agent_id") == user["id"]:
         return
     # Legacy payments may lack agent_id; fall back to the owning lead.
@@ -642,9 +675,14 @@ async def require_payment_access(user: dict, record: dict) -> None:
         raise HTTPException(status_code=404, detail="Payment not found")
 
 async def log_activity(lead_id: str, type_: str, description: str, actor: str):
+    # Inherit the workspace flag from the lead so the activity feed stays isolated.
+    is_demo = False
+    if lead_id:
+        ld = await db.leads.find_one({"id": lead_id}, {"_id": 0, "is_demo": 1})
+        is_demo = bool(ld and ld.get("is_demo"))
     await db.activities.insert_one({
         "id": new_id(), "lead_id": lead_id, "type": type_,
-        "description": description, "actor": actor, "created_at": now_iso(),
+        "description": description, "actor": actor, "is_demo": is_demo, "created_at": now_iso(),
     })
 
 async def log_audit(action: str, actor: str, target: str, details: str = ""):
@@ -1239,7 +1277,7 @@ def _team_member_stats(member, win_leads, win_payments, win_meetings, period_use
 
 @api.get("/team", response_model=List[UserOut])
 async def list_team(request: Request, user: dict = Depends(get_current_user)):
-    members = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(1000)
+    members = await db.users.find({"is_demo": _ws(user)}, {"_id": 0, "password_hash": 0}).to_list(1000)
     members = [clean(m) for m in members]
     # Optional per-rep stats within a time window (Salesforce/Zoho style). Backward
     # compatible: only attached when a period/from/to query param is present.
@@ -1247,12 +1285,12 @@ async def list_team(request: Request, user: dict = Depends(get_current_user)):
             or request.query_params.get("from") is not None \
             or request.query_params.get("to") is not None:
         win_start, win_end, period_used = resolve_period(request, default="this_month")
-        leads = await db.leads.find({}, {"_id": 0, "id": 1, "owner_id": 1, "stage": 1,
+        leads = await db.leads.find({"is_demo": _ws(user)}, {"_id": 0, "id": 1, "owner_id": 1, "stage": 1,
             "sales_stage": 1, "outcome": 1, "payment_status": 1, "payment_state": 1,
             "created_at": 1}).to_list(5000)
-        payments = await db.payments.find({"payment_status": "paid"},
+        payments = await db.payments.find({"is_demo": _ws(user), "payment_status": "paid"},
             {"_id": 0, "agent_id": 1, "amount": 1, "amount_usd": 1, "created_at": 1}).to_list(5000)
-        meetings = await db.meetings.find({}, {"_id": 0, "agent_id": 1, "scheduled_at": 1,
+        meetings = await db.meetings.find({"is_demo": _ws(user)}, {"_id": 0, "agent_id": 1, "scheduled_at": 1,
             "created_at": 1}).to_list(5000)
 
         win_leads = [l for l in leads if _in_window(l.get("created_at"), win_start, win_end)]
@@ -1275,7 +1313,7 @@ async def create_agent(body: AgentIn, admin: dict = Depends(require_admin)):
         # Empty by default -> UI falls back to initials until an avatar is uploaded.
         "avatar_url": "",
         "monthly_target": body.monthly_target, "weekly_target": body.weekly_target,
-        "active": True, "created_at": now_iso(),
+        "active": True, "is_demo": _ws(admin), "created_at": now_iso(),
     }
     await db.users.insert_one(doc)
     await log_audit("create_agent", admin["name"], body.name)
@@ -1341,8 +1379,8 @@ async def clear_user_avatar(user_id: str, admin: dict = Depends(require_admin)):
 # Leads
 # ----------------------------------------------------------------------------
 def _build_lead_query(request: Request, user: dict) -> dict:
-    """Translate list-leads query params into a Mongo filter (RBAC-scoped)."""
-    q = {}
+    """Translate list-leads query params into a Mongo filter (workspace + RBAC-scoped)."""
+    q = {"is_demo": _ws(user)}
     for param, field in (("stage", "stage"), ("priority", "priority"), ("owner", "owner_id"),
                          ("product_line", "product_line"), ("provider", "provider")):
         val = request.query_params.get(param)
@@ -1430,7 +1468,7 @@ def _backfill_package(doc: dict):
 
 @api.post("/leads", response_model=LeadOut)
 async def create_lead(body: LeadIn, user: dict = Depends(get_current_user)):
-    existing = await db.leads.find_one({"email": body.email.lower()})
+    existing = await db.leads.find_one({"email": body.email.lower(), "is_demo": _ws(user)})
     if existing:
         raise HTTPException(status_code=400, detail="A lead with this email already exists")
     doc = body.model_dump()
@@ -1444,6 +1482,7 @@ async def create_lead(body: LeadIn, user: dict = Depends(get_current_user)):
         "id": new_id(), "stage": "New Booking", "owner_id": None, "owner_name": None,
         "owner_locked": False, "total_revenue_usd": 0.0, "deals_won": 0, "upsell_cycles": 0,
         "notes": [], "ownership_history": [], "payment_status": "none",
+        "is_demo": _ws(user),
         # New sales-status model (separate concerns)
         "sales_stage": "New / Needs Review", "outcome": "",
         "next_action": "Review and qualify", "next_action_at": None, "loss_reason": "",
@@ -1475,7 +1514,7 @@ async def recent_notes(request: Request, user: dict = Depends(get_current_user))
     except (TypeError, ValueError):
         limit = 10
     limit = max(1, min(limit, 50))
-    q = {} if user["role"] == "admin" else {"owner_id": user["id"]}
+    q = _lead_scope(user)
     leads = await db.leads.find(q, {"_id": 0, "id": 1, "name": 1, "notes": 1}).to_list(5000)
     notes = []
     for l in leads:
@@ -1587,7 +1626,8 @@ async def assign_lead(lead_id: str, body: AssignIn, admin: dict = Depends(requir
     lead = await db.leads.find_one({"id": lead_id})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
-    agent = await db.users.find_one({"id": body.agent_id})
+    require_lead_access(admin, lead)
+    agent = await db.users.find_one({"id": body.agent_id, "is_demo": _ws(admin)})
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
     await _assign_lead(lead, agent, admin["name"])
@@ -1595,8 +1635,8 @@ async def assign_lead(lead_id: str, body: AssignIn, admin: dict = Depends(requir
     lead = await db.leads.find_one({"id": lead_id})
     return serialize_lead(lead)
 
-async def _round_robin_agent() -> Optional[dict]:
-    agents = await db.users.find({"role": "agent", "active": True}).sort("created_at", 1).to_list(100)
+async def _round_robin_agent(ws: bool = False) -> Optional[dict]:
+    agents = await db.users.find({"role": "agent", "active": True, "is_demo": ws}).sort("created_at", 1).to_list(100)
     if not agents:
         return None
     counter = await db.counters.find_one_and_update(
@@ -1613,7 +1653,7 @@ async def round_robin_assign(lead_id: str, admin: dict = Depends(require_admin))
         raise HTTPException(status_code=404, detail="Lead not found")
     if lead.get("owner_locked"):
         raise HTTPException(status_code=400, detail=f"Lead is locked to {lead.get('owner_name')}. Reassign manually if needed.")
-    agent = await _round_robin_agent()
+    agent = await _round_robin_agent(_ws(admin))
     if not agent:
         raise HTTPException(status_code=400, detail="No active agents available")
     await _assign_lead(lead, agent, f"{admin['name']} (round-robin)")
@@ -1736,7 +1776,11 @@ async def import_leads(file: UploadFile = File(...), admin: dict = Depends(requi
     created, skipped = 0, 0
     for row in reader:
         doc = _csv_row_to_lead_doc(row)
-        if not doc or await db.leads.find_one({"email": doc["email"]}):
+        if not doc:
+            skipped += 1
+            continue
+        doc["is_demo"] = _ws(admin)
+        if await db.leads.find_one({"email": doc["email"], "is_demo": _ws(admin)}):
             skipped += 1
             continue
         await db.leads.insert_one(doc)
@@ -1779,8 +1823,8 @@ _IMPORT_STATUS_ALIASES = {
 def _resolve_import_status(raw: str) -> str:
     return _IMPORT_STATUS_ALIASES.get((raw or "").strip().lower(), "New / Needs Review")
 
-async def _user_lookup():
-    users = await db.users.find({}, {"_id": 0, "id": 1, "name": 1, "email": 1}).to_list(500)
+async def _user_lookup(ws: bool = False):
+    users = await db.users.find({"is_demo": ws}, {"_id": 0, "id": 1, "name": 1, "email": 1}).to_list(500)
     by = {}
     for u in users:
         by[(u.get("name") or "").strip().lower()] = u
@@ -1861,12 +1905,13 @@ def _import_build_meeting(row, lead, users_by, now):
     }
 
 
-async def _import_leads_row(row, users_by, now, commit, update_existing):
+async def _import_leads_row(row, users_by, now, commit, update_existing, ws=False):
     doc, err = _import_build_lead(row, users_by, now)
     if err:
         return "error", err, None
     status = doc.pop("_status")
-    existing = await db.leads.find_one({"email": doc["email"]})
+    doc["is_demo"] = ws
+    existing = await db.leads.find_one({"email": doc["email"], "is_demo": ws})
     if existing and not update_existing:
         action = "skip"
     elif existing:
@@ -1882,24 +1927,26 @@ async def _import_leads_row(row, users_by, now, commit, update_existing):
                           "status": status, "owner": doc["owner_name"] or "-", "action": action}
 
 
-async def _import_payments_row(row, users_by, now, commit, update_existing):
+async def _import_payments_row(row, users_by, now, commit, update_existing, ws=False):
     email = _pick(row, "email", "lead_email", "customer_email").lower()
-    lead = await db.leads.find_one({"email": email}) if email else None
+    lead = await db.leads.find_one({"email": email, "is_demo": ws}) if email else None
     if not lead:
         return "error", f"no lead matched email '{email}'", None
     doc = _import_build_payment(row, lead, users_by, now)
+    doc["is_demo"] = ws
     if commit:
         await db.payments.insert_one(doc)
     return "create", None, {"lead": lead["name"], "amount": doc["amount"],
                             "status": doc["payment_status"], "product_line": doc["product_line"], "action": "create"}
 
 
-async def _import_meetings_row(row, users_by, now, commit, update_existing):
+async def _import_meetings_row(row, users_by, now, commit, update_existing, ws=False):
     email = _pick(row, "email", "lead_email").lower()
-    lead = await db.leads.find_one({"email": email}) if email else None
+    lead = await db.leads.find_one({"email": email, "is_demo": ws}) if email else None
     if not lead:
         return "error", f"no lead matched email '{email}'", None
     doc = _import_build_meeting(row, lead, users_by, now)
+    doc["is_demo"] = ws
     if commit:
         await db.meetings.insert_one(doc)
     return "create", None, {"lead": lead["name"], "scheduled_at": doc["scheduled_at"],
@@ -1923,11 +1970,12 @@ async def import_historical(body: ImportIn, admin: dict = Depends(require_admin)
 
     errors, preview = [], []
     created = updated = skipped = 0
-    users_by = await _user_lookup()
+    ws = _ws(admin)
+    users_by = await _user_lookup(ws)
     now = now_iso()
 
     for idx, row in enumerate(rows):
-        action, err, prev = await handler(row, users_by, now, body.commit, body.update_existing)
+        action, err, prev = await handler(row, users_by, now, body.commit, body.update_existing, ws)
         if action == "error":
             errors.append({"row": idx + 2, "message": err}); skipped += 1; continue
         if action == "create":
@@ -2012,7 +2060,7 @@ def _meeting_date_range(request: Request):
 
 @api.get("/meetings")
 async def list_meetings(request: Request, user: dict = Depends(get_current_user)):
-    q = {}
+    q = {"is_demo": _ws(user)}
     if user["role"] == "agent":
         q["agent_id"] = user["id"]
     driver = request.query_params.get("driver")
@@ -2092,11 +2140,11 @@ async def create_meeting(body: MeetingIn, user: dict = Depends(get_current_user)
         raise HTTPException(status_code=403, detail="Agents can only book meetings for themselves")
     # sticky ownership: route to the existing owner; round-robin only if unowned
     if body.agent_id:
-        agent = await db.users.find_one({"id": body.agent_id})
+        agent = await db.users.find_one({"id": body.agent_id, "is_demo": _ws(user)})
     elif lead.get("owner_id"):
         agent = await db.users.find_one({"id": lead["owner_id"]})
     else:
-        agent = await _round_robin_agent()
+        agent = await _round_robin_agent(_ws(user))
     if not agent:
         raise HTTPException(status_code=400, detail="No agent available")
     meeting = {
@@ -2107,7 +2155,7 @@ async def create_meeting(body: MeetingIn, user: dict = Depends(get_current_user)
         "booking_driver": body.booking_driver or "",
         "no_show_reason": "", "reschedule_status": "", "outcome_notes": "",
         "recording_url": None, "summary": None,  # Circleback (populated post-call)
-        "join_url": "", "created_at": now_iso(),
+        "join_url": "", "is_demo": _ws(user), "created_at": now_iso(),
     }
     # Real Google Meet link when configured (agent is host); falls back to no link otherwise.
     join_url = await create_google_meet(agent, lead, body.scheduled_at, body.duration)
@@ -2267,7 +2315,7 @@ async def _calendly_get_or_create_lead(info: dict) -> dict:
     A RETURNING customer who already converted is routed into a new upsell cycle (G2) -
     same owner, fresh LTV, +1 upsell_cycle - instead of being left stuck in Won while a
     new meeting is booked (which would corrupt the won record)."""
-    lead = await db.leads.find_one({"email": info["email"]})
+    lead = await db.leads.find_one({"email": info["email"], "is_demo": False})
     if lead:
         already_won = lead.get("deals_won", 0) > 0 or lead.get("owner_locked") or lead.get("outcome") == "Won"
         if already_won:
@@ -2288,7 +2336,7 @@ async def _calendly_get_or_create_lead(info: dict) -> dict:
         "priority": "None", "stage": "New Booking", "owner_id": None, "owner_name": None,
         "owner_locked": False, "total_revenue_usd": 0.0, "deals_won": 0, "upsell_cycles": 0,
         "notes": [], "ownership_history": [], "payment_status": "none",
-        "last_meeting_at": None, "next_meeting_at": None,
+        "last_meeting_at": None, "next_meeting_at": None, "is_demo": False,
         "created_at": now_iso(), "updated_at": now_iso(),
     }
     enr = await enrich_from_emergent(info["email"])
@@ -2308,7 +2356,7 @@ async def _calendly_book_meeting(lead: dict, agent: dict, info: dict):
         "scheduled_at": scheduled_at, "duration": 30,
         "status": "scheduled", "source": "Calendly", "booking_driver": "",
         "no_show_reason": "", "reschedule_status": "", "outcome_notes": "",
-        "join_url": info["join_url"] or "", "created_at": now_iso(),
+        "join_url": info["join_url"] or "", "is_demo": False, "created_at": now_iso(),
         "calendly_event_uri": info.get("event_uri") or None,
     }
     if not meeting["join_url"]:
@@ -2441,7 +2489,7 @@ async def get_packages(user: dict = Depends(get_current_user)):
 
 @api.get("/payments", response_model=List[PaymentOut])
 async def list_payments(request: Request, user: dict = Depends(get_current_user)):
-    q = {}
+    q = {"is_demo": _ws(user)}
     if user["role"] == "agent":
         q["agent_id"] = user["id"]
     payments = await db.payments.find(q).sort("created_at", -1).to_list(1000)
@@ -2659,7 +2707,7 @@ async def create_payment_link(body: PaymentIn, user: dict = Depends(get_current_
         "product_line": product_line, "package_id": body.package_id,
         "amount_usd": amount_usd, "fx_rate": fx_rate,
         "description": desc, "status": "initiated", "payment_status": "pending",
-        "session_id": None, "payment_link": None,
+        "session_id": None, "payment_link": None, "is_demo": _ws(user),
         "created_at": now_iso(), "updated_at": now_iso(),
     }
 
@@ -2692,9 +2740,9 @@ async def create_payment_link(body: PaymentIn, user: dict = Depends(get_current_
         await db.leads.update_one({"id": lead["id"]}, {"$set": lead_set})
         await log_activity(lead["id"], "payment", f"{body.provider.title()} payment link sent: {currency.upper()} {amount:.0f} (~${amount_usd:.0f})", user["name"])
     # Manual payment already received -> mark paid (G5). Standalone too (counts toward
-    # the agent's revenue; touches no lead).
+    # the agent's revenue; touches no lead). Real payments fire a Slack alert.
     if body.provider == "manual" and body.mark_paid:
-        await _apply_payment_status(record, "complete", "paid")
+        await _apply_payment_status(record, "complete", "paid", notify=True)
         record = await db.payments.find_one({"id": payment_id})
     return clean(record)
 
@@ -2715,7 +2763,7 @@ async def payment_status(session_id: str, user: dict = Depends(get_current_user)
                 from emergentintegrations.payments.stripe.checkout import StripeCheckout
                 stripe_checkout = StripeCheckout(api_key=api_key, webhook_url="")
                 status = await stripe_checkout.get_checkout_status(session_id)
-                await _apply_payment_status(record, status.status, status.payment_status)
+                await _apply_payment_status(record, status.status, status.payment_status, notify=True)
             except Exception as e:
                 logger.warning(f"Stripe status lookup failed, keeping existing status: {e}")
     record = await db.payments.find_one({"session_id": session_id})
@@ -2747,9 +2795,12 @@ async def fail_payment(session_id: str, user: dict = Depends(get_current_user)):
     await _apply_payment_status(record, "failed", "failed")
     return clean(await db.payments.find_one({"session_id": session_id}))
 
-async def _apply_payment_status(record: dict, status: str, payment_status: str):
+async def _apply_payment_status(record: dict, status: str, payment_status: str, notify: bool = False):
+    """Apply a provider status to a payment (idempotent). Returns True only on the
+    first transition to 'paid'. `notify=True` (real webhooks + manual mark-paid)
+    posts a Slack alert for REAL (non-demo) payments; simulate/fail never notify."""
     if record["payment_status"] == "paid":
-        return
+        return False
     update = {"status": status, "payment_status": payment_status, "updated_at": now_iso()}
     if payment_status == "paid":
         update["paid_at"] = now_iso()  # explicit paid timestamp for the payment detail view
@@ -2780,6 +2831,55 @@ async def _apply_payment_status(record: dict, status: str, payment_status: str):
                 next_action="Retry payment link")})
             await log_activity(lead_id, "payment",
                                f"Payment link {payment_status} - recoverable", record.get("agent_name") or "System")
+    if payment_status == "paid" and notify:
+        await _notify_slack_payment(record)
+    return payment_status == "paid"
+
+
+async def _notify_slack_payment(record: dict):
+    """Post a real-payment alert to the configured Slack Incoming Webhook. DEMO payments
+    are skipped (workspace isolation). Non-blocking: never breaks the payment flow."""
+    if record.get("is_demo"):
+        return
+    url = await get_secret("slack_webhook_url", "SLACK_WEBHOOK_URL")
+    if not url:
+        return
+    try:
+        currency = (record.get("currency") or "usd").upper()
+        amount = float(record.get("amount") or 0)
+        amount_usd = float(record.get("amount_usd", amount) or 0)
+        amt_str = f"{currency} {amount:,.2f}"
+        if currency != "USD":
+            amt_str += f"  (~${amount_usd:,.2f})"
+        customer = (record.get("customer_name") or record.get("lead_name") or "Customer")
+        product = (record.get("product_line") or record.get("description") or "—")
+        agent = record.get("agent_name") or "—"
+        pid = record.get("id") or "—"
+        when = record.get("paid_at") or now_iso()
+        base = _public_base()
+        lead_id = record.get("lead_id")
+        fields = [
+            {"type": "mrkdwn", "text": f"*Customer*\n{customer}"},
+            {"type": "mrkdwn", "text": f"*Amount*\n{amt_str}"},
+            {"type": "mrkdwn", "text": f"*Product Sold*\n{product}"},
+            {"type": "mrkdwn", "text": f"*Sales Agent*\n{agent}"},
+            {"type": "mrkdwn", "text": f"*Payment ID*\n`{pid}`"},
+            {"type": "mrkdwn", "text": f"*Time*\n{when}"},
+        ]
+        blocks = [
+            {"type": "header", "text": {"type": "plain_text", "text": "💰 New Payment Received", "emoji": True}},
+            {"type": "section", "fields": fields},
+        ]
+        if base and lead_id:
+            blocks.append({"type": "section", "text": {"type": "mrkdwn",
+                           "text": f"<{base}/leads/{lead_id}|View deal in Emergent CRM>"}})
+        text = (f"💰 New Payment Received — {customer} · {amt_str} · {product} "
+                f"· {agent} · {pid}")
+        async with httpx.AsyncClient(timeout=8) as cx:
+            await cx.post(url, json={"text": text, "blocks": blocks})
+        logger.info(f"slack: payment alert sent for {pid}")
+    except Exception as e:
+        logger.warning(f"slack notify failed (non-blocking): {e}")
 
 class LinkLeadIn(BaseModel):
     lead_id: str
@@ -2854,7 +2954,7 @@ async def stripe_webhook(request: Request):
     if session_id and payment_status:
         record = await db.payments.find_one({"session_id": session_id})
         if record:
-            await _apply_payment_status(record, "complete", payment_status)
+            await _apply_payment_status(record, "complete", payment_status, notify=True)
         else:
             await db.payment_reconcile.insert_one({"provider": "stripe", "session_id": session_id, "at": now_iso()})
             logger.warning(f"stripe webhook: unknown session {session_id} -> queued for reconcile")
@@ -2899,7 +2999,7 @@ async def razorpay_webhook(request: Request):
     record = await db.payments.find_one({"session_id": link_id}) if link_id else None
     if record and await _dedupe_webhook("razorpay", event_id):
         if event in ("payment_link.paid", "payment.captured", "order.paid"):
-            await _apply_payment_status(record, "complete", "paid")
+            await _apply_payment_status(record, "complete", "paid", notify=True)
         elif event in ("payment.failed", "payment_link.cancelled", "payment_link.expired"):
             await _apply_payment_status(record, "failed", "failed")
     return {"received": True}
@@ -2954,7 +3054,7 @@ async def recent_activities(request: Request, user: dict = Depends(get_current_u
         limit = 20
     limit = max(1, min(limit, 100))
 
-    lead_filter = {}
+    lead_filter = {"is_demo": _ws(user)}
     if user["role"] != "admin":
         owned = await db.leads.find({"owner_id": user["id"]}, {"_id": 0, "id": 1}).to_list(5000)
         lead_filter = {"lead_id": {"$in": [l["id"] for l in owned]}}
@@ -3071,8 +3171,8 @@ def _today_meeting_buckets(meetings):
 @api.get("/dashboard", response_model=DashboardOut, response_model_exclude_none=True)
 async def dashboard(request: Request, user: dict = Depends(get_current_user)):
     is_admin = user["role"] == "admin"
-    scope = {} if is_admin else {"owner_id": user["id"]}
-    agent_scope = {} if is_admin else {"agent_id": user["id"]}
+    scope = _lead_scope(user)
+    agent_scope = _agent_scope(user)
 
     # Time-period window (Salesforce/Zoho style). Default = this_month.
     # Revenue = payments PAID in-window; funnel/status/group counts = leads CREATED
@@ -3148,12 +3248,11 @@ async def dashboard(request: Request, user: dict = Depends(get_current_user)):
     }
 
     if is_admin:
-        # Include the selling manager (Diyea) on the leaderboard, but never the demo
-        # showcase account. Round-robin still excludes admins (handled elsewhere).
-        demo_email = os.environ.get("DEMO_EMAIL", "demo@emergent.sh").lower()
+        # Sellers in THIS workspace only (real vs demo). Diyea / the Demo Manager sell
+        # too, so admins with a target appear on the leaderboard. Round-robin still
+        # excludes admins (handled elsewhere).
         sellers = await db.users.find({
-            "role": {"$in": ["agent", "admin"]}, "active": True,
-            "email": {"$ne": demo_email},
+            "role": {"$in": ["agent", "admin"]}, "active": True, "is_demo": _ws(user),
         }).to_list(100)
         result["team_target"] = sum(a.get("monthly_target", 0) for a in sellers)
         # Leaderboard reflects the window: leads created in-window + payments paid in-window.
@@ -3230,12 +3329,13 @@ def _cov_weekly_burnup(leads):
     return out
 
 
-async def _cov_persist_snapshot(totals):
+async def _cov_persist_snapshot(totals, ws: bool = False):
     snap_today = datetime.now(timezone.utc).date().isoformat()
+    snap_id = f"{snap_today}:{'demo' if ws else 'real'}"
     await db.coverage_snapshots.update_one(
-        {"id": snap_today},
+        {"id": snap_id},
         {"$set": {
-            "id": snap_today, "date": snap_today,
+            "id": snap_id, "date": snap_today, "is_demo": ws,
             "total": totals["total"], "assigned": totals["assigned"], "met": totals["met"],
             "advanced": totals["advanced"], "won": totals["won"], "revenue_usd": totals["revenue_usd"],
             "updated_at": now_iso(),
@@ -3246,9 +3346,10 @@ async def _cov_persist_snapshot(totals):
 
 @api.get("/coverage")
 async def coverage(admin: dict = Depends(require_admin)):
-    leads = await db.leads.find({}, {"_id": 0, "id": 1, "owner_id": 1, "stage": 1, "monthly_spend": 1, "lifetime_value": 1, "region": 1, "created_at": 1, "won_at": 1, "ownership_history": 1}).to_list(5000)
-    meetings = await db.meetings.find({}, {"_id": 0, "lead_id": 1}).to_list(5000)
-    paid = await db.payments.find({"payment_status": "paid"}, {"_id": 0, "lead_id": 1, "amount": 1, "amount_usd": 1}).to_list(5000)
+    ws = _ws(admin)
+    leads = await db.leads.find({"is_demo": ws}, {"_id": 0, "id": 1, "owner_id": 1, "stage": 1, "monthly_spend": 1, "lifetime_value": 1, "region": 1, "created_at": 1, "won_at": 1, "ownership_history": 1}).to_list(5000)
+    meetings = await db.meetings.find({"is_demo": ws}, {"_id": 0, "lead_id": 1}).to_list(5000)
+    paid = await db.payments.find({"is_demo": ws, "payment_status": "paid"}, {"_id": 0, "lead_id": 1, "amount": 1, "amount_usd": 1}).to_list(5000)
 
     met_ids = {m["lead_id"] for m in meetings}
     rev_by_lead = {}
@@ -3269,10 +3370,10 @@ async def coverage(admin: dict = Depends(require_admin)):
 
     # Persist today's coverage snapshot (lazy daily capture) so the burn-up
     # reflects real historical progress over time, not a single point.
-    await _cov_persist_snapshot(totals)
+    await _cov_persist_snapshot(totals, ws)
 
     # Prefer the stored daily snapshots (real history) over the weekly estimate.
-    snaps = await db.coverage_snapshots.find({}, {"_id": 0}).sort("date", 1).to_list(400)
+    snaps = await db.coverage_snapshots.find({"is_demo": ws}, {"_id": 0}).sort("date", 1).to_list(400)
     if snaps:
         burnup = [
             {"week": s["date"], "date": s["date"], "total": s.get("total", 0),
@@ -3327,9 +3428,8 @@ async def meta(user: dict = Depends(get_current_user)):
 async def list_customers(user: dict = Depends(get_current_user)):
     """Existing customers usable as referrers. A customer = stage 'Won' OR deals_won>0.
     RBAC mirrors the lead lists: admin sees all, agents see their own."""
-    scope = {} if user["role"] == "admin" else {"owner_id": user["id"]}
-    q = {"$and": [scope, {"$or": [{"stage": "Won"}, {"deals_won": {"$gt": 0}}]}]} if scope else \
-        {"$or": [{"stage": "Won"}, {"deals_won": {"$gt": 0}}]}
+    scope = _lead_scope(user)
+    q = {"$and": [scope, {"$or": [{"stage": "Won"}, {"deals_won": {"$gt": 0}}]}]}
     proj = {"_id": 0, "id": 1, "name": 1, "company": 1, "email": 1}
     rows = await db.leads.find(q, proj).sort("name", 1).to_list(2000)
     # Fallback: if no won/customer leads exist yet, return all in-scope leads minimally
@@ -3458,8 +3558,8 @@ async def dashboard_drilldown(request: Request, user: dict = Depends(get_current
     """Return the actual records behind a dashboard metric. RBAC scoped like /dashboard."""
     metric = request.query_params.get("metric") or ""
     is_admin = user["role"] == "admin"
-    lead_scope = {} if is_admin else {"owner_id": user["id"]}
-    agent_scope = {} if is_admin else {"agent_id": user["id"]}
+    lead_scope = _lead_scope(user)
+    agent_scope = _agent_scope(user)
     today = datetime.now(timezone.utc).date().isoformat()
 
     # Time-period window (mirrors /dashboard; default this_month). Closed-revenue +
@@ -3486,7 +3586,7 @@ async def coverage_drilldown(request: Request, admin: dict = Depends(require_adm
     region = request.query_params.get("region")
     field = "lifetime_value" if basis == "ltv" else "monthly_spend"
 
-    rows = await db.leads.find({}, {"_id": 0}).sort("updated_at", -1).to_list(5000)
+    rows = await db.leads.find({"is_demo": _ws(admin)}, {"_id": 0}).sort("updated_at", -1).to_list(5000)
     out = []
     for l in rows:
         if tier and tier_label(l.get(field, 0)) != tier:
@@ -3511,7 +3611,7 @@ async def calendar(request: Request, user: dict = Depends(get_current_user)):
     req_agent = request.query_params.get("agent_id")
     date_filter = request.query_params.get("date")
 
-    q = {}
+    q = {"is_demo": _ws(user)}
     if is_admin:
         if req_agent and req_agent != "all":
             q["agent_id"] = req_agent
@@ -3528,7 +3628,7 @@ async def calendar(request: Request, user: dict = Depends(get_current_user)):
 
     # Agent list for per-agent columns/rows: all agents for admin, just self otherwise.
     if is_admin:
-        agent_docs = await db.users.find({"role": "agent"}, {"_id": 0, "id": 1, "name": 1}).sort("created_at", 1).to_list(200)
+        agent_docs = await db.users.find({"role": "agent", "is_demo": _ws(user)}, {"_id": 0, "id": 1, "name": 1}).sort("created_at", 1).to_list(200)
         agents = [{"id": a.get("id"), "name": a.get("name")} for a in agent_docs]
     else:
         agents = [{"id": user["id"], "name": user["name"]}]
@@ -3550,7 +3650,8 @@ async def _seed_admin():
             "avatar_url": "",
             # Diyea sells too (manager + agent), so she carries a real target + appears
             # on the leaderboard.
-            "monthly_target": 120000.0, "weekly_target": 30000.0, "active": True, "created_at": now_iso(),
+            "monthly_target": 120000.0, "weekly_target": 30000.0, "active": True,
+            "is_demo": False, "created_at": now_iso(),
         })
         logger.info(f"seed: admin {'created' if created else 'already present (race)'} -> {admin_email}")
     # NOTE: no per-boot password self-heal - so a user's self-service password change persists.
@@ -3566,12 +3667,34 @@ async def _seed_demo_account():
         await _safe_insert(db.users, {
             "id": new_id(), "name": "Demo Manager", "email": demo_email,
             "password_hash": hash_password(demo_password), "role": "admin",
-            "avatar_url": "", "monthly_target": 0, "weekly_target": 0,
-            "active": True, "created_at": now_iso(),
+            "avatar_url": "", "monthly_target": 120000.0, "weekly_target": 30000.0,
+            "active": True, "is_demo": True, "created_at": now_iso(),
         })
         logger.info(f"seed: demo account created -> {demo_email}")
     elif not verify_password(demo_password, demo.get("password_hash", "")):
         await db.users.update_one({"email": demo_email}, {"$set": {"password_hash": hash_password(demo_password)}})
+
+
+async def _seed_demo_agents():
+    """The demo workspace sales team - Western names, is_demo=True. Mirrors the size of
+    the real team so the demo leaderboard/coverage look believable. Idempotent."""
+    agents_data = [
+        ("Olivia Hayes", "olivia.hayes@demo.crm"),
+        ("James Carter", "james.carter@demo.crm"),
+        ("Sophia Bennett", "sophia.bennett@demo.crm"),
+        ("Noah Brooks", "noah.brooks@demo.crm"),
+        ("Liam Foster", "liam.foster@demo.crm"),
+    ]
+    demo_password = os.environ.get("DEMO_PASSWORD", "demo12345")
+    for name, email in agents_data:
+        if await db.users.find_one({"email": email.lower()}):
+            continue
+        await _safe_insert(db.users, {
+            "id": new_id(), "name": name, "email": email.lower(),
+            "password_hash": hash_password(demo_password), "role": "agent",
+            "avatar_url": "", "monthly_target": 100000.0, "weekly_target": 25000.0,
+            "active": True, "is_demo": True, "created_at": now_iso(),
+        })
 
 
 async def _migrate_reset_passwords():
@@ -3582,7 +3705,7 @@ async def _migrate_reset_passwords():
     if await db.migrations.find_one({"key": key}):
         return
     res = await db.users.update_many(
-        {"role": {"$in": ["admin", "agent"]}, "email": {"$ne": "demo@emergent.sh"}},
+        {"role": {"$in": ["admin", "agent"]}, "is_demo": False, "email": {"$ne": "demo@emergent.sh"}},
         {"$set": {"password_hash": hash_password("emergent@12345")}},
     )
     await db.migrations.update_one({"key": key}, {"$set": {"key": key, "done_at": now_iso()}}, upsert=True)
@@ -3606,7 +3729,7 @@ async def _seed_agents():
             "id": new_id(), "name": name, "email": email.lower(),
             "password_hash": hash_password("emergent@12345"), "role": "agent",
             "avatar_url": "", "monthly_target": 100000.0,
-            "weekly_target": 25000.0, "active": True, "created_at": now_iso(),
+            "weekly_target": 25000.0, "active": True, "is_demo": False, "created_at": now_iso(),
         })
 
 
@@ -3657,14 +3780,14 @@ _SEED_PRODUCT = {
 
 
 async def _seed_demo_leads():
-    if await db.leads.count_documents({}) != 0:
+    if await db.leads.count_documents({"is_demo": True}) != 0:
         return
-    agents = await db.users.find({"role": "agent"}).sort("created_at", 1).to_list(100)
+    agents = await db.users.find({"role": "agent", "is_demo": True}).sort("created_at", 1).to_list(100)
     if not agents:
         return
-    # Diyea (admin / sales head) also carries a book of business, so she's in the rotation.
+    # The Demo Manager also carries a book of business, so she's in the rotation.
     admin = await db.users.find_one(
-        {"role": "admin", "email": os.environ.get("ADMIN_EMAIL", "diyea@emergent.sh").lower()})
+        {"role": "admin", "email": os.environ.get("DEMO_EMAIL", "demo@emergent.sh").lower()})
     owners_pool = list(agents)
     if admin:
         owners_pool.append(admin)
@@ -3679,10 +3802,10 @@ async def _seed_demo_leads():
     import random as _random
     rng = _random.Random(42)  # deterministic so the demo is stable across reseeds
 
-    # Weighted rep attribution for the OPEN pipeline (incl. Diyea); Brian is the
-    # lowest contributor but still solid.
-    _owner_weights = [("Diyea", 24), ("Aryan", 22), ("Dipan", 18), ("Vinay", 16),
-                      ("Abhishek", 12), ("Brian", 8)]
+    # Weighted rep attribution for the OPEN pipeline (incl. the Demo Manager); Liam is
+    # the lowest contributor but still solid.
+    _owner_weights = [("Demo Manager", 24), ("Olivia Hayes", 22), ("James Carter", 18),
+                      ("Sophia Bennett", 16), ("Noah Brooks", 12), ("Liam Foster", 8)]
     _weighted_owner_names = [nm for nm, w in _owner_weights for _ in range(w)]
 
     def pick_owner():
@@ -3691,8 +3814,8 @@ async def _seed_demo_leads():
     # Per-agent MONTHLY won-revenue targets - the inside-sales floor is ~$100k/agent/month.
     # The won generator books deals until each (agent, month) reaches its number, so the
     # leaderboard reads ~$100k/agent for any month, Diyea/Aryan top, Brian unambiguously last.
-    monthly_target = {"Diyea": 110000, "Aryan": 105000, "Abhishek": 95000,
-                      "Dipan": 90000, "Vinay": 88000, "Brian": 45000}
+    monthly_target = {"Demo Manager": 110000, "Olivia Hayes": 105000, "Noah Brooks": 95000,
+                      "Sophia Bennett": 90000, "James Carter": 88000, "Liam Foster": 45000}
     MONTHS = [(2026, 4), (2026, 5), (2026, 6)]
 
     def month_bounds(y, m):
@@ -3707,7 +3830,7 @@ async def _seed_demo_leads():
     def deal_for(owner_name=None, paid=False):
         """Mid-market deal sizing: deals mostly $1k-5k, top-ups $2-5k, occasional $15k
         Lifetime. Brian's WON deals are capped small so he stays the lowest earner."""
-        if paid and owner_name == "Brian":
+        if paid and owner_name == "Liam Foster":
             return "Credit Top-Up", "credits_500", float(rng.choice([1200, 1500, 1800]))
         r = rng.randint(1, 100)
         if r <= 50:
@@ -3879,6 +4002,7 @@ async def _seed_demo_leads():
             # always keep a link so the payment-detail view has a URL to show
             "payment_link": f"https://pay.demo/{new_id()[:8]}",
             "paid_at": created_iso if pay_status == "paid" else None,
+            "is_demo": True,
             "created_at": created_iso, "updated_at": created_iso,
         }
 
@@ -3931,16 +4055,16 @@ async def _seed_demo_leads():
             "referred_by_lead_id": None, "referred_by_name": "",
             "last_meeting_at": None, "next_meeting_at": None,
             "won_at": won_at, "last_activity": last_activity,
-            "created_at": created_dt.isoformat(), "updated_at": last_activity, **sf,
+            "created_at": created_dt.isoformat(), "updated_at": last_activity, "is_demo": True, **sf,
         }
         if owner:
             act_buf.append({"id": new_id(), "lead_id": doc["id"], "type": "assignment",
                             "description": f"Assigned to {owner['name']}", "actor": "System",
-                            "created_at": doc["created_at"]})
+                            "is_demo": True, "created_at": doc["created_at"]})
         for nn in notes:
             act_buf.append({"id": new_id(), "lead_id": doc["id"], "type": "note",
                             "description": f"{nn['type']}: {nn['text'][:80]}",
-                            "actor": nn["author"], "created_at": nn["created_at"]})
+                            "actor": nn["author"], "is_demo": True, "created_at": nn["created_at"]})
         leads_buf.append(doc)
         if owner:
             leads_by_owner[owner["id"]].append(doc)
@@ -3965,7 +4089,7 @@ async def _seed_demo_leads():
                 doc = build_lead(next_identity(), "Payment Link Paid", owner, created_dt,
                                  amount=amt, product_line=prod, pkg_id=pkg, won_at=won_dt.isoformat())
                 # ~25% are returning customers with a prior deal in an earlier month
-                if owner["name"] != "Brian" and rng.random() < 0.25:
+                if owner["name"] != "Liam Foster" and rng.random() < 0.25:
                     p_pl, p_pk, p_amt = deal_for(owner["name"], True)
                     p_dt = created_dt - timedelta(days=rng.randint(30, 80))
                     doc["deals_won"], doc["upsell_cycles"] = 2, 1
@@ -4056,7 +4180,7 @@ async def _seed_demo_meetings(now, owners_pool, leads_by_owner):
                     "recording_url": f"https://app.circleback.ai/recordings/{new_id()[:10]}" if has_rec else None,
                     "summary": summary if has_rec else None,
                     "join_url": f"https://meet.google.com/{new_id()[:3]}-{new_id()[:4]}-{new_id()[:3]}",
-                    "calendly_event_uri": None,
+                    "calendly_event_uri": None, "is_demo": True,
                     "created_at": (sched - timedelta(days=rng.randint(1, 4))).isoformat(),
                 })
                 if mstatus == "scheduled" and sched >= now:
@@ -4074,8 +4198,8 @@ async def _seed_demo_meetings(now, owners_pool, leads_by_owner):
 
 
 async def _seed_coverage_history():
-    # Seed ~1 week of coverage history so the burn-up chart shows a real trend
-    if await db.coverage_snapshots.count_documents({}) != 0:
+    # Seed ~1 week of coverage history so the burn-up chart shows a real trend (demo only)
+    if await db.coverage_snapshots.count_documents({"is_demo": True}) != 0:
         return
     base_day = datetime.now(timezone.utc).date()
     ramp = [
@@ -4090,7 +4214,7 @@ async def _seed_coverage_history():
     for days_ago, total, assigned, won, rev in ramp:
         d = (base_day - timedelta(days=days_ago)).isoformat()
         await db.coverage_snapshots.insert_one({
-            "id": d, "date": d, "total": total, "assigned": assigned,
+            "id": f"{d}:demo", "date": d, "is_demo": True, "total": total, "assigned": assigned,
             "met": max(0, assigned - 1), "advanced": won, "won": won,
             "revenue_usd": rev, "updated_at": now_iso(),
         })
@@ -4167,6 +4291,7 @@ ORG_INTEGRATION_FIELDS = [
     "sendgrid_api_key", "from_email",
     "google_service_account_json", "google_organiser_fallback_email",
     "emergent_users_api_url", "emergent_users_api_key",
+    "slack_webhook_url",
 ]
 MY_INTEGRATION_FIELDS = ["calendly_link", "calendly_token"]
 # Non-secret fields are echoed back in full; everything else is masked.
@@ -4274,6 +4399,18 @@ async def test_integration(name: str, admin: dict = Depends(require_admin)):
                 return {"ok": True, "detail": "Razorpay auth OK"}
             except Exception as e:
                 return {"ok": False, "detail": f"Razorpay error: {e}"}
+        if name == "slack":
+            url = await get_secret("slack_webhook_url", "SLACK_WEBHOOK_URL")
+            if not url:
+                return {"ok": False, "detail": "No Slack webhook URL configured"}
+            try:
+                async with httpx.AsyncClient(timeout=8) as cx:
+                    r = await cx.post(url, json={"text": "✅ Emergent CRM: Slack integration connected. Real payment alerts will appear in this channel."})
+                if r.status_code == 200:
+                    return {"ok": True, "detail": "Test message posted to Slack"}
+                return {"ok": False, "detail": f"Slack returned {r.status_code}: {r.text[:140]}"}
+            except Exception as e:
+                return {"ok": False, "detail": f"Slack error: {e}"}
         if name in ("google_meet", "google"):
             sa = await get_secret("google_service_account_json", "GOOGLE_SERVICE_ACCOUNT_JSON")
             if not sa:
@@ -4311,10 +4448,10 @@ async def workspace(user: dict = Depends(get_current_user)):
     now_s = now.isoformat()
     today = now.date().isoformat()
 
-    leads_raw = await db.leads.find({"owner_id": uid}, {"_id": 0}).sort("updated_at", -1).to_list(5000)
+    leads_raw = await db.leads.find({"owner_id": uid, "is_demo": _ws(user)}, {"_id": 0}).sort("updated_at", -1).to_list(5000)
     sl = [serialize_lead(l) for l in leads_raw]
-    meetings_raw = await db.meetings.find({"agent_id": uid}, {"_id": 0}).sort("scheduled_at", 1).to_list(5000)
-    payments = await db.payments.find({"agent_id": uid, "payment_status": "paid"}, {"_id": 0}).to_list(5000)
+    meetings_raw = await db.meetings.find({"agent_id": uid, "is_demo": _ws(user)}, {"_id": 0}).sort("scheduled_at", 1).to_list(5000)
+    payments = await db.payments.find({"agent_id": uid, "is_demo": _ws(user), "payment_status": "paid"}, {"_id": 0}).to_list(5000)
 
     def _active(l):
         return "Active Pipeline" in (l.get("status_groups") or [])
@@ -4372,8 +4509,9 @@ async def workspace(user: dict = Depends(get_current_user)):
 # Demo data reset (admin) - wipe + reseed the believable demo dataset on demand.
 # ----------------------------------------------------------------------------
 async def _wipe_demo_data():
+    # ONLY the demo workspace (is_demo=True). Real data is never touched.
     for coll in ("leads", "payments", "meetings", "activities", "coverage_snapshots"):
-        await db[coll].delete_many({})
+        await db[coll].delete_many({"is_demo": True})
 
 async def reset_demo_data():
     await _wipe_demo_data()
@@ -4499,11 +4637,17 @@ async def _migrate_ensure_diyea_target():
     try:
         admin_email = os.environ.get("ADMIN_EMAIL", "diyea@emergent.sh").lower()
         demo_email = os.environ.get("DEMO_EMAIL", "demo@emergent.sh").lower()
-        # Selling agents -> $100k/month.
+        # Real selling agents -> $100k/month.
         await db.users.update_one({"email": admin_email},
                                   {"$set": {"monthly_target": 120000.0, "weekly_target": 30000.0}})
         await db.users.update_many(
-            {"role": "agent", "email": {"$ne": demo_email}},
+            {"role": "agent", "is_demo": False, "email": {"$ne": demo_email}},
+            {"$set": {"monthly_target": 100000.0, "weekly_target": 25000.0}})
+        # Demo workspace targets (mirror the real team so the demo leaderboard reads well).
+        await db.users.update_one({"email": demo_email},
+                                  {"$set": {"monthly_target": 120000.0, "weekly_target": 30000.0}})
+        await db.users.update_many(
+            {"role": "agent", "is_demo": True},
             {"$set": {"monthly_target": 100000.0, "weekly_target": 25000.0}})
     except Exception as e:
         logger.warning(f"ensure-targets failed (continuing): {e}")
@@ -4515,7 +4659,8 @@ async def _migrate_dedupe_lead_emails():
     to the keeper, unions notes, sums revenue/deals, lowercases the keeper email."""
     try:
         groups = await db.leads.aggregate([
-            {"$group": {"_id": {"$toLower": "$email"}, "ids": {"$addToSet": "$id"}, "n": {"$sum": 1}}},
+            {"$group": {"_id": {"email": {"$toLower": "$email"}, "is_demo": "$is_demo"},
+                        "ids": {"$addToSet": "$id"}, "n": {"$sum": 1}}},
             {"$match": {"n": {"$gt": 1}}},
         ]).to_list(10000)
         merged = 0
@@ -4543,28 +4688,66 @@ async def _migrate_dedupe_lead_emails():
         logger.warning(f"lead-email dedupe failed (continuing): {e}")
 
 
+async def _migrate_tag_workspaces():
+    """Tag every existing user + record with its workspace flag (is_demo). Non-destructive,
+    runs in ALL modes. Demo accounts -> True; everyone/everything else -> False. Safe in
+    production: only fills the flag where it is missing/derivable. Idempotent."""
+    try:
+        demo_email = os.environ.get("DEMO_EMAIL", "demo@emergent.sh").lower()
+        # Demo accounts: the advertised demo manager + any @demo.crm seeded agents.
+        await db.users.update_many(
+            {"$or": [{"email": demo_email}, {"email": {"$regex": "@demo\\.crm$", "$options": "i"}}]},
+            {"$set": {"is_demo": True}})
+        # Everyone else without a flag yet -> real workspace.
+        await db.users.update_many({"is_demo": {"$exists": False}}, {"$set": {"is_demo": False}})
+        # Records without a flag yet -> real workspace (in preview these get wiped+reseeded).
+        for coll in ("leads", "payments", "meetings", "activities", "saved_views", "coverage_snapshots"):
+            await db[coll].update_many({"is_demo": {"$exists": False}}, {"$set": {"is_demo": False}})
+    except Exception as e:
+        logger.warning(f"tag-workspaces migration failed (continuing): {e}")
+
+
+async def _migrate_demo_isolation_v1():
+    """One-time (DEMO/preview only): the legacy sample dataset predates workspace isolation
+    (demo leads were owned by REAL agents). Wipe ALL leads/payments/meetings/activities/
+    coverage so the demo reseed repopulates a clean, fully-isolated demo workspace and the
+    real workspace starts empty. IS_PROD-guarded -> never wipes production data."""
+    if IS_PROD:
+        return
+    key = "demo_workspace_isolation_v1"
+    if await db.migrations.find_one({"key": key}):
+        return
+    for coll in ("leads", "payments", "meetings", "activities", "coverage_snapshots"):
+        await db[coll].delete_many({})
+    await db.migrations.update_one({"key": key}, {"$set": {"key": key, "done_at": now_iso()}}, upsert=True)
+    logger.info("migrate: demo/real workspace isolation - wiped legacy sample data for clean reseed")
+
+
 async def bootstrap_production():
     """Always-safe, idempotent bootstrap that runs in EVERY mode: settings, the
-    structural (non-destructive) migrations, and the single admin account. Contains
-    nothing that deletes data or resets passwords."""
+    structural (non-destructive) migrations, the single admin account, and workspace
+    tagging. Contains nothing that deletes data or resets passwords."""
     await db.settings.update_one({"id": "settings"}, {"$setOnInsert": {"id": "settings", "inr_per_usd": 85.0}}, upsert=True)
     await _migrate_meeting_scheduled_to_assigned()
     await _migrate_to_sales_status_model()
     await _migrate_remove_legacy_com_users()
     await _seed_admin()
+    await _migrate_tag_workspaces()
     await _migrate_ensure_diyea_target()
 
 async def seed_demo():
-    """DEMO ONLY: the 5 demo agents, the demo account, the one-time team-password
-    reset, the believable demo dataset, and the clean-reseed wipe. None of this runs
-    when APP_MODE=production."""
+    """DEMO ONLY: the real + demo sales teams, the demo account, the one-time team-password
+    reset, the one-time workspace-isolation wipe, and the believable demo dataset. None of
+    this runs when APP_MODE=production."""
     await _migrate_fix_agent_emails()
     await _seed_agents()
     await _seed_demo_account()
+    await _seed_demo_agents()
     await _migrate_reset_passwords()
+    await _migrate_tag_workspaces()       # ensure new demo agents are tagged before reseed
+    await _migrate_demo_isolation_v1()    # one-time clean wipe of legacy mixed sample data
     await _seed_demo_leads()
     await _seed_coverage_history()
-    await _migrate_clean_reseed_v3()
     await _migrate_purge_test_leads()
 
 # ----------------------------------------------------------------------------
@@ -4578,8 +4761,8 @@ async def global_search(request: Request, user: dict = Depends(get_current_user)
         return {"leads": [], "meetings": [], "payments": []}
     rx = {"$regex": re.escape(q), "$options": "i"}
     is_admin = user["role"] == "admin"
-    lead_scope = {} if is_admin else {"owner_id": user["id"]}
-    agent_scope = {} if is_admin else {"agent_id": user["id"]}
+    lead_scope = _lead_scope(user)
+    agent_scope = _agent_scope(user)
 
     raw = await db.leads.find(
         {**lead_scope, "$or": [{"name": rx}, {"email": rx}, {"company": rx}, {"phone": rx}]},
@@ -4612,18 +4795,18 @@ async def bulk_leads(body: BulkLeadIn, user: dict = Depends(get_current_user)):
     if body.action == "delete":
         if user["role"] != "admin":
             raise HTTPException(status_code=403, detail="Only managers can delete leads")
-        res = await db.leads.delete_many({"id": {"$in": ids}})
+        res = await db.leads.delete_many({"id": {"$in": ids}, "is_demo": _ws(user)})
         await log_audit("bulk_delete", user["name"], f"{res.deleted_count} leads")
         return {"updated": res.deleted_count, "action": "delete"}
 
-    leads = await db.leads.find({"id": {"$in": ids}}).to_list(2000)
+    leads = await db.leads.find({"id": {"$in": ids}, "is_demo": _ws(user)}).to_list(2000)
     leads = [l for l in leads if user["role"] == "admin" or l.get("owner_id") == user["id"]]
     count = 0
 
     if body.action == "assign":
         if user["role"] != "admin":
             raise HTTPException(status_code=403, detail="Only managers can reassign leads")
-        agent = await db.users.find_one({"id": body.value})
+        agent = await db.users.find_one({"id": body.value, "is_demo": _ws(user)})
         if not agent:
             raise HTTPException(status_code=404, detail="Owner not found")
         for l in leads:
@@ -4659,7 +4842,7 @@ async def create_view(body: SavedViewIn, user: dict = Depends(get_current_user))
     name = (body.name or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="Name required")
-    doc = {"id": new_id(), "user_id": user["id"], "name": name,
+    doc = {"id": new_id(), "user_id": user["id"], "name": name, "is_demo": _ws(user),
            "filters": body.filters or {}, "created_at": now_iso()}
     await db.saved_views.insert_one(dict(doc))
     return doc
@@ -4676,13 +4859,13 @@ async def notifications(user: dict = Depends(get_current_user)):
     uid = user["id"]
     now_s = datetime.now(timezone.utc).isoformat()
     items = []
-    leads_raw = await db.leads.find({"owner_id": uid}, {"_id": 0}).to_list(5000)
+    leads_raw = await db.leads.find({"owner_id": uid, "is_demo": _ws(user)}, {"_id": 0}).to_list(5000)
     for l in (serialize_lead(x) for x in leads_raw):
         nf = l.get("next_followup_at")
         if nf and nf <= now_s and "Active Pipeline" in (l.get("status_groups") or []):
             items.append({"type": "followup", "lead_id": l["id"], "title": f"Follow up with {l['name']}",
                           "subtitle": l.get("company") or l.get("email") or "", "at": nf})
-    noshows = await db.meetings.find({"agent_id": uid, "status": "no_show"}, {"_id": 0}) \
+    noshows = await db.meetings.find({"agent_id": uid, "is_demo": _ws(user), "status": "no_show"}, {"_id": 0}) \
         .sort("scheduled_at", -1).limit(25).to_list(25)
     for m in noshows:
         items.append({"type": "no_show", "lead_id": m.get("lead_id"), "title": f"No-show: {m.get('lead_name')}",
@@ -4722,6 +4905,11 @@ async def _run_startup():
         ("meetings", [("agent_id", 1), ("scheduled_at", 1)], {}),
         ("meetings", "calendly_event_uri", {"sparse": True}),
         ("payments", "lead_id", {}),
+        ("leads", "is_demo", {}),
+        ("payments", "is_demo", {}),
+        ("meetings", "is_demo", {}),
+        ("activities", "is_demo", {}),
+        ("users", "is_demo", {}),
         ("coverage_snapshots", "date", {}),
         ("webhook_events", "event_key", {"unique": True}),  # A4 idempotency
     ]
@@ -4740,17 +4928,24 @@ async def _run_startup():
             await db[coll].drop_index(name)
         await db[coll].create_index(field, unique=True, **kwargs)
 
-    for coll, field, kw in (
-        ("leads", "email", {}),
-        # session_id partial so many not-yet-created links (null) don't collide.
-        ("payments", "session_id", {"partialFilterExpression": {"session_id": {"$type": "string"}}}),
-    ):
-        try:
-            await _ensure_unique(coll, field, **kw)
-        except Exception as e:
-            logger.error(f"UNIQUE {coll}.{field} failed: {e}")
-            if IS_PROD:
-                raise
+    # Leads are unique by (email, is_demo) so the SAME email can exist independently in
+    # the demo and real workspaces without colliding. Drop any stale single-field index.
+    try:
+        info = await db.leads.index_information()
+        if "email_1" in info:
+            await db.leads.drop_index("email_1")
+        await db.leads.create_index([("email", 1), ("is_demo", 1)], unique=True)
+    except Exception as e:
+        logger.error(f"UNIQUE leads.(email,is_demo) failed: {e}")
+        if IS_PROD:
+            raise
+    try:
+        await _ensure_unique("payments", "session_id",
+                             partialFilterExpression={"session_id": {"$type": "string"}})
+    except Exception as e:
+        logger.error(f"UNIQUE payments.session_id failed: {e}")
+        if IS_PROD:
+            raise
 
     # Seed: must never crash startup; the app should still serve if seeding fails.
     try:

@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import {
   KeyRound, Save, RefreshCw, Upload, DollarSign, ShieldCheck, FileSpreadsheet,
   CheckCircle2, Circle, Download, CreditCard, Wallet, CalendarClock, FileText,
-  Mail, Video, Database, Zap,
+  Mail, Video, Database, Zap, MessageSquare,
 } from "lucide-react";
 
 // Each group maps to the backend ORG_INTEGRATION_FIELDS + the /settings/integrations/test/{name}
@@ -74,6 +74,14 @@ const ORG_GROUPS = [
     fields: [
       { key: "emergent_users_api_url", label: "API URL", placeholder: "https://…" },
       { key: "emergent_users_api_key", label: "API Key", placeholder: "••••••••", secret: true },
+    ],
+  },
+  {
+    id: "slack", title: "Slack — payment alerts", test: "slack", primary: "slack_webhook_url", icon: MessageSquare,
+    powers: "Posts an alert to your Slack channel when a REAL payment is received. Demo payments are never sent.",
+    help: "Slack → Apps → 'Incoming Webhooks' → Add to a channel → copy the Webhook URL. Click Test to post a sample.",
+    fields: [
+      { key: "slack_webhook_url", label: "Incoming Webhook URL", placeholder: "https://hooks.slack.com/services/T…/B…/…", secret: true },
     ],
   },
 ];
