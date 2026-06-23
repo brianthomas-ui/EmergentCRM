@@ -96,7 +96,7 @@ export default function SavedViews({ currentFilters, onApply }) {
                   type="button"
                   onClick={(e) => remove(e, v)}
                   data-testid={`delete-view-${v.id}`}
-                  className="text-[var(--text-faint)] hover:text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="text-[var(--text-faint)] hover:text-rose-400 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 focus:opacity-100 transition-opacity"
                   aria-label="Delete view"
                 >
                   <Trash2 className="w-3.5 h-3.5" />

@@ -4,6 +4,15 @@
 > The sections below this changelog are LEGACY (pre-redesign, light theme) — defer to the handoff.
 
 ## Changelog
+### 2026-06-23 — Backlog frontend (Search, Bulk, Saved Views, Notifications) + Settings go-live
+Backend endpoints already existed (curl-verified). Built the FE; testing agent iteration_13 = 100% (7/7 flows), 0 bugs, 0 console errors.
+- **Global Search** (`components/layout/GlobalSearch.jsx`): debounced (250ms, >=2 chars) cross-entity search via `GET /api/search` → grouped Leads/Meetings/Payments dropdown; click navigates. Desktop = sidebar input; mobile = top-bar icon → full-screen overlay.
+- **Notifications** (`components/layout/NotificationBell.jsx`): bell + count badge + panel via `GET /api/notifications` (follow-ups due + no-shows), polls 60s; click item → lead. Sidebar (desktop) + mobile top bar.
+- **Bulk Lead Actions** (`components/leads/BulkBar.jsx` + checkbox column in `LeadsParts.js`): per-row + select-all checkboxes (don't trigger row nav); bulk bar with Assign (admin) / Set status / Delete (admin) / Clear → `POST /api/leads/bulk`. Leads.js fetches `/team` for the assign picker.
+- **Saved Views** (`components/leads/SavedViews.jsx`): per-user named filter presets via `GET/POST/DELETE /api/views`; save current filters, apply, delete. Header dropdown on /leads.
+- **Settings go-live expansion** (`pages/Settings.js`): exposes ALL 17 backend `ORG_INTEGRATION_FIELDS` grouped into 7 providers (Stripe, Razorpay, Calendly, Circleback, SendGrid, Google Meet/Calendar, Emergent Users API) with help text + per-provider **Test** button (`POST /settings/integrations/test/{name}`) + a **Go-live checklist** card showing Configured/Not set per integration.
+- Minor: `Primitives.TD` now forwards rest props (checkbox cell stopPropagation); saved-view delete icon visible on touch/focus (was hover-only).
+
 ### 2026-06-23 — Code-quality fixes (post-sync)
 Applied genuine structural/perf/security fixes from the review; skipped verified false positives. Backend 73/73 pytest pass; frontend compiles; Deals/DealDrawer render verified.
 - **Backend**: refactored `import_historical()` (cyclomatic ~62) into pure builders (`_import_build_lead/payment/meeting`) + per-type async handlers + a `_IMPORT_HANDLERS` dispatch — thin endpoint, same behavior (verified: 1 created / 1 skipped-with-error on a 2-row CSV).
