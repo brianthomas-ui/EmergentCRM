@@ -4567,6 +4567,130 @@ async def seed_demo():
     await _migrate_clean_reseed_v3()
     await _migrate_purge_test_leads()
 
+# ----------------------------------------------------------------------------
+# Global search · bulk lead actions · saved views · notifications
+# ----------------------------------------------------------------------------
+@api.get("/search")
+async def global_search(request: Request, user: dict = Depends(get_current_user)):
+    """Cross-entity search (RBAC-scoped): leads, meetings, payments by lead/contact."""
+    q = (request.query_params.get("q") or "").strip()
+    if len(q) < 2:
+        return {"leads": [], "meetings": [], "payments": []}
+    rx = {"$regex": re.escape(q), "$options": "i"}
+    is_admin = user["role"] == "admin"
+    lead_scope = {} if is_admin else {"owner_id": user["id"]}
+    agent_scope = {} if is_admin else {"agent_id": user["id"]}
+
+    raw = await db.leads.find(
+        {**lead_scope, "$or": [{"name": rx}, {"email": rx}, {"company": rx}, {"phone": rx}]},
+        {"_id": 0, "notes": 0, "ownership_history": 0}).limit(8).to_list(8)
+    leads = [{"id": s["id"], "name": s["name"], "company": s.get("company"),
+              "email": s.get("email"), "status": s.get("status")}
+             for s in (serialize_lead(l) for l in raw)]
+    mts = await db.meetings.find({**agent_scope, "lead_name": rx}, {"_id": 0}) \
+        .sort("scheduled_at", -1).limit(6).to_list(6)
+    meetings = [{"id": m["id"], "lead_id": m.get("lead_id"), "lead_name": m.get("lead_name"),
+                 "scheduled_at": m.get("scheduled_at"), "status": m.get("status")} for m in mts]
+    pys = await db.payments.find({**agent_scope, "lead_name": rx}, {"_id": 0}) \
+        .sort("created_at", -1).limit(6).to_list(6)
+    payments = [{"id": p["id"], "lead_id": p.get("lead_id"), "lead_name": p.get("lead_name"),
+                 "amount_usd": p.get("amount_usd", p.get("amount")), "payment_status": p.get("payment_status")} for p in pys]
+    return {"leads": leads, "meetings": meetings, "payments": payments}
+
+
+class BulkLeadIn(BaseModel):
+    ids: List[str]
+    action: str            # assign | status | delete
+    value: Optional[str] = None
+
+@api.post("/leads/bulk")
+async def bulk_leads(body: BulkLeadIn, user: dict = Depends(get_current_user)):
+    ids = body.ids or []
+    if not ids:
+        raise HTTPException(status_code=400, detail="No leads selected")
+
+    if body.action == "delete":
+        if user["role"] != "admin":
+            raise HTTPException(status_code=403, detail="Only managers can delete leads")
+        res = await db.leads.delete_many({"id": {"$in": ids}})
+        await log_audit("bulk_delete", user["name"], f"{res.deleted_count} leads")
+        return {"updated": res.deleted_count, "action": "delete"}
+
+    leads = await db.leads.find({"id": {"$in": ids}}).to_list(2000)
+    leads = [l for l in leads if user["role"] == "admin" or l.get("owner_id") == user["id"]]
+    count = 0
+
+    if body.action == "assign":
+        if user["role"] != "admin":
+            raise HTTPException(status_code=403, detail="Only managers can reassign leads")
+        agent = await db.users.find_one({"id": body.value})
+        if not agent:
+            raise HTTPException(status_code=404, detail="Owner not found")
+        for l in leads:
+            await _assign_lead(l, agent, user["name"])
+            count += 1
+        await log_audit("bulk_assign", user["name"], f"{count} leads -> {agent['name']}")
+    elif body.action == "status":
+        status = body.value
+        if status not in VISIBLE_STATUSES:
+            raise HTTPException(status_code=400, detail="Invalid status")
+        if status == "Payment Link Paid":
+            raise HTTPException(status_code=400, detail="Record a paid payment to mark Won.")
+        for l in leads:
+            await db.leads.update_one({"id": l["id"]}, {"$set": status_set(status)})
+            await log_activity(l["id"], "stage", f"Status -> {status} (bulk)", user["name"])
+            count += 1
+        await log_audit("bulk_status", user["name"], f"{count} leads -> {status}")
+    else:
+        raise HTTPException(status_code=400, detail="Unknown action")
+    return {"updated": count, "action": body.action}
+
+
+class SavedViewIn(BaseModel):
+    name: str
+    filters: dict
+
+@api.get("/views")
+async def list_views(user: dict = Depends(get_current_user)):
+    return await db.saved_views.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", 1).to_list(100)
+
+@api.post("/views")
+async def create_view(body: SavedViewIn, user: dict = Depends(get_current_user)):
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name required")
+    doc = {"id": new_id(), "user_id": user["id"], "name": name,
+           "filters": body.filters or {}, "created_at": now_iso()}
+    await db.saved_views.insert_one(dict(doc))
+    return doc
+
+@api.delete("/views/{view_id}")
+async def delete_view(view_id: str, user: dict = Depends(get_current_user)):
+    await db.saved_views.delete_one({"id": view_id, "user_id": user["id"]})
+    return {"ok": True}
+
+
+@api.get("/notifications")
+async def notifications(user: dict = Depends(get_current_user)):
+    """Derived alerts for the signed-in user: follow-ups due + meetings to reschedule."""
+    uid = user["id"]
+    now_s = datetime.now(timezone.utc).isoformat()
+    items = []
+    leads_raw = await db.leads.find({"owner_id": uid}, {"_id": 0}).to_list(5000)
+    for l in (serialize_lead(x) for x in leads_raw):
+        nf = l.get("next_followup_at")
+        if nf and nf <= now_s and "Active Pipeline" in (l.get("status_groups") or []):
+            items.append({"type": "followup", "lead_id": l["id"], "title": f"Follow up with {l['name']}",
+                          "subtitle": l.get("company") or l.get("email") or "", "at": nf})
+    noshows = await db.meetings.find({"agent_id": uid, "status": "no_show"}, {"_id": 0}) \
+        .sort("scheduled_at", -1).limit(25).to_list(25)
+    for m in noshows:
+        items.append({"type": "no_show", "lead_id": m.get("lead_id"), "title": f"No-show: {m.get('lead_name')}",
+                      "subtitle": "Reschedule the meeting", "at": m.get("scheduled_at")})
+    items.sort(key=lambda x: x.get("at") or "", reverse=True)
+    return {"count": len(items), "items": items[:30]}
+
+
 async def seed():
     await bootstrap_production()
     if not IS_PROD:
