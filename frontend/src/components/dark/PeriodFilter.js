@@ -56,9 +56,12 @@ export default function PeriodFilter({ value, onChange, className = "", includeA
   const setTo = (to) => onChange?.({ ...v, period: "custom", to });
 
   return (
-    <div className={`flex flex-wrap items-center gap-2 ${className}`} data-testid="period-filter">
-      <div className="inline-flex items-center rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-0.5">
-        {segments.map((seg) => {
+    <div className={`flex flex-wrap items-center gap-2 max-w-full ${className}`} data-testid="period-filter">
+      {/* Swipeable on phones: the pill group scrolls inside its own track instead of
+          pushing the page wider. Contained by max-w-full + overflow-x-auto. */}
+      <div className="max-w-full overflow-x-auto no-scrollbar">
+        <div className="inline-flex w-max items-center rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-0.5">
+          {segments.map((seg) => {
           const active = v.period === seg.key;
           return (
             <button
@@ -76,7 +79,8 @@ export default function PeriodFilter({ value, onChange, className = "", includeA
               {seg.label}
             </button>
           );
-        })}
+          })}
+        </div>
       </div>
 
       {v.period === "custom" && (

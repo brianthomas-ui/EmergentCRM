@@ -31,8 +31,13 @@ export function KpiCard({ label, value, sub, accent = false, onClick, active = f
 
 function SourceTag({ source }) {
   if (!source) return <span className="text-[var(--text-faint)]">-</span>;
+  // Single line, truncated with a tooltip, so the Source column stays a tidy
+  // even row instead of chips wrapping to two or three lines of varying height.
   return (
-    <span className="inline-block px-2 py-0.5 rounded-md text-[11px] font-medium bg-[var(--surface-3)] text-[var(--text-muted)] border border-[var(--border)]">
+    <span
+      title={source}
+      className="inline-block max-w-[150px] truncate align-middle px-2 py-0.5 rounded-md text-[11px] font-medium whitespace-nowrap bg-[var(--surface-3)] text-[var(--text-muted)] border border-[var(--border)]"
+    >
       {source}
     </span>
   );
@@ -131,7 +136,7 @@ function LeadRow({ lead, meta, onRowClick }) {
       </TD>
       <TD><SourceTag source={l.source} /></TD>
       <TD>
-        <span className="text-sm text-[var(--text-muted)]">
+        <span className="text-sm text-[var(--text-muted)] whitespace-nowrap">
           {l.product_line || l.plan || <span className="text-[var(--text-faint)]">-</span>}
         </span>
       </TD>

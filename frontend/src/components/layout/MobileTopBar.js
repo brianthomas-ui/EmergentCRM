@@ -9,16 +9,17 @@ function titleFor(pathname, items) {
   return hit ? hit.label : "Emergent CRM";
 }
 
-// Slim sticky header for the mobile app shell: brand mark, current page title, and a
-// tap target that opens the profile/More sheet. Mounts only under lg via lg:hidden.
-export default function MobileTopBar({ navItems, user, onOpenMore, impersonating }) {
+// Slim header row for the mobile app shell: brand mark, current page title, and a
+// tap target that opens the profile/More sheet. Rendered as a frozen flex row by
+// Layout (shrink-0), so it never scrolls away. pt-safe clears the notch.
+export default function MobileTopBar({ navItems, user, onOpenMore }) {
   const { pathname } = useLocation();
   const title = titleFor(pathname, navItems);
 
   return (
     <header
       data-testid="mobile-top-bar"
-      className={`lg:hidden sticky ${impersonating ? "top-11" : "top-0"} z-20 pt-safe bg-[var(--surface-1)]/95 backdrop-blur-md border-b border-[var(--border)]`}
+      className="shrink-0 pt-safe bg-[var(--surface-1)] border-b border-[var(--border)]"
     >
       <div className="h-14 px-4 flex items-center gap-3">
         <img

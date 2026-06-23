@@ -50,8 +50,9 @@ function TabButton({ active, label, icon: Icon, reduce, testid, onClick, to, end
   );
 }
 
-// Fixed bottom navigation that replaces the desktop sidebar on phones. Mounts only
-// under lg via the parent's lg:hidden wrapper.
+// Bottom navigation that replaces the desktop sidebar on phones. Rendered as a
+// frozen flex row by the Layout app-shell (shrink-0), below the scroll region, so
+// it is always visible and never overlaps content. pb-safe clears the home bar.
 export default function MobileTabBar({ onOpenMore }) {
   const reduce = useReducedMotion();
   const { pathname } = useLocation();
@@ -61,8 +62,7 @@ export default function MobileTabBar({ onOpenMore }) {
     <nav
       data-testid="mobile-tab-bar"
       data-tour="mobile-tabs"
-      className="lg:hidden fixed inset-x-0 bottom-0 z-30 pb-safe bg-[var(--surface-1)]/95 backdrop-blur-md border-t border-[var(--border)]"
-      style={{ height: "calc(var(--bottom-nav-h) + env(safe-area-inset-bottom))" }}
+      className="shrink-0 pb-safe bg-[var(--surface-1)] border-t border-[var(--border)]"
     >
       <div className="flex items-stretch h-[var(--bottom-nav-h)] px-1">
         {TABS.map((t) => (

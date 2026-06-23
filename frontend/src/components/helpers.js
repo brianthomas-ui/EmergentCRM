@@ -66,22 +66,14 @@ export function moneyCompact(n, currency = "usd") {
 }
 
 // ---------------------------------------------------------------------------
-// Status badge tones (dark theme). Maps the backend STATUS_META tone name to
-// a set of dark-friendly Tailwind classes. `filled` = solid emerald (won).
+// Status tones. Each status resolves to a tone NAME; the actual colors live in
+// the theme-aware `.tone-*` classes (index.css), so every badge reads correctly
+// in BOTH dark and light. `tone-chip` = filled pill, `tone-text` = colored text
+// only (bars / inline labels).
 // ---------------------------------------------------------------------------
-const TONE_CLASSES = {
-  emerald:    "text-emerald-300 border-emerald-500/30 bg-emerald-500/10",
-  green:      "text-emerald-50 border-emerald-400/40 bg-emerald-500/80", // filled / won
-  cyan:       "text-sky-300 border-sky-500/30 bg-sky-500/10",
-  blue:       "text-sky-300 border-sky-500/30 bg-sky-500/10",
-  "blue-gray":"text-slate-300 border-slate-500/30 bg-slate-500/10",
-  amber:      "text-amber-300 border-amber-500/30 bg-amber-500/10",
-  orange:     "text-orange-300 border-orange-500/30 bg-orange-500/10",
-  purple:     "text-violet-300 border-violet-500/30 bg-violet-500/10",
-  rose:       "text-rose-300 border-rose-500/30 bg-rose-500/10",
-  "rose-muted":"text-rose-300/80 border-rose-500/20 bg-rose-500/[0.07]",
-  slate:      "text-slate-300 border-slate-600/40 bg-slate-600/10",
-};
+const VALID_TONES = new Set([
+  "emerald", "green", "cyan", "blue", "blue-gray", "amber", "orange", "purple", "rose", "rose-muted", "slate",
+]);
 
 // Fallback tone per status when STATUS_META is not available from /meta.
 const STATUS_TONE = {
@@ -97,50 +89,62 @@ const STATUS_TONE = {
   Contacted: "blue-gray",
 };
 
+// Resolve a status (+ optional API tone) to a tone name.
+export function statusTone(status, toneFromApi) {
+  const t = toneFromApi || STATUS_TONE[status] || "slate";
+  return VALID_TONES.has(t) ? t : "slate";
+}
+
+// Filled chip classes for a tone name.
 export function toneClass(tone) {
-  return TONE_CLASSES[tone] || TONE_CLASSES.slate;
+  return `tone-chip tone-${VALID_TONES.has(tone) ? tone : "slate"}`;
 }
 
+// Colored-text-only classes (bars, inline labels).
+export function textTone(tone) {
+  return `tone-text tone-${VALID_TONES.has(tone) ? tone : "slate"}`;
+}
+
+// Filled chip classes for a status.
 export function statusToneClass(status, toneFromApi) {
-  const tone = toneFromApi || STATUS_TONE[status] || "slate";
-  return TONE_CLASSES[tone] || TONE_CLASSES.slate;
+  return toneClass(statusTone(status, toneFromApi));
 }
 
-// Legacy stage tones (dark) - used by old Pipeline/Leads pages.
+// Stage tones - used by old Pipeline/Leads pages.
 export function stageClass(stage) {
   const map = {
-    "New Booking": "text-slate-300 border-slate-600/40 bg-slate-600/10",
-    Assigned: "text-slate-200 border-slate-500/40 bg-slate-500/10",
-    "Meeting Completed": "text-indigo-300 border-indigo-500/30 bg-indigo-500/10",
-    "Payment Link Sent": "text-amber-300 border-amber-500/30 bg-amber-500/10",
-    Won: "text-emerald-300 border-emerald-500/30 bg-emerald-500/10",
-    Lost: "text-rose-300 border-rose-500/30 bg-rose-500/10",
-    "Follow-up Later": "text-orange-300 border-orange-500/30 bg-orange-500/10",
+    "New Booking": "slate",
+    Assigned: "blue-gray",
+    "Meeting Completed": "blue",
+    "Payment Link Sent": "amber",
+    Won: "emerald",
+    Lost: "rose",
+    "Follow-up Later": "orange",
   };
-  return map[stage] || "text-slate-300 border-slate-600/40 bg-slate-600/10";
+  return toneClass(map[stage] || "slate");
 }
 
 export function priorityClass(p) {
   const map = {
-    Hot: "text-rose-300 border-rose-500/30 bg-rose-500/10",
-    "Follow-up This Week": "text-amber-300 border-amber-500/30 bg-amber-500/10",
-    "Payment Pending": "text-slate-200 border-slate-500/40 bg-slate-500/10",
-    None: "text-slate-400 border-slate-600/30 bg-transparent",
+    Hot: "rose",
+    "Follow-up This Week": "amber",
+    "Payment Pending": "blue-gray",
+    None: "slate",
   };
-  return map[p] || map.None;
+  return toneClass(map[p] || "slate");
 }
 
 export function paymentStatusClass(s) {
   const map = {
-    paid: "text-emerald-300 border-emerald-500/30 bg-emerald-500/10",
-    Paid: "text-emerald-300 border-emerald-500/30 bg-emerald-500/10",
-    pending: "text-amber-300 border-amber-500/30 bg-amber-500/10",
-    "Link Sent": "text-sky-300 border-sky-500/30 bg-sky-500/10",
-    failed: "text-orange-300 border-orange-500/30 bg-orange-500/10",
-    Failed: "text-orange-300 border-orange-500/30 bg-orange-500/10",
-    initiated: "text-slate-300 border-slate-600/40 bg-slate-600/10",
+    paid: "emerald",
+    Paid: "emerald",
+    pending: "amber",
+    "Link Sent": "cyan",
+    failed: "orange",
+    Failed: "orange",
+    initiated: "slate",
   };
-  return map[s] || map.pending;
+  return toneClass(map[s] || "amber");
 }
 
 // Provider display label + chip tone.
@@ -169,13 +173,12 @@ export function statusAction(status) {
   return map[status] || { label: "Open", kind: "open", tone: "slate" };
 }
 
-// Outline badge with optional filled (won) treatment.
-export function Badge({ children, className = "", filled = false }) {
+// Small mono "tag" badge. Background/border come from the tone-* class passed in
+// className (theme-aware); structure is uniform so a column of them reads tidy.
+export function Badge({ children, className = "" }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-mono font-medium uppercase tracking-wider border ${
-        filled ? "" : "bg-transparent"
-      } ${className}`}
+      className={`inline-flex items-center justify-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold uppercase tracking-wider leading-none border whitespace-nowrap ${className}`}
     >
       {children}
     </span>

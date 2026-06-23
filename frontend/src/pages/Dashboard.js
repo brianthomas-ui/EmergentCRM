@@ -26,7 +26,8 @@ import DrillDownModal from "@/components/DrillDownModal";
 import {
   money,
   moneyCompact,
-  statusToneClass,
+  statusTone,
+  textTone,
   fmtDateTime,
   timeAgo,
 } from "@/components/helpers";
@@ -226,9 +227,8 @@ function PipelineByStage({ statusCounts, statusMeta, onDrillStatus }) {
       <div className="space-y-1.5">
         {rows.map((r) => {
           const pct = (r.count / max) * 100;
-          const toneClasses = statusToneClass(r.status, r.tone);
-          // Extract text colour from the tone class string (first class starts with "text-")
-          const textCls = toneClasses.split(" ").find((c) => c.startsWith("text-")) || "text-slate-300";
+          // Theme-aware tone text for the label (readable in light + dark).
+          const textCls = textTone(statusTone(r.status, r.tone));
 
           return (
             <button
@@ -566,7 +566,7 @@ export default function Dashboard() {
   const agentLeaderboard = data?.per_agent || [];
 
   return (
-    <div className="min-h-full p-5 space-y-4" style={{ background: "var(--bg)", color: "var(--text)" }}>
+    <div className="min-h-full space-y-4" style={{ background: "var(--bg)", color: "var(--text)" }}>
 
       {/* ---- Header ---- */}
       <div className="flex flex-wrap items-center justify-between gap-3">

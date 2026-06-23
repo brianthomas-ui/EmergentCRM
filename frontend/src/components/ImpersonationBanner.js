@@ -24,11 +24,11 @@ export default function ImpersonationBanner() {
   };
 
   return (
-    // Fixed above all page chrome (sidebar z-20, sticky headers z-10/20) so the exit
-    // control is never covered. Aligned with the main content column (left of it = sidebar).
+    // Mobile: a frozen in-flow row at the top of the app shell. Desktop: fixed above
+    // all page chrome, aligned to the content column (left of it = sidebar).
     <div
       data-testid="impersonation-banner"
-      className="fixed top-0 left-0 right-0 lg:left-[272px] z-40 flex items-center justify-center gap-3 bg-amber-400 text-amber-950 text-sm font-medium px-4 py-2.5 shadow-md"
+      className="relative shrink-0 z-40 lg:fixed lg:top-0 lg:left-[272px] lg:right-0 flex items-center justify-center gap-3 bg-amber-400 text-amber-950 text-sm font-medium px-4 py-2.5 shadow-md"
     >
       <Eye className="w-4 h-4 shrink-0" />
       <span>

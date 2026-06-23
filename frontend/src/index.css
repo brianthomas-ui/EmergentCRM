@@ -41,12 +41,19 @@
 
 html, body {
   margin: 0;
+  /* Hard guard: the document can never be wider than the screen, so one stray wide
+     child can't shift the whole page sideways on mobile. `clip` (not `hidden`)
+     keeps sticky positioning working and creates no scroll container. */
+  max-width: 100%;
+  overflow-x: clip;
   background-color: var(--bg);
   font-family: 'General Sans', -apple-system, sans-serif;
   color: var(--text);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+#root { max-width: 100%; overflow-x: clip; }
 
 h1, h2, h3, h4, .font-heading {
   font-family: 'General Sans', sans-serif;
@@ -76,6 +83,14 @@ h1, h2, h3, h4, .font-heading {
 
 ::selection { background: var(--emerald); color: #06281C; }
 
+/* Consistent, accessible keyboard focus ring. :where() keeps specificity at 0 so
+   component styles still win; only shows for keyboard nav (not mouse clicks). */
+:where(a, button, [role="button"], input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
 @keyframes fadeInUp {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
@@ -97,6 +112,9 @@ h1, h2, h3, h4, .font-heading {
   .pb-nav { padding-bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom) + 8px); }
   /* minimum 44px finger target for icon-only buttons */
   .tap-target { min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
+  /* horizontally-scrollable strips (segmented controls, chip rows) without a visible bar */
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
 }
 
 @keyframes sheetUp {
@@ -157,8 +175,8 @@ html[data-theme="light"] {
   --border: #E2E7EE;
   --border-strong: #CBD2DB;
   --text: #0E141B;
-  --text-muted: #586273;
-  --text-faint: #8A93A1;
+  --text-muted: #4A5567;     /* AA on white */
+  --text-faint: #6B7480;     /* readable tertiary on light surfaces */
   --emerald: #059669;
   --emerald-dim: rgba(5, 150, 105, 0.10);
   --emerald-border: rgba(5, 150, 105, 0.28);
@@ -256,6 +274,47 @@ html[data-theme="light"] {
   html[data-theme="light"] .text-rose-300,
   html[data-theme="light"] .text-rose-400 { color: #DC2626 !important; }
 }
+
+/* ----------------------------------------------------------------------------
+   STATUS TONE SYSTEM
+   One chip style, theme-aware colors via CSS vars so every badge/status stays
+   legible (WCAG AA) in BOTH dark and light. `.tone-chip` = filled pill,
+   `.tone-text` = colored text only (bars, labels). `.tone-<name>` only sets the
+   vars, so it composes with either. This replaces the old dark-only Tailwind
+   tone strings that rendered gray-on-white in light mode.
+---------------------------------------------------------------------------- */
+.tone-chip {
+  color: var(--tone-text);
+  background: var(--tone-bg);
+  border-color: var(--tone-border);
+}
+.tone-text { color: var(--tone-text); }
+
+/* dark defaults (bright text on a low-opacity tint) */
+.tone-emerald    { --tone-text:#6EE7B7; --tone-bg:rgba(16,185,129,0.14); --tone-border:rgba(16,185,129,0.32); }
+.tone-green      { --tone-text:#ECFDF5; --tone-bg:rgba(16,185,129,0.85); --tone-border:rgba(16,185,129,0.55); }
+.tone-cyan       { --tone-text:#7DD3FC; --tone-bg:rgba(14,165,233,0.14); --tone-border:rgba(14,165,233,0.32); }
+.tone-blue       { --tone-text:#93C5FD; --tone-bg:rgba(59,130,246,0.14); --tone-border:rgba(59,130,246,0.32); }
+.tone-blue-gray  { --tone-text:#CBD5E1; --tone-bg:rgba(100,116,139,0.16); --tone-border:rgba(100,116,139,0.34); }
+.tone-amber      { --tone-text:#FCD34D; --tone-bg:rgba(245,158,11,0.14); --tone-border:rgba(245,158,11,0.32); }
+.tone-orange     { --tone-text:#FDBA74; --tone-bg:rgba(249,115,22,0.14); --tone-border:rgba(249,115,22,0.32); }
+.tone-purple     { --tone-text:#C4B5FD; --tone-bg:rgba(139,92,246,0.14); --tone-border:rgba(139,92,246,0.32); }
+.tone-rose       { --tone-text:#FDA4AF; --tone-bg:rgba(244,63,94,0.14); --tone-border:rgba(244,63,94,0.32); }
+.tone-rose-muted { --tone-text:#FCA5B4; --tone-bg:rgba(244,63,94,0.09); --tone-border:rgba(244,63,94,0.22); }
+.tone-slate      { --tone-text:#CBD5E1; --tone-bg:rgba(100,116,139,0.14); --tone-border:rgba(100,116,139,0.30); }
+
+/* light overrides (dark text on a pale tinted bg, AA contrast) */
+html[data-theme="light"] .tone-emerald    { --tone-text:#047857; --tone-bg:#ECFDF5; --tone-border:#A7F3D0; }
+html[data-theme="light"] .tone-green       { --tone-text:#FFFFFF; --tone-bg:#059669; --tone-border:#047857; }
+html[data-theme="light"] .tone-cyan        { --tone-text:#0369A1; --tone-bg:#F0F9FF; --tone-border:#BAE6FD; }
+html[data-theme="light"] .tone-blue        { --tone-text:#1D4ED8; --tone-bg:#EFF6FF; --tone-border:#BFDBFE; }
+html[data-theme="light"] .tone-blue-gray   { --tone-text:#475569; --tone-bg:#F1F5F9; --tone-border:#CBD5E1; }
+html[data-theme="light"] .tone-amber       { --tone-text:#B45309; --tone-bg:#FFFBEB; --tone-border:#FDE68A; }
+html[data-theme="light"] .tone-orange      { --tone-text:#C2410C; --tone-bg:#FFF7ED; --tone-border:#FED7AA; }
+html[data-theme="light"] .tone-purple      { --tone-text:#6D28D9; --tone-bg:#F5F3FF; --tone-border:#DDD6FE; }
+html[data-theme="light"] .tone-rose        { --tone-text:#BE123C; --tone-bg:#FFF1F2; --tone-border:#FECDD3; }
+html[data-theme="light"] .tone-rose-muted  { --tone-text:#9F1239; --tone-bg:#FFF1F2; --tone-border:#FECDD3; }
+html[data-theme="light"] .tone-slate       { --tone-text:#475569; --tone-bg:#F1F5F9; --tone-border:#CBD5E1; }
 
 /* Inputs in prebuilt forms shouldn't render as bright white boxes */
 input, textarea, select {

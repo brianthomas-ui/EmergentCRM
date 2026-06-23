@@ -3,6 +3,7 @@ import { LogOut, KeyRound, Compass, Sun, Moon, ArrowLeft } from "lucide-react";
 import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
 import Avatar from "@/components/dark/Avatar";
 import { ViewAsPicker } from "@/components/layout/ViewAsPicker";
+import { InstallAppButton } from "@/components/layout/InstallApp";
 
 // Routes that already live on the bottom tab bar; we don't repeat them in the sheet.
 const PRIMARY = new Set(["/", "/workspace", "/leads", "/deals"]);
@@ -41,11 +42,11 @@ export default function MoreSheet({
     <Drawer open={open} onOpenChange={onOpenChange} shouldScaleBackground={false}>
       <DrawerContent
         data-testid="more-sheet"
-        className="bg-[var(--surface-1)] border-[var(--border)] text-[var(--text)] max-h-[92vh] focus:outline-none"
+        className="bg-[var(--surface-1)] border-[var(--border)] text-[var(--text)] max-h-[92vh] max-w-[100vw] overflow-x-hidden focus:outline-none"
       >
         <DrawerTitle className="sr-only">Menu</DrawerTitle>
 
-        <div className="px-4 pb-[max(env(safe-area-inset-bottom),16px)] overflow-y-auto">
+        <div className="px-4 pb-[max(env(safe-area-inset-bottom),16px)] overflow-y-auto overflow-x-hidden">
           {/* identity */}
           <div className="flex items-center gap-3 px-1 pt-1 pb-4">
             <Avatar src={user?.avatar_url} name={user?.name || user?.email} size="md" />
@@ -100,6 +101,11 @@ export default function MoreSheet({
               <ViewAsPicker />
             </div>
           )}
+
+          {/* install as app (hidden when already installed) */}
+          <div className="mb-2.5">
+            <InstallAppButton />
+          </div>
 
           {/* profile actions */}
           <div className="grid grid-cols-3 gap-2.5">

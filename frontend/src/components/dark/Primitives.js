@@ -1,7 +1,7 @@
 // Reusable dark primitives for the Emergent Dark Sales Console.
 // Used by the Deals page first; later pages reuse these.
 import { X } from "lucide-react";
-import { money, moneyCompact, statusToneClass, statusAction } from "@/components/helpers";
+import { money, moneyCompact, statusToneClass, statusTone, textTone, statusAction } from "@/components/helpers";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 
 // ---------------------------------------------------------------------------
@@ -26,14 +26,16 @@ export function Card({ children, className = "", onClick, ...rest }) {
 // ---------------------------------------------------------------------------
 export function StatusBadge({ status, tone, className = "" }) {
   if (!status) return null;
+  // Uniform pill: centered, min-width so short labels (Won, No-Show) don't read as
+  // tiny next to long ones, single dot + label. Tone colors are theme-aware.
   return (
     <span
-      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium border whitespace-nowrap ${statusToneClass(
+      className={`inline-flex items-center justify-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium leading-none border whitespace-nowrap min-w-[92px] ${statusToneClass(
         status,
         tone
       )} ${className}`}
     >
-      <span className="w-1.5 h-1.5 rounded-full bg-current opacity-70" />
+      <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80 shrink-0" />
       {status}
     </span>
   );
@@ -137,7 +139,7 @@ export function StagePill({ label, tone, count, value, currency = "usd", active 
       }`}
     >
       <div className="flex items-center gap-2">
-        <span className={`text-[11px] ${statusToneClass(label, tone).split(" ")[0]} font-medium whitespace-nowrap`}>
+        <span className={`text-[11px] ${textTone(statusTone(label, tone))} font-medium whitespace-nowrap`}>
           {label}
         </span>
       </div>

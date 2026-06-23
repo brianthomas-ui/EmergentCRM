@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { motion, useReducedMotion } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
   LayoutDashboard,
   Briefcase,
@@ -26,6 +27,7 @@ import { ViewAsPicker } from "@/components/layout/ViewAsPicker";
 import MobileTopBar from "@/components/layout/MobileTopBar";
 import MobileTabBar from "@/components/layout/MobileTabBar";
 import MoreSheet from "@/components/layout/MoreSheet";
+import { InstallBanner } from "@/components/layout/InstallApp";
 
 export const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, testid: "nav-dashboard", admin: false },
@@ -47,6 +49,7 @@ export default function Layout({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
   const reduce = useReducedMotion();
+  const isMobile = useIsMobile();
   const [savingAvatar, setSavingAvatar] = useState(false);
   const [runTour, setRunTour] = useState(false);
   const [pwOpen, setPwOpen] = useState(false);
@@ -105,93 +108,121 @@ export default function Layout({ children }) {
     navigate("/login");
   };
 
-  return (
-    <div className="relative min-h-screen bg-[var(--bg)]">
-      <aside className="hidden lg:flex w-[272px] bg-[var(--surface-1)] border-r border-[var(--border)] h-screen fixed left-0 top-0 flex-col z-20">
-        <div className="px-5 h-16 flex items-center gap-3 border-b border-[var(--border)]">
-          <img
-            src="/emergent-logo.jpeg"
-            alt="Emergent"
-            className="w-9 h-9 rounded-lg object-cover ring-1 ring-[var(--border)]"
-          />
-          <div className="leading-tight">
-            <div className="font-heading font-semibold tracking-tight text-sm text-[var(--text)]">Emergent CRM</div>
-            <div className="label-mono text-[10px] text-emerald-400/80">Inside Sales</div>
-          </div>
+  // The routed page, with its enter transition. Shared by both shells.
+  const page = (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center py-24 text-sm text-[var(--text-muted)]">Loading…</div>
+      }
+    >
+      {/* Keyed remount per route replays the enter transition (app-like page change).
+          No AnimatePresence/exit, so it stays robust with react-router and lazy chunks. */}
+      <motion.div
+        key={location.pathname}
+        initial={reduce ? false : { opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+      >
+        {children}
+      </motion.div>
+    </Suspense>
+  );
+
+  // Overlays live outside the shell so the shell's overflow clipping never affects them.
+  const overlays = (
+    <>
+      <ChangePasswordModal open={pwOpen} onClose={() => setPwOpen(false)} />
+      <Tour run={runTour} steps={tourSteps} onClose={() => setRunTour(false)} />
+    </>
+  );
+
+  // ---- Mobile: a fixed-height app shell. Top bar and tab bar are frozen flex
+  // siblings; ONLY the middle scrolls, so the bars never move or get hidden, and
+  // there is no fixed-over-body-scroll fighting the browser chrome. ----
+  if (isMobile) {
+    return (
+      <>
+        <div
+          className="flex flex-col h-screen overflow-hidden bg-[var(--bg)]"
+          style={{ height: "100dvh" }}
+        >
+          {/* in-flow on mobile (a frozen row); self-hides when not impersonating */}
+          <ImpersonationBanner />
+
+          <MobileTopBar navItems={visibleNavItems} user={user} onOpenMore={() => setMoreOpen(true)} />
+
+          <InstallBanner />
+
+          <main className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain">
+            <div className="px-4 py-4">{page}</div>
+          </main>
+
+          <MobileTabBar onOpenMore={() => setMoreOpen(true)} />
         </div>
 
-        <SidebarNav items={visibleNavItems} />
-
-        {isAdmin && !impersonating && <ViewAsPicker />}
-
-        <SidebarUserCard
+        <MoreSheet
+          open={moreOpen}
+          onOpenChange={setMoreOpen}
+          navItems={visibleNavItems}
           user={user}
           isAdmin={isAdmin}
           impersonating={impersonating}
-          savingAvatar={savingAvatar}
           theme={theme}
-          onAvatarUpload={onAvatarUpload}
-          onStopImpersonation={onStopImpersonation}
           onLogout={onLogout}
           onChangePassword={() => setPwOpen(true)}
           onToggleTheme={toggleTheme}
           onTakeTour={() => setRunTour(true)}
+          onStopImpersonation={onStopImpersonation}
         />
-      </aside>
+        {overlays}
+      </>
+    );
+  }
 
-      {/* Rendered at root (not inside <main>) and fixed, so the exit control always sits
-          above page chrome and is reachable at any scroll position / on any page. */}
-      <ImpersonationBanner />
+  // ---- Desktop: unchanged. Fixed sidebar + body scroll. ----
+  return (
+    <>
+      <div className="relative min-h-screen bg-[var(--bg)]">
+        <aside className="hidden lg:flex w-[272px] bg-[var(--surface-1)] border-r border-[var(--border)] h-screen fixed left-0 top-0 flex-col z-20">
+          <div className="px-5 h-16 flex items-center gap-3 border-b border-[var(--border)]">
+            <img
+              src="/emergent-logo.jpeg"
+              alt="Emergent"
+              className="w-9 h-9 rounded-lg object-cover ring-1 ring-[var(--border)]"
+            />
+            <div className="leading-tight">
+              <div className="font-heading font-semibold tracking-tight text-sm text-[var(--text)]">Emergent CRM</div>
+              <div className="label-mono text-[10px] text-emerald-400/80">Inside Sales</div>
+            </div>
+          </div>
 
-      <main className="lg:ml-[272px] min-h-screen relative z-10">
-        {impersonating && <div aria-hidden className="h-11" />}
+          <SidebarNav items={visibleNavItems} />
 
-        {/* Mobile-only app chrome: slim top bar in flow, fixed tab bar below. */}
-        <MobileTopBar
-          navItems={visibleNavItems}
-          user={user}
-          onOpenMore={() => setMoreOpen(true)}
-          impersonating={impersonating}
-        />
+          {isAdmin && !impersonating && <ViewAsPicker />}
 
-        <div className="max-w-[1680px] mx-auto px-4 pt-5 sm:px-6 lg:px-8 lg:pt-8 pb-nav lg:pb-8">
-          <Suspense
-            fallback={
-              <div className="flex items-center justify-center py-24 text-sm text-[var(--text-muted)]">Loading…</div>
-            }
-          >
-            {/* Keyed remount per route replays the enter transition (app-like page change).
-                No AnimatePresence/exit, so it stays robust with react-router and lazy chunks. */}
-            <motion.div
-              key={location.pathname}
-              initial={reduce ? false : { opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-            >
-              {children}
-            </motion.div>
-          </Suspense>
-        </div>
-      </main>
+          <SidebarUserCard
+            user={user}
+            isAdmin={isAdmin}
+            impersonating={impersonating}
+            savingAvatar={savingAvatar}
+            theme={theme}
+            onAvatarUpload={onAvatarUpload}
+            onStopImpersonation={onStopImpersonation}
+            onLogout={onLogout}
+            onChangePassword={() => setPwOpen(true)}
+            onToggleTheme={toggleTheme}
+            onTakeTour={() => setRunTour(true)}
+          />
+        </aside>
 
-      <MobileTabBar onOpenMore={() => setMoreOpen(true)} />
-      <MoreSheet
-        open={moreOpen}
-        onOpenChange={setMoreOpen}
-        navItems={visibleNavItems}
-        user={user}
-        isAdmin={isAdmin}
-        impersonating={impersonating}
-        theme={theme}
-        onLogout={onLogout}
-        onChangePassword={() => setPwOpen(true)}
-        onToggleTheme={toggleTheme}
-        onTakeTour={() => setRunTour(true)}
-        onStopImpersonation={onStopImpersonation}
-      />
+        <ImpersonationBanner />
 
-      <ChangePasswordModal open={pwOpen} onClose={() => setPwOpen(false)} />
-      <Tour run={runTour} steps={tourSteps} onClose={() => setRunTour(false)} />
-    </div>
+        <main className="lg:ml-[272px] min-h-screen relative z-10">
+          {impersonating && <div aria-hidden className="h-11" />}
+          <div className="max-w-[1680px] mx-auto px-6 lg:px-8 py-6 lg:py-8">{page}</div>
+        </main>
+      </div>
+      {overlays}
+    </>
   );
 }
