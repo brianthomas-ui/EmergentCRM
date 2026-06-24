@@ -1,132 +1,114 @@
 {
-  "theme": "light",
-  "archetype": "Archetype 4 (Swiss & High-Contrast)",
-  "design_philosophy": "Strictly structural, hyper-minimal, near-black/white monochromatic aesthetic matching emergent.sh. Gradients are completely removed. Reliance on sharp borders, generous whitespace, stark typography, and monospace accents.",
-  "colors": {
-    "css_variables": {
-      "root": {
-        "--background": "0 0% 100%",
-        "--foreground": "0 0% 4%",
-        "--card": "0 0% 100%",
-        "--card-foreground": "0 0% 4%",
-        "--popover": "0 0% 100%",
-        "--popover-foreground": "0 0% 4%",
-        "--primary": "0 0% 4%",
-        "--primary-foreground": "0 0% 98%",
-        "--secondary": "0 0% 96.1%",
-        "--secondary-foreground": "0 0% 9%",
-        "--muted": "0 0% 96.1%",
-        "--muted-foreground": "0 0% 45.1%",
-        "--accent": "0 0% 96.1%",
-        "--accent-foreground": "0 0% 9%",
-        "--destructive": "0 84.2% 60.2%",
-        "--destructive-foreground": "0 0% 98%",
-        "--border": "0 0% 89.8%",
-        "--input": "0 0% 89.8%",
-        "--ring": "0 0% 4%",
-        "--radius": "0.25rem"
-      }
-    },
-    "tailwind_palette": {
-      "brand_black": "#0A0A0A",
-      "brand_white": "#FFFFFF",
-      "brand_border": "#E4E4E7",
-      "brand_muted": "#71717A",
-      "brand_accent": "#F4F4F5"
-    }
-  },
+  "theme_and_archetype": "4 (Swiss & High-Contrast) - Adapted for 'Emergent Dark Sales Console'",
+  "domain": "Dashboard / SaaS App (CRM)",
+  "design_philosophy": "Mobile optimization of a dense desktop interface. Prioritize legibility, comfortable touch targets, and vertical rhythm while preserving the established dark console aesthetic. Functional parity is strictly maintained; changes are purely visual and spatial for <1024px screens.",
   "typography": {
     "font_families": {
-      "heading": "General Sans, sans-serif",
-      "body": "General Sans, sans-serif",
-      "mono": "JetBrains Mono, monospace"
+      "primary": "General Sans",
+      "mono": "JetBrains Mono"
     },
-    "hierarchy": {
-      "h1": "text-4xl font-semibold tracking-tight text-zinc-950",
-      "h2": "text-2xl font-semibold tracking-tight text-zinc-950",
-      "h3": "text-lg font-medium tracking-tight text-zinc-950",
-      "body": "text-sm text-zinc-700 leading-relaxed",
-      "metadata": "font-mono text-xs tracking-wider text-zinc-500 uppercase",
-      "numbers": "font-mono text-sm tracking-tight text-zinc-950"
+    "mobile_type_scale": {
+      "micro_labels": {
+        "desktop_reference": "9-11px, tight spacing",
+        "mobile_target": "12px (text-xs)",
+        "line_height": "16px (leading-none to leading-tight)",
+        "style": "font-mono uppercase tracking-[0.08em]",
+        "reasoning": "Tracking is reduced from 0.12em to 0.08em on mobile because larger text requires less letter-spacing. 12px is the minimum readable size on high-DPI phone screens.",
+        "usage": "Status pills, overlines, secondary table headers, chart legends."
+      },
+      "secondary_text": {
+        "desktop_reference": "11-12px",
+        "mobile_target": "14px (text-sm)",
+        "line_height": "20px (leading-snug)",
+        "style": "font-sans text-[#9AA4B2]",
+        "usage": "List subtitles, timestamps, muted descriptions, input hints."
+      },
+      "body_text": {
+        "desktop_reference": "13-14px",
+        "mobile_target": "16px (text-base)",
+        "line_height": "24px (leading-relaxed)",
+        "style": "font-sans text-[#F2F4F7]",
+        "reasoning": "16px is mandatory for standard text and form inputs to prevent iOS Safari auto-zooming on focus.",
+        "usage": "Main list item titles, standard body copy, form inputs."
+      },
+      "kpi_numbers": {
+        "desktop_reference": "20-24px",
+        "mobile_target": "28px to 32px (text-3xl)",
+        "line_height": "32px to 36px (leading-tight)",
+        "style": "font-mono tabular-nums tracking-tight text-[#F2F4F7]",
+        "reasoning": "Numbers need to pop on mobile where scanning is faster and less precise.",
+        "usage": "Primary dashboard metrics, deal amounts, leaderboard scores."
+      },
+      "section_headings": {
+        "desktop_reference": "16-18px",
+        "mobile_target": "20px (text-xl)",
+        "line_height": "28px (leading-snug)",
+        "style": "font-sans font-semibold tracking-tight text-[#F2F4F7]",
+        "usage": "Card headers, page section titles, drawer titles."
+      }
     }
   },
-  "layout_and_spacing": {
-    "philosophy": "Generous padding inside containers. Elements breathe. Sharp 1px borders define structure instead of drop shadows.",
-    "spacing_scale": "p-4, p-6, p-8 for standard containers. p-12 for page headers.",
-    "borders": "Universal use of border-border (zinc-200). Avoid rounded-lg or larger; stick to rounded-sm (0.25rem)."
+  "spacing_and_rhythm": {
+    "page_padding": {
+      "mobile": "px-4 py-5 (16px horizontal, 20px vertical)",
+      "usage": "Main container boundaries to give the UI breathing room. Replaces desktop tight padding."
+    },
+    "card_gap": {
+      "mobile": "gap-4 (16px) to gap-5 (20px)",
+      "usage": "Vertical gap between stacked cards/sections. Replaces desktop gap-3 to separate distinct logical blocks."
+    },
+    "card_internal_padding": {
+      "mobile": "p-5 (20px)",
+      "usage": "Increases internal breathing room inside bordered cards. Prevents text from colliding with the rounded-xl borders."
+    },
+    "list_row_padding": {
+      "mobile": "py-4 px-0",
+      "usage": "Ensures list items (leads, meetings, payments) are physically tall enough for comfortable touch targeting."
+    }
+  },
+  "touch_targets": {
+    "minimum_size": "44px by 44px",
+    "rules": {
+      "icon_buttons": "Must be min-h-[44px] min-w-[44px] (e.g., h-11 w-11), utilizing flex center. Keep internal SVG sizes at 20px but expand the tap area.",
+      "chips_and_filters": "Height must be h-10 or h-11 with px-4. Do not use desktop h-6 or h-8 micro-chips for filtering on mobile.",
+      "list_rows": "Entire row must be clickable (min-h-[64px]). Apply interaction states to the row, not just an arrow icon.",
+      "segmented_controls": "Each segment must be min-h-[44px], flex-1 (equal width) for easy thumb tapping without precision targeting."
+    }
   },
   "components": {
-    "cards": {
-      "container": "bg-white border border-zinc-200 rounded-sm shadow-none",
-      "header": "px-6 py-4 border-b border-zinc-100",
-      "body": "p-6"
+    "kpi_cards": {
+      "layout": "Change from tight 2-col desktop grid to a spacious 2-col grid (grid-cols-2 gap-4) but strictly enforce taller minimum heights (min-h-[110px]). Alternatively, use a 1-col stack for primary revenue/pipeline metrics.",
+      "typography": "Increase numbers to text-3xl. Move the text-xs uppercase mono label ABOVE the number for better top-down mobile scanning.",
+      "visuals": "Maintain rounded-xl, 1px #232A35 border, and bg-[#11161D]."
     },
-    "buttons": {
-      "primary": "bg-zinc-950 text-white rounded-sm px-4 py-2 text-sm font-medium hover:bg-zinc-800 transition-colors active:scale-[0.98]",
-      "secondary": "bg-white text-zinc-950 border border-zinc-200 rounded-sm px-4 py-2 text-sm font-medium hover:bg-zinc-50 transition-colors active:scale-[0.98]",
-      "ghost": "bg-transparent text-zinc-600 rounded-sm px-4 py-2 text-sm font-medium hover:bg-zinc-100 hover:text-zinc-950 transition-colors active:scale-[0.98]"
+    "charts": {
+      "donut_revenue": "Stack vertically. Donut chart centered (max-width 220px). Legend moves below the chart in a 2-col grid (grid-cols-2 gap-y-3) utilizing 14px text and 12px mono values.",
+      "pipeline_bars": "Increase horizontal bar thickness to h-3 (12px). Expand row container height to 44px minimum. Values flush right, labels flush left."
     },
-    "badges": {
-      "philosophy": "Do NOT use filled colored backgrounds to avoid 'rainbow overload'. Use outline badges with a single colored dot.",
-      "container": "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-sm border border-zinc-200 bg-transparent text-xs font-medium text-zinc-700 font-mono uppercase tracking-wider",
-      "status_dots": {
-        "new": "w-1.5 h-1.5 rounded-full bg-blue-500",
-        "contacted": "w-1.5 h-1.5 rounded-full bg-amber-500",
-        "qualified": "w-1.5 h-1.5 rounded-full bg-emerald-500",
-        "lost": "w-1.5 h-1.5 rounded-full bg-zinc-400"
-      }
+    "lists_and_leaderboards": {
+      "layout": "Use a clear horizontal stack: Avatar (w-10 h-10) + Vertical Text Flex (Title 16px, Subtitle 14px) + Right-aligned Metric/Action.",
+      "spacing": "Use gap-3 between avatar and text. py-4 per row. Add a subtle border-b border-[#232A35] between rows to guide the eye."
     },
-    "sidebar": {
-      "container": "w-64 border-r border-zinc-200 bg-zinc-50/50 flex flex-col h-screen",
-      "logo_lockup": "p-6 flex items-center gap-3. Use a pure black square or minimal grid SVG icon. Text is 'Emergent Labs' in General Sans, no gradients. 'Labs' can be in JetBrains Mono text-zinc-500 text-xs uppercase.",
-      "nav_item": "flex items-center gap-3 px-4 py-2 mx-2 rounded-sm text-sm font-medium transition-colors group",
-      "nav_item_active": "bg-white border border-zinc-200 text-zinc-950 shadow-sm",
-      "nav_item_inactive": "text-zinc-600 hover:bg-zinc-100/80 hover:text-zinc-950",
-      "footer": "p-4 mt-auto border-t border-zinc-200"
+    "segmented_filters": {
+      "layout": "Full width of container, sticky below the header. Container: bg-[#161C25] p-1 rounded-xl.",
+      "items": "flex-1 text-center h-10 text-sm font-medium flex items-center justify-center rounded-lg text-[#9AA4B2] aria-selected:bg-[#232A35] aria-selected:text-[#F2F4F7] aria-selected:shadow-sm"
+    },
+    "navigation_tabs": {
+      "layout": "Horizontal scroll with hidden scrollbar (overflow-x-auto snap-x scrollbar-hide).",
+      "items": "whitespace-nowrap px-4 h-12 flex items-center border-b-2 border-transparent aria-selected:border-emerald-400 aria-selected:text-emerald-400"
+    },
+    "forms_and_settings": {
+      "inputs": "Must use text-base (16px) to prevent iOS auto-zoom. Height must be h-11 or h-12 minimum. Use bg-[#0B0F14] with border-[#232A35].",
+      "actions": "Use full-width (w-full) buttons for primary actions at the bottom of the screen or form (h-12)."
     }
   },
-  "specific_pages": {
-    "login": {
-      "layout": "Centered stark card on a pure white background. Minimalist. Container: w-full max-w-md mx-auto p-8 bg-white border border-zinc-200 rounded-sm shadow-sm",
-      "headline": "Left-aligned, text-3xl font-semibold tracking-tight text-zinc-950. Remove all gradients. 'Sign in to Emergent.'",
-      "demo_helper": "mt-8 p-4 bg-zinc-50 border border-zinc-200 border-dashed rounded-sm font-mono text-xs text-zinc-600 space-y-2. Clearly labels 'Demo Credentials' with a small copy icon.",
-      "inputs": "bg-transparent border-zinc-200 rounded-sm focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950"
-    },
-    "dashboard": {
-      "kpi_cards": "Flat cards, 1px border. Values in JetBrains Mono for a highly technical, precise feel. Small monochrome sparklines.",
-      "charts": "Recharts styling: stroke='#0A0A0A' for primary lines. Hide grid lines or make them extremely faint stroke='#F4F4F5'. Tooltips should have stark black backgrounds with white text.",
-      "tables": "Dense, clean. Header row uses font-mono text-xs uppercase text-zinc-500. Row borders are border-zinc-100."
-    },
-    "pipeline": {
-      "board": "flex gap-6 overflow-x-auto pb-4",
-      "column": "w-80 flex-shrink-0 flex flex-col gap-3",
-      "column_header": "flex items-center justify-between pb-2 border-b border-zinc-200. Title in font-mono uppercase text-xs font-semibold.",
-      "card": "bg-white p-4 border border-zinc-200 rounded-sm shadow-sm hover:border-zinc-300 transition-colors cursor-grab"
-    }
+  "micro_interactions_and_layout": {
+    "sticky_headers": "Utilize sticky top-0 z-50 bg-[#0B0F14]/85 backdrop-blur-md border-b border-[#232A35] pb-3 pt-safe. This keeps context visible without consuming excessive vertical space.",
+    "active_states": "Add active:bg-[#1B222D] or active:opacity-70 for list items, cards, and buttons to provide instant, tactile touch feedback (crucial for mobile CRM feel).",
+    "bottom_sheet": "For the Deal Drawer or 'More' actions, convert right-side desktop panels into fixed bottom sheets pulling up from the bottom (rounded-t-2xl, max-h-[85vh] overflow-y-auto) with a 4px high, 40px wide drag handle."
   },
-  "micro_interactions": {
-    "buttons": "Subtle scale down active:scale-[0.98] with fast transition.",
-    "hover_states": "Background color shifts (white to zinc-50). No heavy drop shadows on hover. Keep it flat.",
-    "transitions": "Use transition-colors duration-150 ease-out for interactive elements."
+  "testing": {
+    "requirements": "All interactive elements (buttons, list rows, tabs, filter chips, chart legends) MUST include a 'data-testid' attribute (e.g., data-testid='mobile-kpi-revenue', data-testid='lead-list-row')."
   },
-  "testing_attributes": {
-    "rule": "All interactive and key informational elements MUST include a data-testid attribute in kebab-case based on their role.",
-    "examples": {
-      "login_submit": "data-testid='login-submit-button'",
-      "sidebar_nav": "data-testid='nav-dashboard-link'",
-      "kanban_card": "data-testid='kanban-card-123'",
-      "demo_fill": "data-testid='demo-fill-button'"
-    }
-  },
-  "instructions_to_main_agent": [
-    "Replace index.css :root with the specific CSS variables provided.",
-    "Update tailwind.config.js to set radius to 0.25rem.",
-    "Remove all references to bg-gradient-to-r, from-blue, via-indigo, to-violet in the entire app.",
-    "Convert General Sans heading classes to text-zinc-950 tracking-tight.",
-    "Implement the 'outline + dot' style for all Pipeline, Lead, and Priority badges to remove rainbow effect.",
-    "For the Login page, ensure the demo helper is styled like a code block (mono, gray bg, dashed border).",
-    "On charts (Recharts), strip out colorful palettes and use a monochromatic scale (zinc-900, zinc-500, zinc-300).",
-    "All components must be .js files not .tsx.",
-    "Add data-testid attributes to all buttons, links, and forms."
-  ]
+  "instructions_to_main_agent": "Implement this blueprint strictly using responsive Tailwind classes with the max-lg breakpoint (e.g., text-[10px] max-lg:text-xs). Keep the 'Emergent Dark Sales Console' color palette intact. Focus all changes on layout flow, expanding padding (p-4 to p-5), spacing gaps (gap-3 to gap-4), correcting typography scale jumps, and enforcing touch target minimums (44px) inside .js component files."
 }
