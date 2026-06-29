@@ -95,6 +95,7 @@ export default function Payments() {
   const [linkLead, setLinkLead] = useState(null);
   const [linkTarget, setLinkTarget] = useState(null); // a standalone payment to attach to a lead
   const [detail, setDetail] = useState(null); // payment whose detail panel is open
+  const [breakdown, setBreakdown] = useState(null); // { title, list } for a summary drill-down
   const [payForm, setPayForm] = useState(EMPTY_PAY_FORM);
 
   const load = () => client.get("/payments").then((r) => setPayments(r.data));
