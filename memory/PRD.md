@@ -4,6 +4,13 @@
 > The sections below this changelog are LEGACY (pre-redesign, light theme) — defer to the handoff.
 
 ## Changelog
+### 2026-06-29 — Date refresh + free-input multiplier + clickable grouped numbers
+Testing agent iter_17/iter_18 = frontend 100% after fixing one missing useState. Backend curl + 5 multiplier pytest pass.
+- **Demo data refreshed to "today" (29 Jun 2026)**: reseeded the demo workspace (841 leads / 640 payments / 13,098 meetings); newest leads now dated 2026-06-29. June seed factor bumped 0.72→0.97 (month-end near-complete). `POST /api/demo/reset` re-anchors all relative dates to `now`.
+- **Payment multiplier — slider → free numeric input** (`LeadModals.js` CreditFields): rep types any value. **Stern amber warning above 8×** (`multiplier-warning`), **red error + disabled Generate button above 15×** (`multiplier-error`, `generate-payment-btn` disabled). Backend `CREDIT_MULTIPLIER_MAX` 10→**15** (MIN stays 6 floor); verified 12→12, 50→clamp 15. Updated cap tests in `test_payments_import.py` + `test_golive.py`.
+- **Clickable grouped numbers (drill-downs)**: Payments summary cards Collected/Pending/Links Sent (`pay-summary-*`) now open `PaymentsBreakdownModal` listing the exact payments behind each total (paid-only / non-paid / all), lead names link to the lead. Team KPI cards Deals Won / Payment Links Paid / Meetings Held / Avg Conversion (`team-kpi-*`) open `TeamStatModal` with a per-rep breakdown. (Dashboard KPIs + Workspace tiles already drilled down.)
+- **Fix**: added missing `breakdown` useState in `Payments.js` (was crashing the route).
+
 ### 2026-06-29 — Roadmap FRONTEND wired (Forecast, AI Assist, Win/Loss, real team stats)
 Backend for these was already built+verified; this session surfaced them in the React UI. Testing agent iteration_16 = frontend 100%, 0 bugs (fixed 1 pre-existing primitive bug).
 - **Pipeline Forecast widget** (`components/dashboard/ForecastWidget.jsx`, `GET /api/forecast`): committed + probability-weighted-open vs target, attainment % pill, target progress bar, weighted-by-stage breakdown. Rendered on the **Dashboard** (after KPIs) AND the agent **My Work** page. Verified: $396k committed / $216k weighted / $612.1k forecast / 98.7% attainment.
