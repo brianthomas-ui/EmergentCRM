@@ -89,7 +89,7 @@ function KpiCard({ label, value, sub, delta, icon: Icon, accent = "text-[var(--t
   return (
     <Card
       onClick={onClick}
-      className="p-4 flex flex-col gap-2 select-none"
+      className="p-4 flex flex-col gap-2 select-none max-lg:min-h-[116px] max-lg:gap-1.5"
       data-testid={testid}
     >
       <div className="flex items-center justify-between">
@@ -135,9 +135,9 @@ function RevenueByProduct({ productRevenue, currency = "usd", onDrill }) {
         <span className="text-[10px] text-[var(--text-faint)]">{moneyCompact(total, currency)} total</span>
       </div>
 
-      <div className="flex items-center gap-4">
+      <div className="flex flex-col items-center gap-4 lg:flex-row lg:items-center">
         {/* donut */}
-        <div className="relative shrink-0 w-28 h-28">
+        <div className="relative shrink-0 w-32 h-32 lg:w-28 lg:h-28">
           <DonutChart slices={slices} total={total} />
           <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
             <span className="text-base font-semibold tabular-nums text-[var(--text)]">
@@ -148,7 +148,7 @@ function RevenueByProduct({ productRevenue, currency = "usd", onDrill }) {
         </div>
 
         {/* legend */}
-        <div className="flex-1 space-y-2 min-w-0">
+        <div className="w-full lg:flex-1 space-y-2.5 lg:space-y-2 min-w-0">
           {lines.map(([name, v], i) => {
             const pct = total > 0 ? Math.round((v.won_revenue / total) * 100) : 0;
             return (
@@ -238,7 +238,7 @@ function PipelineByStage({ statusCounts, statusMeta, onDrillStatus }) {
               title={r.status}
             >
               {/* label */}
-              <div className={`w-24 lg:w-36 shrink-0 text-[10px] font-medium truncate text-left ${textCls} group-hover:opacity-90`}>
+              <div className={`w-28 lg:w-36 shrink-0 text-[10px] font-medium truncate text-left ${textCls} group-hover:opacity-90`}>
                 {r.status}
               </div>
 

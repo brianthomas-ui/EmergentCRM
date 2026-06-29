@@ -185,11 +185,11 @@ export function Select({ value, onChange, children, className = "", ...rest }) {
 // Buttons.
 // ---------------------------------------------------------------------------
 export const btnEmerald =
-  "inline-flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-emerald-950 rounded-lg px-3.5 py-2 text-sm font-semibold transition-colors active:scale-[0.98] disabled:opacity-60";
+  "inline-flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-emerald-950 rounded-lg px-3.5 py-2 max-lg:py-2.5 text-sm font-semibold transition-colors active:scale-[0.98] disabled:opacity-60";
 export const btnGhost =
-  "inline-flex items-center gap-1.5 bg-[var(--surface-2)] hover:bg-[var(--surface-3)] border border-[var(--border)] text-[var(--text)] rounded-lg px-3.5 py-2 text-sm font-medium transition-colors active:scale-[0.98] disabled:opacity-60";
+  "inline-flex items-center gap-1.5 bg-[var(--surface-2)] hover:bg-[var(--surface-3)] border border-[var(--border)] text-[var(--text)] rounded-lg px-3.5 py-2 max-lg:py-2.5 text-sm font-medium transition-colors active:scale-[0.98] disabled:opacity-60";
 export const btnDanger =
-  "inline-flex items-center gap-1.5 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-300 rounded-lg px-3.5 py-2 text-sm font-medium transition-colors active:scale-[0.98]";
+  "inline-flex items-center gap-1.5 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-300 rounded-lg px-3.5 py-2 max-lg:py-2.5 text-sm font-medium transition-colors active:scale-[0.98]";
 
 // Tiny contextual CTA used in table rows (tone follows status).
 export function RowActionButton({ status, onClick }) {

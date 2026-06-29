@@ -4,6 +4,13 @@
 > The sections below this changelog are LEGACY (pre-redesign, light theme) — defer to the handoff.
 
 ## Changelog
+### 2026-06-29 — Mobile visual optimization pass (responsive polish, no logic change)
+Self-verified on real 390px iPhone + 1440px desktop renders (Playwright + vision critique). Mobile scores went from "cramped/tiny" to Dashboard 8/10, Leads 8/10, Team 9/10; desktop confirmed unchanged.
+- **Root cause**: the whole console was authored with desktop micro-typography (9–11px) and tight spacing — technically responsive (no overflow) but read as a shrunk desktop on phones.
+- **Mobile design system** (`index.css`, `@media max-width:1023.98px`, scoped to `<main>` + `[role="dialog"]` so desktop/login/fonts/palette are untouched): bumped the tiny type utilities to comfortable phone sizes (10px→12px, 11px→12.5px, text-xs→13px, text-sm→14.5px, text-2xl→~30px), looser line-heights, reduced over-tracking on mono overlines, +padding inside cards, larger grid gaps, 16px inputs (no iOS zoom) at 44px min-height, tactile `:active` feedback. Implements `/app/design_guidelines.json`.
+- **Targeted fixes**: Dashboard "Revenue by Product" now stacks donut-over-full-width-legend on mobile (no truncated names); wider pipeline labels; KPI cards taller. Leads filter bar → full-width search + 2-col select grid on mobile. Buttons get a taller mobile tap target (`max-lg:py-2.5`). **Team leaderboard**: the 8-column horizontal-scroll table is now a clean mobile **card list** (rank, avatar, name, won revenue, target progress bar, 4-stat row) below `lg`, table preserved on desktop.
+
+
 ### 2026-06-23 — P0: Absolute Demo/Real workspace isolation + Slack real-payment alerts
 Both features verified by testing agent (iteration_15): **20/20 backend tests + frontend smoke pass, 0 bugs**. Real workspace left clean (0 leads/payments/meetings/activities).
 - **Workspace isolation (`is_demo` flag)**: every user/lead/payment/meeting/activity/saved_view/coverage_snapshot carries `is_demo`. New helpers `_ws`, `_lead_scope`, `_agent_scope` and hardened guards `_owns_lead`/`require_lead_access`/`require_meeting_access`/`require_payment_access` (compare `is_demo` BEFORE the admin check → even managers get 404 across workspaces). Every list/create/access path is workspace-scoped. `log_activity` inherits `is_demo` from the lead.

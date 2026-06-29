@@ -224,8 +224,8 @@ export default function Leads() {
       <div className="flex gap-5 min-h-0 flex-1">
         <div className="flex-1 min-w-0 flex flex-col gap-3">
           {/* Filter bar */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <div className="relative flex-1 min-w-[180px]">
+          <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:flex-wrap">
+            <div className="relative w-full lg:flex-1 lg:min-w-[180px] lg:w-auto">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-faint)]" />
               <input
                 value={search}
@@ -235,32 +235,34 @@ export default function Leads() {
                 data-testid="lead-search"
               />
             </div>
-            <div className="w-44">
-              <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} data-testid="filter-status">
-                <option value="">All Statuses</option>
-                {statuses.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </Select>
-            </div>
-            <div className="w-44">
-              <Select value={productFilter} onChange={(e) => setProductFilter(e.target.value)} data-testid="filter-product">
-                <option value="">All Products</option>
-                {products.map((p) => (
-                  <option key={p} value={p}>{p}</option>
-                ))}
-              </Select>
-            </div>
-            {sources.length > 0 && (
-              <div className="w-40">
-                <Select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} data-testid="filter-source">
-                  <option value="">All Sources</option>
-                  {sources.map((s) => (
+            <div className="grid grid-cols-2 gap-2 lg:flex lg:items-center lg:gap-2">
+              <div className="lg:w-44">
+                <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} data-testid="filter-status">
+                  <option value="">All Statuses</option>
+                  {statuses.map((s) => (
                     <option key={s} value={s}>{s}</option>
                   ))}
                 </Select>
               </div>
-            )}
+              <div className="lg:w-44">
+                <Select value={productFilter} onChange={(e) => setProductFilter(e.target.value)} data-testid="filter-product">
+                  <option value="">All Products</option>
+                  {products.map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </Select>
+              </div>
+              {sources.length > 0 && (
+                <div className="col-span-2 lg:col-span-1 lg:w-40">
+                  <Select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} data-testid="filter-source">
+                    <option value="">All Sources</option>
+                    {sources.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </Select>
+                </div>
+              )}
+            </div>
           </div>
 
           <div data-tour="leads-table">

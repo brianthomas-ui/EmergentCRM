@@ -373,6 +373,7 @@ export default function Team() {
             Showing {boardRows.length} of {boardRows.length} agents
           </span>
         </div>
+        <div className="hidden lg:block">
         <Table>
           <THead>
             <TH>Rep</TH>
@@ -450,6 +451,66 @@ export default function Team() {
             })}
           </tbody>
         </Table>
+        </div>
+
+        {/* Mobile: card list — the 8-column table scrolls poorly on phones. */}
+        <div className="lg:hidden divide-y divide-[var(--border)]">
+          {boardRows.map((m, i) => {
+            const stats = m.stats || {};
+            const leads = stats.leads || 0;
+            const won = stats.won || 0;
+            const meetings = stats.meetings || 0;
+            const revenue = stats.revenue || 0;
+            const target = m.monthly_target || 0;
+            const convPct = leads > 0 ? (won / leads) * 100 : 0;
+            const targetPct = target > 0 ? Math.min((revenue / target) * 100, 100) : 0;
+            const isEditing = avatarEditId === m.id;
+            return (
+              <div key={m.id} data-testid={`team-card-${m.id}`} className="p-4">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-mono text-[var(--text-faint)] w-5 shrink-0 text-center">#{i + 1}</span>
+                  <Avatar src={m.avatar_url || ""} name={m.name} size="md" className="shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-base font-semibold text-[var(--text)] truncate leading-tight">{m.name}</div>
+                    <div className="text-xs text-[var(--text-faint)] truncate">{m.email}</div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="text-base font-semibold tabular-nums text-emerald-300">{money(revenue)}</div>
+                    <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--text-faint)]">won rev</div>
+                  </div>
+                </div>
+                {target > 0 && <div className="mt-3"><ProgressBar pct={targetPct} tone="emerald" /></div>}
+                <div className="mt-3 grid grid-cols-4 gap-2 text-center">
+                  {[
+                    ["Leads", leads, "text-[var(--text)]"],
+                    ["Meetings", meetings, "text-[var(--text)]"],
+                    ["Paid", won, "text-emerald-300"],
+                    ["Conv", `${convPct.toFixed(0)}%`, "text-sky-300"],
+                  ].map(([label, value, tone]) => (
+                    <div key={label} className="rounded-lg bg-[var(--surface-2)] py-2">
+                      <div className={`text-base font-semibold tabular-nums ${tone}`}>{value}</div>
+                      <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--text-faint)] mt-0.5">{label}</div>
+                    </div>
+                  ))}
+                </div>
+                {isAdmin && (
+                  <div className="mt-3">
+                    <button
+                      onClick={() => setAvatarEditId(isEditing ? null : m.id)}
+                      className="text-xs text-[var(--text-faint)] hover:text-emerald-300 transition-colors"
+                      data-testid={`avatar-edit-toggle-m-${m.id}`}
+                    >
+                      {isEditing ? "Done" : "Set Photo"}
+                    </button>
+                    {isEditing && (
+                      <div className="mt-2"><RepAvatarCell member={m} onUpdated={load} /></div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </Card>
 
       {/* ── Stage Conversion + Workload row ── */}
