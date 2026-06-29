@@ -45,7 +45,13 @@ logger = logging.getLogger("crm")
 async def lifespan(app: FastAPI):
     # Startup + graceful shutdown (replaces the deprecated @app.on_event handlers).
     await _run_startup()
+    _start_scheduler()
     yield
+    if _scheduler is not None:
+        try:
+            _scheduler.shutdown(wait=False)
+        except Exception:
+            pass
     client.close()
 
 
@@ -1264,14 +1270,19 @@ def _team_member_stats(member, win_leads, win_payments, win_meetings, period_use
         )
         if st == "Payment Link Paid":
             won += 1
-    revenue = sum(p.get("amount_usd", p.get("amount", 0)) or 0
-                  for p in win_payments if p.get("agent_id") == uid)
+    m_pays = [p for p in win_payments if p.get("agent_id") == uid]
+    paid_pays = [p for p in m_pays if p.get("payment_status") == "paid"]
+    revenue = sum(p.get("amount_usd", p.get("amount", 0)) or 0 for p in paid_pays)
     return {
         "period": period_used,
         "leads": len(m_leads),
         "won": won,
         "meetings": len([mt for mt in win_meetings if mt.get("agent_id") == uid]),
         "revenue": round(revenue, 2),
+        # Real upsell metrics: add-ons = paid transactions closed; links = payment
+        # links the rep created in the window (both straight from the payments table).
+        "add_ons": len(paid_pays),
+        "payment_links_sent": len(m_pays),
         "target": member.get("monthly_target", 0),
     }
 
@@ -1288,8 +1299,8 @@ async def list_team(request: Request, user: dict = Depends(get_current_user)):
         leads = await db.leads.find({"is_demo": _ws(user)}, {"_id": 0, "id": 1, "owner_id": 1, "stage": 1,
             "sales_stage": 1, "outcome": 1, "payment_status": 1, "payment_state": 1,
             "created_at": 1}).to_list(5000)
-        payments = await db.payments.find({"is_demo": _ws(user), "payment_status": "paid"},
-            {"_id": 0, "agent_id": 1, "amount": 1, "amount_usd": 1, "created_at": 1}).to_list(5000)
+        payments = await db.payments.find({"is_demo": _ws(user)},
+            {"_id": 0, "agent_id": 1, "amount": 1, "amount_usd": 1, "payment_status": 1, "created_at": 1}).to_list(5000)
         meetings = await db.meetings.find({"is_demo": _ws(user)}, {"_id": 0, "agent_id": 1, "scheduled_at": 1,
             "created_at": 1}).to_list(5000)
 
@@ -2836,50 +2847,58 @@ async def _apply_payment_status(record: dict, status: str, payment_status: str, 
     return payment_status == "paid"
 
 
+async def _slack_post(payload: dict) -> bool:
+    """Low-level Slack Incoming Webhook post. Returns True on success. Non-blocking:
+    swallows errors so callers/scheduler jobs never crash. REAL workspace only — the
+    webhook URL is a single org integration shared by the real team."""
+    url = await get_secret("slack_webhook_url", "SLACK_WEBHOOK_URL")
+    if not url:
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=8) as cx:
+            r = await cx.post(url, json=payload)
+        return r.status_code == 200
+    except Exception as e:
+        logger.warning(f"slack post failed (non-blocking): {e}")
+        return False
+
+
 async def _notify_slack_payment(record: dict):
     """Post a real-payment alert to the configured Slack Incoming Webhook. DEMO payments
     are skipped (workspace isolation). Non-blocking: never breaks the payment flow."""
     if record.get("is_demo"):
         return
-    url = await get_secret("slack_webhook_url", "SLACK_WEBHOOK_URL")
-    if not url:
-        return
-    try:
-        currency = (record.get("currency") or "usd").upper()
-        amount = float(record.get("amount") or 0)
-        amount_usd = float(record.get("amount_usd", amount) or 0)
-        amt_str = f"{currency} {amount:,.2f}"
-        if currency != "USD":
-            amt_str += f"  (~${amount_usd:,.2f})"
-        customer = (record.get("customer_name") or record.get("lead_name") or "Customer")
-        product = (record.get("product_line") or record.get("description") or "—")
-        agent = record.get("agent_name") or "—"
-        pid = record.get("id") or "—"
-        when = record.get("paid_at") or now_iso()
-        base = _public_base()
-        lead_id = record.get("lead_id")
-        fields = [
-            {"type": "mrkdwn", "text": f"*Customer*\n{customer}"},
-            {"type": "mrkdwn", "text": f"*Amount*\n{amt_str}"},
-            {"type": "mrkdwn", "text": f"*Product Sold*\n{product}"},
-            {"type": "mrkdwn", "text": f"*Sales Agent*\n{agent}"},
-            {"type": "mrkdwn", "text": f"*Payment ID*\n`{pid}`"},
-            {"type": "mrkdwn", "text": f"*Time*\n{when}"},
-        ]
-        blocks = [
-            {"type": "header", "text": {"type": "plain_text", "text": "💰 New Payment Received", "emoji": True}},
-            {"type": "section", "fields": fields},
-        ]
-        if base and lead_id:
-            blocks.append({"type": "section", "text": {"type": "mrkdwn",
-                           "text": f"<{base}/leads/{lead_id}|View deal in Emergent CRM>"}})
-        text = (f"💰 New Payment Received — {customer} · {amt_str} · {product} "
-                f"· {agent} · {pid}")
-        async with httpx.AsyncClient(timeout=8) as cx:
-            await cx.post(url, json={"text": text, "blocks": blocks})
+    currency = (record.get("currency") or "usd").upper()
+    amount = float(record.get("amount") or 0)
+    amount_usd = float(record.get("amount_usd", amount) or 0)
+    amt_str = f"{currency} {amount:,.2f}"
+    if currency != "USD":
+        amt_str += f"  (~${amount_usd:,.2f})"
+    customer = (record.get("customer_name") or record.get("lead_name") or "Customer")
+    product = (record.get("product_line") or record.get("description") or "—")
+    agent = record.get("agent_name") or "—"
+    pid = record.get("id") or "—"
+    when = record.get("paid_at") or now_iso()
+    base = _public_base()
+    lead_id = record.get("lead_id")
+    fields = [
+        {"type": "mrkdwn", "text": f"*Customer*\n{customer}"},
+        {"type": "mrkdwn", "text": f"*Amount*\n{amt_str}"},
+        {"type": "mrkdwn", "text": f"*Product Sold*\n{product}"},
+        {"type": "mrkdwn", "text": f"*Sales Agent*\n{agent}"},
+        {"type": "mrkdwn", "text": f"*Payment ID*\n`{pid}`"},
+        {"type": "mrkdwn", "text": f"*Time*\n{when}"},
+    ]
+    blocks = [
+        {"type": "header", "text": {"type": "plain_text", "text": "💰 New Payment Received", "emoji": True}},
+        {"type": "section", "fields": fields},
+    ]
+    if base and lead_id:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn",
+                       "text": f"<{base}/leads/{lead_id}|View deal in Emergent CRM>"}})
+    text = (f"💰 New Payment Received — {customer} · {amt_str} · {product} · {agent} · {pid}")
+    if await _slack_post({"text": text, "blocks": blocks}):
         logger.info(f"slack: payment alert sent for {pid}")
-    except Exception as e:
-        logger.warning(f"slack notify failed (non-blocking): {e}")
 
 class LinkLeadIn(BaseModel):
     lead_id: str
@@ -4858,20 +4877,349 @@ async def notifications(user: dict = Depends(get_current_user)):
     """Derived alerts for the signed-in user: follow-ups due + meetings to reschedule."""
     uid = user["id"]
     now_s = datetime.now(timezone.utc).isoformat()
+    stale_cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
     items = []
     leads_raw = await db.leads.find({"owner_id": uid, "is_demo": _ws(user)}, {"_id": 0}).to_list(5000)
     for l in (serialize_lead(x) for x in leads_raw):
+        active = "Active Pipeline" in (l.get("status_groups") or [])
         nf = l.get("next_followup_at")
-        if nf and nf <= now_s and "Active Pipeline" in (l.get("status_groups") or []):
+        if nf and nf <= now_s and active:
             items.append({"type": "followup", "lead_id": l["id"], "title": f"Follow up with {l['name']}",
                           "subtitle": l.get("company") or l.get("email") or "", "at": nf})
+            continue  # a due follow-up already covers this lead; don't also flag it stale
+        la = l.get("last_activity") or l.get("updated_at") or ""
+        if active and la and la <= stale_cutoff:
+            items.append({"type": "stale", "lead_id": l["id"], "title": f"{l['name']} has gone quiet",
+                          "subtitle": "No activity in 7+ days — time for a touch", "at": la})
     noshows = await db.meetings.find({"agent_id": uid, "is_demo": _ws(user), "status": "no_show"}, {"_id": 0}) \
         .sort("scheduled_at", -1).limit(25).to_list(25)
     for m in noshows:
         items.append({"type": "no_show", "lead_id": m.get("lead_id"), "title": f"No-show: {m.get('lead_name')}",
                       "subtitle": "Reschedule the meeting", "at": m.get("scheduled_at")})
+    t2 = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    unpaid = await db.payments.find({"agent_id": uid, "is_demo": _ws(user), "payment_status": "pending",
+                                     "created_at": {"$lte": t2}}, {"_id": 0}).limit(25).to_list(25)
+    for p in unpaid:
+        items.append({"type": "unpaid_link", "lead_id": p.get("lead_id"),
+                      "title": f"Unpaid link: {p.get('customer_name') or p.get('lead_name') or 'Customer'}",
+                      "subtitle": f"{(p.get('currency') or 'usd').upper()} {float(p.get('amount') or 0):,.0f} — nudge to close",
+                      "at": p.get("created_at")})
     items.sort(key=lambda x: x.get("at") or "", reverse=True)
     return {"count": len(items), "items": items[:30]}
+
+
+# ----------------------------------------------------------------------------
+# Weighted pipeline forecast (commit + probability-weighted open pipeline vs target).
+# ----------------------------------------------------------------------------
+_STAGE_WIN_PROB = {
+    "New / Needs Review": 0.05,
+    "Contacted": 0.15,
+    "Interested": 0.35,
+    "Contact in Future": 0.10,
+    "Payment Link Sent": 0.65,
+    "Payment Link Failed": 0.30,
+    "No-Show": 0.10,
+}
+
+@api.get("/forecast")
+async def forecast(user: dict = Depends(get_current_user)):
+    leads = await db.leads.find(_lead_scope(user), {"_id": 0}).to_list(20000)
+    weighted = 0.0
+    open_count = 0
+    by_stage = {}
+    for raw in leads:
+        sl = serialize_lead(dict(raw))
+        status = sl.get("status")
+        if status == "Payment Link Paid":
+            continue  # already won (counts as committed below)
+        prob = _STAGE_WIN_PROB.get(status)
+        if prob is None:
+            continue  # lost / not in the active funnel
+        value = float(sl.get("lifetime_value") or 0) or 1500.0
+        ev = value * prob
+        weighted += ev
+        open_count += 1
+        b = by_stage.setdefault(status, {"stage": status, "count": 0, "weighted": 0.0, "prob": prob})
+        b["count"] += 1
+        b["weighted"] += ev
+    # Committed = revenue already paid this month (workspace + RBAC scoped).
+    pay_scope = _agent_scope(user)
+    pay_scope["payment_status"] = "paid"
+    now = datetime.now(timezone.utc)
+    mstart = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    mend = now.isoformat()
+    paid = await db.payments.find(pay_scope,
+        {"_id": 0, "amount_usd": 1, "amount": 1, "created_at": 1, "paid_at": 1}).to_list(20000)
+    committed = sum((p.get("amount_usd") or p.get("amount") or 0)
+                    for p in paid if _in_window(p.get("paid_at") or p.get("created_at"), mstart, mend))
+    if user["role"] == "admin":
+        sellers = await db.users.find({"role": {"$in": ["agent", "admin"]}, "active": True,
+                                       "is_demo": _ws(user)}).to_list(100)
+        target = sum(s.get("monthly_target", 0) for s in sellers)
+    else:
+        target = user.get("monthly_target", 0)
+    total = committed + weighted
+    return {
+        "committed": round(committed, 2),
+        "weighted_open": round(weighted, 2),
+        "forecast_total": round(total, 2),
+        "open_deals": open_count,
+        "target": round(target, 2),
+        "attainment_pct": round((total / target * 100) if target else 0, 1),
+        "by_stage": [{"stage": s["stage"], "count": s["count"], "weighted": round(s["weighted"], 2),
+                      "prob": s["prob"]} for s in sorted(by_stage.values(), key=lambda x: -x["weighted"])],
+    }
+
+
+# ----------------------------------------------------------------------------
+# Win/Loss + funnel analytics (admin).
+# ----------------------------------------------------------------------------
+@api.get("/analytics/winloss")
+async def analytics_winloss(admin: dict = Depends(require_admin)):
+    leads = await db.leads.find({"is_demo": _ws(admin)}, {"_id": 0}).to_list(20000)
+    won = lost = 0
+    loss_reasons = {}
+    funnel = {s: 0 for s in ["New / Needs Review", "Contacted", "Interested",
+                             "Payment Link Sent", "Payment Link Paid"]}
+    funnel_map = {
+        "New / Needs Review": "New / Needs Review",
+        "Contacted": "Contacted",
+        "Interested": "Interested",
+        "Payment Link Sent": "Payment Link Sent",
+        "Payment Link Failed": "Payment Link Sent",
+        "Payment Link Paid": "Payment Link Paid",
+    }
+    for raw in leads:
+        sl = serialize_lead(dict(raw))
+        status = sl.get("status")
+        if status == "Payment Link Paid":
+            won += 1
+        elif status in ("Not Interested", "Changed Their Mind"):
+            lost += 1
+            reason = (sl.get("loss_reason") or "").strip() or "Unspecified"
+            loss_reasons[reason] = loss_reasons.get(reason, 0) + 1
+        fstage = funnel_map.get(status)
+        if fstage:
+            funnel[fstage] += 1
+    decided = won + lost
+    return {
+        "won": won, "lost": lost,
+        "win_rate": round((won / decided * 100) if decided else 0, 1),
+        "loss_reasons": sorted([{"reason": k, "count": v} for k, v in loss_reasons.items()],
+                               key=lambda x: -x["count"]),
+        "funnel": [{"stage": k, "count": v} for k, v in funnel.items()],
+    }
+
+
+# ----------------------------------------------------------------------------
+# AI assist (Claude Sonnet 4.6 via the Emergent LLM universal key). Draft a
+# follow-up email or summarize an account from the lead's real CRM context.
+# ----------------------------------------------------------------------------
+class AiAssistIn(BaseModel):
+    kind: str  # "email" | "summary"
+    instruction: Optional[str] = None
+
+def _lead_ai_context(lead: dict, activities: list) -> str:
+    sl = serialize_lead(dict(lead))
+    parts = [
+        f"Lead name: {sl.get('name')}",
+        f"Company: {sl.get('company') or '—'}",
+        f"Email: {sl.get('email') or '—'}",
+        f"Current plan: {sl.get('plan') or '—'}",
+        f"Status: {sl.get('status')}",
+        f"Sales stage: {sl.get('sales_stage')}",
+        f"Monthly spend: ${float(sl.get('monthly_spend') or 0):,.0f}",
+        f"Lifetime value: ${float(sl.get('lifetime_value') or 0):,.0f}",
+        f"Owner (sales rep): {sl.get('owner_name') or '—'}",
+    ]
+    ph = sl.get("product_history") or []
+    if ph:
+        parts.append("Products owned: " + ", ".join(str(p) for p in ph))
+    notes = sl.get("notes") or []
+    if notes:
+        parts.append("Recent notes:")
+        for n in notes[-5:]:
+            parts.append(f"  - {n.get('type', 'note')}: {n.get('text', '')}")
+    if activities:
+        parts.append("Recent activity:")
+        for a in activities[:6]:
+            parts.append(f"  - {a.get('type')}: {a.get('description')}")
+    return "\n".join(parts)
+
+@api.post("/leads/{lead_id}/ai-assist")
+async def lead_ai_assist(lead_id: str, body: AiAssistIn, user: dict = Depends(get_current_user)):
+    lead = await db.leads.find_one({"id": lead_id})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    require_lead_access(user, lead)
+    key = os.environ.get("EMERGENT_LLM_KEY")
+    if not key:
+        raise HTTPException(status_code=503, detail="AI is not configured")
+    acts = await db.activities.find({"lead_id": lead_id}, {"_id": 0}).sort("created_at", -1).limit(8).to_list(8)
+    context = _lead_ai_context(lead, acts)
+    rep_name = user.get("name") or "the sales rep"
+    if body.kind == "email":
+        system = ("You are an expert B2B SaaS expansion/upsell rep writing on behalf of "
+                  f"{rep_name} at Emergent. Write a concise, warm, personalized follow-up email that "
+                  "moves the deal to its next step. Use the real details (never placeholders like "
+                  "[Name]). Keep it under 160 words, plain text, no markdown. The FIRST line must be "
+                  "'Subject: ...'.")
+        prompt = "Write the follow-up email.\n\nLead context:\n" + context
+    else:
+        system = ("You are a sales-operations analyst. Summarize this account into a tight brief a "
+                  "rep can read in 15 seconds: who they are, where the deal stands, the main risk, and "
+                  "the single best next action. 4-6 short bullet lines starting with '- '. No markdown headers.")
+        prompt = "Summarize this account.\n\nLead context:\n" + context
+    if body.instruction:
+        prompt += f"\n\nExtra instruction from the rep: {body.instruction}"
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        chat = LlmChat(api_key=key, session_id=f"lead-{lead_id}-{body.kind}-{new_id()[:8]}",
+                       system_message=system).with_model("anthropic", "claude-sonnet-4-6")
+        reply = await chat.send_message(UserMessage(text=prompt))
+        text = reply if isinstance(reply, str) else getattr(reply, "content", str(reply))
+    except Exception as e:
+        msg = str(e)
+        logger.warning(f"ai-assist failed: {msg}")
+        if "budget" in msg.lower():
+            raise HTTPException(status_code=402,
+                detail="AI credits exhausted — top up your Emergent Universal Key (Profile → Universal Key → Add Balance).")
+        raise HTTPException(status_code=502, detail="AI request failed, please retry")
+    return {"kind": body.kind, "text": (text or "").strip()}
+
+
+# ----------------------------------------------------------------------------
+# Scheduled Slack automations (REAL workspace only). Posts go to the single org
+# Slack Incoming Webhook. Demo data is never queried. All non-blocking.
+# ----------------------------------------------------------------------------
+IST_OFFSET = timedelta(hours=5, minutes=30)
+
+async def _slack_daily_digest():
+    """00:00 IST daily — the day's closed-revenue summary, per rep, to Slack."""
+    try:
+        now = datetime.now(timezone.utc)
+        since = (now - timedelta(hours=24)).isoformat()
+        paid = await db.payments.find(
+            {"is_demo": False, "payment_status": "paid"},
+            {"_id": 0, "amount_usd": 1, "amount": 1, "agent_name": 1, "paid_at": 1, "updated_at": 1}).to_list(20000)
+        rows = [p for p in paid if (p.get("paid_at") or p.get("updated_at") or "") >= since]
+        total = sum((p.get("amount_usd") or p.get("amount") or 0) for p in rows)
+        by_agent = {}
+        for p in rows:
+            a = p.get("agent_name") or "Unassigned"
+            d = by_agent.setdefault(a, {"count": 0, "amount": 0.0})
+            d["count"] += 1
+            d["amount"] += (p.get("amount_usd") or p.get("amount") or 0)
+        ist_date = (now + IST_OFFSET).date().isoformat()
+        lines = [f"📊 *Daily Sales Digest — {ist_date} (IST)*",
+                 f"*Closed today:* {len(rows)} deal(s) · *${total:,.0f}*"]
+        if by_agent:
+            lines.append("")
+            for a, d in sorted(by_agent.items(), key=lambda x: -x[1]["amount"]):
+                lines.append(f"• {a}: {d['count']} deal(s) · ${d['amount']:,.0f}")
+        else:
+            lines.append("_No deals closed today — fresh start tomorrow._")
+        if await _slack_post({"text": "\n".join(lines)}):
+            logger.info("slack: daily digest posted")
+    except Exception as e:
+        logger.warning(f"daily digest failed: {e}")
+
+
+def _unpaid_nudge_payload(p: dict, stage: str) -> dict:
+    cust = p.get("customer_name") or p.get("lead_name") or "a customer"
+    amt = float(p.get("amount") or 0)
+    cur = (p.get("currency") or "usd").upper()
+    agent = p.get("agent_name") or "—"
+    base = _public_base()
+    lid = p.get("lead_id")
+    link = f"\n<{base}/leads/{lid}|Open deal>" if base and lid else ""
+    return {"text": (f"⏰ *Payment link unpaid ({stage})* — {cust} · {cur} {amt:,.0f}\n"
+                     f"Rep: {agent}. Give them a nudge to get it across the line.{link}")}
+
+async def _slack_unpaid_link_nudges():
+    """Every 20 min — nudge on real, still-unpaid payment links at 2h then 24h."""
+    try:
+        if not await get_secret("slack_webhook_url", "SLACK_WEBHOOK_URL"):
+            return
+        now = datetime.now(timezone.utc)
+        base = {"is_demo": False, "payment_status": "pending"}
+        for stage, cutoff, flag in (
+            ("2h", (now - timedelta(hours=2)).isoformat(), "slack_nudge_2h_at"),
+            ("24h", (now - timedelta(hours=24)).isoformat(), "slack_nudge_24h_at"),
+        ):
+            docs = await db.payments.find(
+                {**base, "created_at": {"$lte": cutoff}, flag: {"$exists": False}},
+                {"_id": 0}).limit(50).to_list(50)
+            for p in docs:
+                await _slack_post(_unpaid_nudge_payload(p, stage))
+                await db.payments.update_one({"id": p["id"]}, {"$set": {flag: now.isoformat()}})
+            if docs:
+                logger.info(f"slack: {len(docs)} unpaid-link {stage} nudge(s) sent")
+    except Exception as e:
+        logger.warning(f"unpaid nudge failed: {e}")
+
+async def _slack_stale_deal_alerts():
+    """09:00 IST daily — flag real open deals with no activity in 7+ days."""
+    try:
+        if not await get_secret("slack_webhook_url", "SLACK_WEBHOOK_URL"):
+            return
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+        leads = await db.leads.find({"is_demo": False}, {"_id": 0}).to_list(20000)
+        stale = []
+        for raw in leads:
+            sl = serialize_lead(dict(raw))
+            if sl.get("status") in ("Payment Link Paid", "Not Interested", "Changed Their Mind"):
+                continue
+            la = sl.get("last_activity") or sl.get("updated_at") or ""
+            if la and la <= cutoff:
+                stale.append(sl)
+        if not stale:
+            return
+        stale.sort(key=lambda s: float(s.get("lifetime_value") or 0), reverse=True)
+        lines = [f"🥶 *{len(stale)} open deal(s) went quiet* (no activity in 7+ days)"]
+        for sl in stale[:8]:
+            owner = sl.get("owner_name") or "Unassigned"
+            la = (sl.get("last_activity") or sl.get("updated_at") or "")[:10]
+            lines.append(f"• {sl.get('name')} ({owner}) — last touch {la}")
+        if len(stale) > 8:
+            lines.append(f"…and {len(stale) - 8} more. Time for a follow-up sweep.")
+        if await _slack_post({"text": "\n".join(lines)}):
+            logger.info(f"slack: stale-deal alert posted ({len(stale)})")
+    except Exception as e:
+        logger.warning(f"stale alert failed: {e}")
+
+
+@api.post("/admin/run-scheduled/{job}")
+async def run_scheduled_job(job: str, admin: dict = Depends(require_admin)):
+    """Run a Slack automation on demand (ops + testing). Real workspace only."""
+    jobs = {"digest": _slack_daily_digest, "unpaid": _slack_unpaid_link_nudges,
+            "stale": _slack_stale_deal_alerts}
+    fn = jobs.get(job)
+    if not fn:
+        raise HTTPException(status_code=400, detail=f"Unknown job '{job}'")
+    await fn()
+    return {"ok": True, "job": job}
+
+
+_scheduler = None
+
+def _start_scheduler():
+    global _scheduler
+    if _scheduler is not None or os.environ.get("DISABLE_SCHEDULER") == "1":
+        return
+    try:
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        from apscheduler.triggers.cron import CronTrigger
+        from apscheduler.triggers.interval import IntervalTrigger
+        sch = AsyncIOScheduler(timezone="UTC")
+        sch.add_job(_slack_daily_digest, CronTrigger(hour=18, minute=30), id="daily_digest", replace_existing=True)
+        sch.add_job(_slack_unpaid_link_nudges, IntervalTrigger(minutes=20), id="unpaid_nudges", replace_existing=True)
+        sch.add_job(_slack_stale_deal_alerts, CronTrigger(hour=3, minute=30), id="stale_alerts", replace_existing=True)
+        sch.start()
+        _scheduler = sch
+        logger.info("scheduler started (digest 00:00 IST, unpaid nudges /20min, stale alerts 09:00 IST)")
+    except Exception as e:
+        logger.warning(f"scheduler start failed: {e}")
 
 
 async def seed():
