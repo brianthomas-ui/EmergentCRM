@@ -257,7 +257,7 @@ PRODUCT_LINE_NAMES = [
 # Rep-selectable 6..10 (default 7.5); 10 is the absolute hard cap.
 CREDIT_MULTIPLIER_DEFAULT = 7.5
 CREDIT_MULTIPLIER_MIN = 6
-CREDIT_MULTIPLIER_MAX = 10
+CREDIT_MULTIPLIER_MAX = 15
 # Payment currencies the app supports. USD -> Stripe, INR -> Razorpay (A3 / B4).
 SUPPORTED_CURRENCIES = {"usd", "inr"}
 MAX_PAYMENT_AMOUNT = 1_000_000.0
@@ -4094,7 +4094,7 @@ async def _seed_demo_leads():
         mstart, mend = month_bounds(y, m)
         if mend <= mstart:
             continue
-        factor = 0.72 if (y, m) == (2026, 6) else 1.0   # June is mid-month -> on-pace, not full
+        factor = 0.97 if (y, m) == (2026, 6) else 1.0   # June (month-end, 29th) -> near-complete
         for owner in owners_pool:
             target = monthly_target.get(owner["name"], 90000) * factor
             booked, guard = 0.0, 0

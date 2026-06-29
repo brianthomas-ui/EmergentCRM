@@ -3,7 +3,7 @@ IMPORT flows (leads / payments / meetings) + the legacy CSV import.
 
 These complement backend_test.py (which already covers basic payment links + a single
 CSV import) by exercising:
-  - the credit-top-up multiplier pricing + clamping (min 6x / max 10x),
+  - the credit-top-up multiplier pricing + clamping (min 6x / max 15x),
   - INR -> credits conversion,
   - legacy fixed-credit preset behaviour,
   - custom-amount-overrides-preset (agent discount),
@@ -137,13 +137,13 @@ def test_credit_multiplier_clamped_min(admin_token):
 
 
 def test_credit_multiplier_clamped_max(admin_token):
-    """A multiplier above the 10x cap is clamped down to 10."""
+    """A multiplier above the 15x cap is clamped down to 15."""
     lead = _make_lead(admin_token)
     r = _link(admin_token, lead["id"], provider="stripe", amount=100.0, multiplier=50)
     assert r.status_code == 200, r.text
     d = r.json()
-    assert d["multiplier"] == 10.0
-    assert d["credits"] == 1000
+    assert d["multiplier"] == 15.0
+    assert d["credits"] == 1500
 
 
 def test_credit_inr_converts_before_multiplier(admin_token):

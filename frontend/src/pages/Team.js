@@ -38,7 +38,7 @@ const BAR_RADIUS = [3, 3, 0, 0];
 // ---------------------------------------------------------------------------
 // KPI card.
 // ---------------------------------------------------------------------------
-function KpiCard({ icon: Icon, label, value, sub, delta, tone = "emerald" }) {
+function KpiCard({ icon: Icon, label, value, sub, delta, tone = "emerald", onClick, testid }) {
   const tones = {
     emerald: "text-emerald-300 bg-emerald-500/10 border-emerald-500/20",
     sky:     "text-sky-300 bg-sky-500/10 border-sky-500/20",
@@ -46,7 +46,11 @@ function KpiCard({ icon: Icon, label, value, sub, delta, tone = "emerald" }) {
     violet:  "text-violet-300 bg-violet-500/10 border-violet-500/20",
   };
   return (
-    <Card className="p-4 flex flex-col gap-3">
+    <Card
+      onClick={onClick}
+      data-testid={testid}
+      className={`p-4 flex flex-col gap-3 ${onClick ? "cursor-pointer hover:border-[var(--border-strong)] transition-colors select-none" : ""}`}
+    >
       <div className="flex items-center justify-between">
         <span className="text-[11px] font-mono uppercase tracking-[0.12em] text-[var(--text-faint)]">{label}</span>
         <span className={`w-7 h-7 rounded-lg flex items-center justify-center border ${tones[tone]}`}>
@@ -61,6 +65,44 @@ function KpiCard({ icon: Icon, label, value, sub, delta, tone = "emerald" }) {
         </div>
       )}
     </Card>
+  );
+}
+
+// Per-rep breakdown of a team KPI - opened by clicking a KPI card.
+function TeamStatModal({ open, onClose, title, rows }) {
+  if (!open) return null;
+  const max = Math.max(1, ...rows.map((r) => r.value));
+  return (
+    <div className="fixed inset-0 z-50 flex justify-center items-end lg:items-center p-0 lg:p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <Card className="relative w-full lg:max-w-md p-5 lg:p-6 flex flex-col gap-4 rounded-t-2xl lg:rounded-xl max-h-[85vh] overflow-y-auto animate-sheet-up lg:animate-fade-up" data-testid="team-stat-modal">
+        <div className="lg:hidden flex justify-center -mt-1.5 -mb-1">
+          <span className="h-1.5 w-10 rounded-full bg-[var(--border-strong)]" />
+        </div>
+        <div className="flex items-center justify-between">
+          <h2 className="font-heading text-lg font-semibold text-[var(--text)] tracking-tight">{title}</h2>
+          <button onClick={onClose} className="tap-target text-[var(--text-faint)] hover:text-[var(--text)] transition-colors text-lg leading-none">✕</button>
+        </div>
+        <div className="space-y-3">
+          {rows.length === 0 && <div className="text-sm text-[var(--text-faint)] py-6 text-center">No data for this period.</div>}
+          {rows.map((r, i) => (
+            <div key={r.id} className="flex items-center gap-3" data-testid={`team-stat-row-${r.id}`}>
+              <span className="text-[10px] font-mono text-[var(--text-faint)] w-4 shrink-0 text-center">{i + 1}</span>
+              <Avatar src={r.avatar_url || ""} name={r.name} size="sm" className="shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-sm text-[var(--text)] truncate">{r.name}</span>
+                  <span className="text-sm font-semibold tabular-nums text-[var(--text)] shrink-0 ml-2">{r.display}</span>
+                </div>
+                <div className="h-1.5 rounded-full bg-[var(--surface-3)] overflow-hidden">
+                  <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${(r.value / max) * 100}%` }} />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
   );
 }
 
@@ -253,6 +295,7 @@ export default function Team() {
   const [period, setPeriod] = useState(DEFAULT_PERIOD);
   const [showAdd, setShowAdd] = useState(false);
   const [avatarEditId, setAvatarEditId] = useState(null); // which rep's avatar the admin is editing
+  const [statModal, setStatModal] = useState(null); // { title, rows } per-rep KPI breakdown
 
   const load = useCallback(() => {
     setLoading(true);
@@ -309,6 +352,28 @@ export default function Team() {
 
   const boardRows = leaderboard.length > 0 ? leaderboard : demoBoard;
 
+  // Per-rep breakdown for a clicked KPI card.
+  const openStat = (metric) => {
+    const rows = boardRows
+      .map((m) => {
+        const s = m.stats || {};
+        const base = { id: m.id, name: m.name, avatar_url: m.avatar_url };
+        if (metric === "won") return { ...base, value: s.won || 0, display: String(s.won || 0) };
+        if (metric === "revenue") return { ...base, value: s.revenue || 0, display: money(s.revenue || 0) };
+        if (metric === "meetings") return { ...base, value: s.meetings || 0, display: String(s.meetings || 0) };
+        const conv = (s.leads || 0) > 0 ? ((s.won || 0) / s.leads) * 100 : 0;
+        return { ...base, value: conv, display: `${conv.toFixed(1)}%` };
+      })
+      .sort((a, b) => b.value - a.value);
+    const titles = {
+      won: "Deals Won · by rep",
+      revenue: "Payment Links Paid · by rep",
+      meetings: "Meetings Held · by rep",
+      conv: "Avg Conversion · by rep",
+    };
+    setStatModal({ title: titles[metric], rows });
+  };
+
   return (
     <div className="space-y-5 text-[var(--text)]">
       {/* ── Header ── */}
@@ -339,6 +404,8 @@ export default function Team() {
           sub={`This period · ${team.filter((m) => m.role === "agent").length || 8} reps`}
           delta="+3 vs prior"
           tone="emerald"
+          onClick={() => openStat("won")}
+          testid="team-kpi-won"
         />
         <KpiCard
           icon={DollarSign}
@@ -347,6 +414,8 @@ export default function Team() {
           sub="Revenue collected"
           delta="+8% vs prior"
           tone="sky"
+          onClick={() => openStat("revenue")}
+          testid="team-kpi-paid"
         />
         <KpiCard
           icon={CalendarCheck}
@@ -355,6 +424,8 @@ export default function Team() {
           sub="Discovery + demo calls"
           delta="+5 vs prior"
           tone="violet"
+          onClick={() => openStat("meetings")}
+          testid="team-kpi-meetings"
         />
         <KpiCard
           icon={BarChart2}
@@ -363,6 +434,8 @@ export default function Team() {
           sub="Leads → won"
           delta="+1.2pp"
           tone="amber"
+          onClick={() => openStat("conv")}
+          testid="team-kpi-conversion"
         />
       </div>
 
@@ -586,6 +659,7 @@ export default function Team() {
       </div>
 
       <AddAgentModal open={showAdd} onClose={() => setShowAdd(false)} onCreated={load} />
+      <TeamStatModal open={!!statModal} onClose={() => setStatModal(null)} title={statModal?.title} rows={statModal?.rows || []} />
     </div>
   );
 }

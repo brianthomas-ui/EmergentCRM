@@ -39,22 +39,73 @@ export function FxRateCard({ isAdmin, fxRate, rateInput, setRateInput, onSave, s
   );
 }
 
-export function PaymentsSummary({ totalPaid, totalPending, count }) {
+export function PaymentsSummary({ totalPaid, totalPending, count, onDrill }) {
+  const cardCls =
+    "text-left bg-white border border-zinc-200 rounded-lg p-3 sm:p-5 min-w-0 transition-all hover:border-zinc-300 hover:shadow-sm active:scale-[0.99] cursor-pointer";
   return (
     <div className="grid grid-cols-3 gap-2 sm:gap-4">
-      <div className="bg-white border border-zinc-200 rounded-lg p-3 sm:p-5 min-w-0">
+      <button type="button" onClick={() => onDrill?.("collected")} data-testid="pay-summary-collected" className={cardCls}>
         <div className="text-[10px] uppercase tracking-widest text-zinc-400 font-semibold truncate">Collected</div>
         <div className="font-heading text-lg sm:text-3xl font-bold text-emerald-600 tabular-nums truncate">{money(totalPaid)}</div>
-      </div>
-      <div className="bg-white border border-zinc-200 rounded-lg p-3 sm:p-5 min-w-0">
+        <div className="text-[10px] text-zinc-400 mt-1 hidden sm:block">Tap for breakdown →</div>
+      </button>
+      <button type="button" onClick={() => onDrill?.("pending")} data-testid="pay-summary-pending" className={cardCls}>
         <div className="text-[10px] uppercase tracking-widest text-zinc-400 font-semibold truncate">Pending</div>
         <div className="font-heading text-lg sm:text-3xl font-bold text-amber-600 tabular-nums truncate">{money(totalPending)}</div>
-      </div>
-      <div className="bg-white border border-zinc-200 rounded-lg p-3 sm:p-5 min-w-0">
+        <div className="text-[10px] text-zinc-400 mt-1 hidden sm:block">Tap for breakdown →</div>
+      </button>
+      <button type="button" onClick={() => onDrill?.("links")} data-testid="pay-summary-links" className={cardCls}>
         <div className="text-[10px] uppercase tracking-widest text-zinc-400 font-semibold truncate">Links Sent</div>
         <div className="font-heading text-lg sm:text-3xl font-bold text-zinc-900 tabular-nums">{count}</div>
-      </div>
+        <div className="text-[10px] text-zinc-400 mt-1 hidden sm:block">Tap for breakdown →</div>
+      </button>
     </div>
+  );
+}
+
+// Drill-down: list the individual payments that make up a summary number.
+export function PaymentsBreakdownModal({ open, onClose, title, payments }) {
+  return (
+    <Modal open={open} onClose={onClose} title={title} testid="payments-breakdown-modal" wide>
+      {!payments || payments.length === 0 ? (
+        <div className="py-10 text-center text-sm text-zinc-400">No payments in this group.</div>
+      ) : (
+        <div className="overflow-x-auto -mx-1">
+          <table className="w-full text-sm" data-testid="payments-breakdown-table">
+            <thead>
+              <tr className="border-b border-zinc-100">
+                {["Customer", "Amount", "Provider", "Agent", "Status", "Created"].map((h) => (
+                  <th key={h} className="text-left text-[11px] font-mono font-semibold uppercase tracking-wider text-zinc-400 pb-2 pr-4 last:pr-0">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {payments.map((p) => (
+                <tr key={p.id} data-testid={`breakdown-row-${p.id}`} className="border-b border-zinc-50 last:border-0 hover:bg-zinc-50 transition-colors">
+                  <td className="py-2.5 pr-4">
+                    {p.lead_id ? (
+                      <Link to={`/leads/${p.lead_id}`} onClick={onClose} className="font-semibold text-zinc-900 hover:underline underline-offset-2">{p.lead_name || "Lead"}</Link>
+                    ) : (
+                      <span className="text-zinc-600">{p.customer_email || p.lead_name || "Standalone"}</span>
+                    )}
+                    {p.description && <div className="text-xs text-zinc-400">{p.description}</div>}
+                  </td>
+                  <td className="py-2.5 pr-4 font-mono font-semibold text-zinc-900 whitespace-nowrap">
+                    {money(p.amount, p.currency)}
+                    {p.currency !== "usd" && <span className="block text-[11px] text-zinc-400 font-normal">≈ {money(p.amount_usd ?? p.amount)}</span>}
+                  </td>
+                  <td className="py-2.5 pr-4 capitalize text-zinc-700">{p.provider}</td>
+                  <td className="py-2.5 pr-4 text-zinc-700">{p.agent_name || "-"}</td>
+                  <td className="py-2.5 pr-4"><Badge className={paymentStatusClass(p.payment_status)}>{p.payment_status}</Badge></td>
+                  <td className="py-2.5 pr-4 text-xs text-zinc-500 font-mono whitespace-nowrap">{fmtDateTime(p.created_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="mt-3 text-right text-[11px] text-zinc-400 font-mono">{payments.length} payment{payments.length !== 1 ? "s" : ""}</div>
+        </div>
+      )}
+    </Modal>
   );
 }
 

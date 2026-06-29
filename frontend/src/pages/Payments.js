@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { Plus, Search, X } from "lucide-react";
 import client, { apiError } from "@/api";
 import { useAuth } from "@/context/AuthContext";
-import { FxRateCard, PaymentsSummary, PaymentsTable, PaymentDetailModal } from "@/components/payments/PaymentsWidgets";
+import { FxRateCard, PaymentsSummary, PaymentsTable, PaymentDetailModal, PaymentsBreakdownModal } from "@/components/payments/PaymentsWidgets";
 import { PaymentModal } from "@/components/lead/LeadModals";
 
 const EMPTY_PAY_FORM = {
@@ -211,6 +211,16 @@ export default function Payments() {
   const totalPaid = payments.filter((p) => p.payment_status === "paid").reduce((s, p) => s + (p.amount_usd ?? p.amount), 0);
   const totalPending = payments.filter((p) => p.payment_status !== "paid").reduce((s, p) => s + (p.amount_usd ?? p.amount), 0);
 
+  const openBreakdown = (kind) => {
+    if (kind === "collected") {
+      setBreakdown({ title: "Collected · paid payments", list: payments.filter((p) => p.payment_status === "paid") });
+    } else if (kind === "pending") {
+      setBreakdown({ title: "Pending · awaiting payment", list: payments.filter((p) => p.payment_status !== "paid") });
+    } else {
+      setBreakdown({ title: "Links sent · all payment links", list: payments });
+    }
+  };
+
   return (
     <div className="space-y-5">
       <div className="flex items-start justify-between flex-wrap gap-4">
@@ -238,11 +248,13 @@ export default function Payments() {
         </div>
       </div>
 
-      <PaymentsSummary totalPaid={totalPaid} totalPending={totalPending} count={payments.length} />
+      <PaymentsSummary totalPaid={totalPaid} totalPending={totalPending} count={payments.length} onDrill={openBreakdown} />
 
       <PaymentsTable payments={payments} onRefresh={refresh} onSimulate={simulate} onLinkLead={startLinkToLead} onRowClick={setDetail} />
 
       <PaymentDetailModal payment={detail} onClose={() => setDetail(null)} />
+
+      <PaymentsBreakdownModal open={!!breakdown} onClose={() => setBreakdown(null)} title={breakdown?.title} payments={breakdown?.list} />
 
       <p className="text-[11px] text-zinc-400">Create a standalone link (no lead needed), or enter a customer email to auto-attach it to a matching lead. Unlinked links can be attached to a lead later.</p>
 

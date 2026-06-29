@@ -99,7 +99,7 @@ def test_multiplier_floor_and_cap(admin):
     assert p1["multiplier"] == 6 and p1["credits"] == 600
     p2 = requests.post(f"{BASE}/payments/link", json={"lead_id": lead["id"], "provider": "manual",
                        "amount": 100, "currency": "usd", "multiplier": 99}, headers=H(admin)).json()
-    assert p2["multiplier"] == 10
+    assert p2["multiplier"] == 15
 
 
 def test_currency_and_rail_guards(admin):

@@ -1,6 +1,6 @@
 import { money, BOOKING_DRIVERS } from "@/components/helpers";
 import Modal, { Field, inputCls, btnPrimary, btnSecondary } from "@/components/Modal";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, AlertTriangle, AlertOctagon } from "lucide-react";
 
 const PRODUCT_LINES = [
   "Credit Top-Up",
@@ -56,24 +56,47 @@ function creditPreview(payForm, mb, fxRate) {
 
 function CreditFields({ payForm, setPayForm, mb, preview }) {
   const { mult, amt, usdForCredits, liveCredits } = preview;
+  const numVal = payForm.multiplier === "" || payForm.multiplier == null ? null : Number(payForm.multiplier);
+  const over15 = numVal != null && numVal > 15;
+  const warn8 = numVal != null && numVal > 8 && numVal <= 15;
   return (
     <>
-      <Field label={`Multiplier - ${mult}× (max ${mb.max})`}>
-        <div className="flex items-center gap-3">
-          <input
-            type="range"
-            min={mb.min}
-            max={mb.max}
-            step={0.5}
-            value={mult}
-            onChange={(e) => setPayForm({ ...payForm, multiplier: Number(e.target.value) })}
-            className="flex-1"
-            data-testid="pay-multiplier"
-          />
-          <span className="text-sm font-semibold tabular-nums w-12 text-right">{mult}×</span>
+      <Field label="Multiplier (×) — credits = amount × multiplier">
+        <input
+          type="number"
+          min={mb.min}
+          max={15}
+          step="0.1"
+          value={payForm.multiplier}
+          onChange={(e) => setPayForm({ ...payForm, multiplier: e.target.value })}
+          placeholder={String(mb.default)}
+          data-testid="pay-multiplier"
+          className={`${inputCls} ${
+            over15
+              ? "border-red-500 focus:ring-red-500 focus:border-red-500"
+              : warn8
+              ? "border-amber-500 focus:ring-amber-500 focus:border-amber-500"
+              : ""
+          }`}
+        />
+        <div className="text-[11px] text-zinc-400 mt-1">
+          Type any multiplier. Default {mb.default}× · floor {mb.min}× · hard cap 15×.
         </div>
-        <div className="text-[11px] text-zinc-400 mt-1">Range {mb.min}-{mb.max} · max 10</div>
       </Field>
+
+      {over15 && (
+        <div data-testid="multiplier-error" className="-mt-1 mb-3 flex items-start gap-1.5 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
+          <AlertOctagon className="w-4 h-4 shrink-0 mt-px" />
+          {numVal}× exceeds the maximum. The multiplier cannot go over 15× — lower it to generate the link.
+        </div>
+      )}
+      {warn8 && (
+        <div data-testid="multiplier-warning" className="-mt-1 mb-3 flex items-start gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-px" />
+          Heads up — {numVal}× is a steep give-away, well above the 8× guideline. Only send this if it's an approved exception.
+        </div>
+      )}
+
       <div className="-mt-1 mb-3 text-sm" data-testid="credits-preview">
         Credits delivered: <span className="font-semibold text-zinc-800">{liveCredits.toLocaleString()}</span>
         <span className="text-zinc-400"> &nbsp;({amt ? (payForm.currency === "inr" ? `≈$${Math.round(usdForCredits).toLocaleString()}` : `$${amt.toLocaleString()}`) : "-"} × {mult})</span>
@@ -92,10 +115,11 @@ function FxNote({ payForm, fxRate }) {
 }
 
 export function PaymentModal({ open, onClose, payForm, setPayForm, packages, fxRate, meta, standalone, onSubmit }) {
-  const mb = meta?.credit_multiplier || { min: 6, default: 7.5, max: 10 };
+  const mb = meta?.credit_multiplier || { min: 6, default: 7.5, max: 15 };
   const line = payForm.product_line || "Credit Top-Up";
   const isCredit = line === "Credit Top-Up";
   const preview = creditPreview(payForm, mb, fxRate);
+  const multOver15 = isCredit && Number(payForm.multiplier) > 15;
 
   return (
     <Modal open={open} onClose={onClose} title={standalone ? "New Payment Link" : "Send Payment Link"} testid="payment-modal">
@@ -150,7 +174,7 @@ export function PaymentModal({ open, onClose, payForm, setPayForm, packages, fxR
       </Field>
       <div className="flex justify-end gap-2 mt-2">
         <button type="button" className={btnSecondary} onClick={onClose}>Cancel</button>
-        <button type="button" className={btnPrimary} onClick={onSubmit} data-testid="generate-payment-btn">Generate & Copy Link</button>
+        <button type="button" className={btnPrimary} onClick={onSubmit} disabled={multOver15} data-testid="generate-payment-btn">Generate & Copy Link</button>
       </div>
       <p className="text-[11px] text-zinc-400 mt-3 flex items-center gap-1">
         <CheckCircle2 className="w-3 h-3" />
