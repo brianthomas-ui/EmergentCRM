@@ -4,6 +4,14 @@
 > The sections below this changelog are LEGACY (pre-redesign, light theme) — defer to the handoff.
 
 ## Changelog
+### 2026-06-29 — Roadmap FRONTEND wired (Forecast, AI Assist, Win/Loss, real team stats)
+Backend for these was already built+verified; this session surfaced them in the React UI. Testing agent iteration_16 = frontend 100%, 0 bugs (fixed 1 pre-existing primitive bug).
+- **Pipeline Forecast widget** (`components/dashboard/ForecastWidget.jsx`, `GET /api/forecast`): committed + probability-weighted-open vs target, attainment % pill, target progress bar, weighted-by-stage breakdown. Rendered on the **Dashboard** (after KPIs) AND the agent **My Work** page. Verified: $396k committed / $216k weighted / $612.1k forecast / 98.7% attainment.
+- **AI Assist** (`AiAssistPanel` in `components/lead/LeadDetailPanels.js`, `POST /api/leads/{id}/ai-assist`): right-column panel on Lead Detail with "Draft follow-up email" + "Summarize account" buttons (real Claude Sonnet 4.6 via Emergent key, ~10-20s) + copy-to-clipboard. Verified: email returned 'Subject: …' draft, summary returned bulleted brief.
+- **Win/Loss analytics** (`components/team/WinLossPanel.jsx`, `GET /api/analytics/winloss`, admin only): win rate, won/lost, funnel, loss-reason breakdown — section below the Team leaderboard. Verified: 94.1% win rate, 449 won / 28 lost.
+- **Real leaderboard stats**: Team "Add-ons" (paid txns) & "Payment Links Sent" columns now read `stats.add_ons` / `stats.payment_links_sent` from `/api/team?period=…` instead of fabricated formulas. Demo-fallback rows updated to include these fields.
+- **Fix (testing agent)**: `components/dark/Primitives.js` `TR` now forwards `...rest` (incl. `data-testid`) — `lead-row-{id}`/`team-row-{id}` testids were silently dropped.
+
 ### 2026-06-29 — Mobile visual optimization pass (responsive polish, no logic change)
 Self-verified on real 390px iPhone + 1440px desktop renders (Playwright + vision critique). Mobile scores went from "cramped/tiny" to Dashboard 8/10, Leads 8/10, Team 9/10; desktop confirmed unchanged.
 - **Root cause**: the whole console was authored with desktop micro-typography (9–11px) and tight spacing — technically responsive (no overflow) but read as a shrunk desktop on phones.
