@@ -84,13 +84,14 @@ export function TH({ children, align = "left", className = "" }) {
   );
 }
 
-export function TR({ children, onClick, active = false, className = "" }) {
+export function TR({ children, onClick, active = false, className = "", ...rest }) {
   return (
     <tr
       onClick={onClick}
       className={`border-b border-[var(--border)] transition-colors ${
         onClick ? "cursor-pointer" : ""
       } ${active ? "bg-emerald-500/[0.06]" : "hover:bg-[var(--surface-2)]"} ${className}`}
+      {...rest}
     >
       {children}
     </tr>

@@ -18,6 +18,7 @@ import {
   darkInput,
 } from "@/components/dark/Primitives";
 import { useAuth } from "@/context/AuthContext";
+import WinLossPanel from "@/components/team/WinLossPanel";
 
 // ---------------------------------------------------------------------------
 // Palette: workload donut colours (one per rep, emerald-anchored).
@@ -296,14 +297,14 @@ export default function Team() {
 
   // Demo leaderboard rows when empty.
   const demoBoard = [
-    { id: "d1", name: "Rahul Singh",    email: "rahul@emergent.ai",   avatar_url: "", stats: { leads: 38, won: 16, meetings: 11, revenue: 74200 }, monthly_target: 100000 },
-    { id: "d2", name: "Vikram Patel",   email: "vikram@emergent.ai",  avatar_url: "", stats: { leads: 30, won: 11, meetings: 9,  revenue: 57500 }, monthly_target: 100000 },
-    { id: "d3", name: "Priya Nair",     email: "priya@emergent.ai",   avatar_url: "", stats: { leads: 22, won: 9,  meetings: 8,  revenue: 43100 }, monthly_target: 100000 },
-    { id: "d4", name: "Anurag Kumar",   email: "anurag@emergent.ai",  avatar_url: "", stats: { leads: 19, won: 7,  meetings: 7,  revenue: 35800 }, monthly_target: 100000 },
-    { id: "d5", name: "Divya Reddy",    email: "divya@emergent.ai",   avatar_url: "", stats: { leads: 17, won: 6,  meetings: 6,  revenue: 31200 }, monthly_target: 100000 },
-    { id: "d6", name: "Sameer Kapoor",  email: "sameer@emergent.ai",  avatar_url: "", stats: { leads: 13, won: 4,  meetings: 5,  revenue: 22100 }, monthly_target: 100000 },
-    { id: "d7", name: "Ananya Sharma",  email: "ananya@emergent.ai",  avatar_url: "", stats: { leads: 10, won: 3,  meetings: 4,  revenue: 17400 }, monthly_target: 100000 },
-    { id: "d8", name: "Ravi Krishnan",  email: "ravi@emergent.ai",    avatar_url: "", stats: { leads: 9,  won: 2,  meetings: 3,  revenue: 13700 }, monthly_target: 100000 },
+    { id: "d1", name: "Rahul Singh",    email: "rahul@emergent.ai",   avatar_url: "", stats: { leads: 38, won: 16, meetings: 11, revenue: 74200, add_ons: 16, payment_links_sent: 21 }, monthly_target: 100000 },
+    { id: "d2", name: "Vikram Patel",   email: "vikram@emergent.ai",  avatar_url: "", stats: { leads: 30, won: 11, meetings: 9,  revenue: 57500, add_ons: 11, payment_links_sent: 15 }, monthly_target: 100000 },
+    { id: "d3", name: "Priya Nair",     email: "priya@emergent.ai",   avatar_url: "", stats: { leads: 22, won: 9,  meetings: 8,  revenue: 43100, add_ons: 9,  payment_links_sent: 12 }, monthly_target: 100000 },
+    { id: "d4", name: "Anurag Kumar",   email: "anurag@emergent.ai",  avatar_url: "", stats: { leads: 19, won: 7,  meetings: 7,  revenue: 35800, add_ons: 7,  payment_links_sent: 10 }, monthly_target: 100000 },
+    { id: "d5", name: "Divya Reddy",    email: "divya@emergent.ai",   avatar_url: "", stats: { leads: 17, won: 6,  meetings: 6,  revenue: 31200, add_ons: 6,  payment_links_sent: 9 }, monthly_target: 100000 },
+    { id: "d6", name: "Sameer Kapoor",  email: "sameer@emergent.ai",  avatar_url: "", stats: { leads: 13, won: 4,  meetings: 5,  revenue: 22100, add_ons: 4,  payment_links_sent: 6 }, monthly_target: 100000 },
+    { id: "d7", name: "Ananya Sharma",  email: "ananya@emergent.ai",  avatar_url: "", stats: { leads: 10, won: 3,  meetings: 4,  revenue: 17400, add_ons: 3,  payment_links_sent: 5 }, monthly_target: 100000 },
+    { id: "d8", name: "Ravi Krishnan",  email: "ravi@emergent.ai",    avatar_url: "", stats: { leads: 9,  won: 2,  meetings: 3,  revenue: 13700, add_ons: 2,  payment_links_sent: 3 }, monthly_target: 100000 },
   ];
 
   const boardRows = leaderboard.length > 0 ? leaderboard : demoBoard;
@@ -393,6 +394,8 @@ export default function Team() {
               const won = stats.won || 0;
               const meetings = stats.meetings || 0;
               const revenue = stats.revenue || 0;
+              const addOns = stats.add_ons || 0;
+              const linksSent = stats.payment_links_sent || 0;
               const target = m.monthly_target || 0;
               const convPct = leads > 0 ? (won / leads) * 100 : 0;
               const targetPct = target > 0 ? Math.min((revenue / target) * 100, 100) : 0;
@@ -410,11 +413,11 @@ export default function Team() {
                     </div>
                   </TD>
                   <TD align="right"><span className="font-mono tabular-nums text-sm text-[var(--text)]">{leads}</span></TD>
-                  {/* Add-ons: approximate as won * avg package ~2 */}
-                  <TD align="right"><span className="font-mono tabular-nums text-sm text-[var(--text)]">{won * 2}</span></TD>
+                  {/* Add-ons: paid transactions closed by the rep in this window. */}
+                  <TD align="right"><span className="font-mono tabular-nums text-sm text-[var(--text)]">{addOns}</span></TD>
                   <TD align="right"><span className="font-mono tabular-nums text-sm text-[var(--text)]">{meetings}</span></TD>
-                  {/* Payment Links Sent: approximate as won + 1-2 */}
-                  <TD align="right"><span className="font-mono tabular-nums text-sm text-sky-300">{won + Math.round(leads * 0.1)}</span></TD>
+                  {/* Payment Links Sent: payment links the rep created in this window. */}
+                  <TD align="right"><span className="font-mono tabular-nums text-sm text-sky-300">{linksSent}</span></TD>
                   <TD align="right"><span className="font-mono tabular-nums text-sm text-emerald-300">{won}</span></TD>
                   <TD align="right">
                     <div className="flex flex-col items-end gap-0.5">
@@ -512,6 +515,9 @@ export default function Team() {
           })}
         </div>
       </Card>
+
+      {/* ── Win / Loss analytics (admin) ── */}
+      {isAdmin && <WinLossPanel />}
 
       {/* ── Stage Conversion + Workload row ── */}
       <div className="grid lg:grid-cols-2 gap-4">

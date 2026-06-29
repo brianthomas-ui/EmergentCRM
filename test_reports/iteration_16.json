@@ -1,0 +1,28 @@
+{
+  "summary": "Frontend verification of roadmap features (ForecastWidget on Dashboard + Workspace, AI Assist on Lead Detail, Win/Loss + real Add-ons/Payment Links Sent on Team page). All features render correctly with real data via the Demo View login. Found and fixed one minor issue: the shared TR primitive was swallowing data-testid, which broke lead-row-{id} and team-row-{id} selectors. After fix, all required testids resolve.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Lead Detail > Next follow-up", "issues": ["Field uses browser default datetime-local picker (placeholder 'mm/dd/yyyy, --:-- --') instead of a styled shadcn date/time picker - inconsistent with dark theme."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "(Optional) Replace browser-native datetime input on Lead Detail 'Next follow-up' with shadcn DatePicker for theme consistency."
+  ],
+  "critical_code_review_comments": [
+    "FIXED in this iteration: /app/frontend/src/components/dark/Primitives.js TR component was not forwarding extra props (including data-testid). Added ...rest spread so lead-row-{id} / team-row-{id} testids now render in DOM. Without this fix all table-row-level test selectors were silently broken even though rows rendered visually.",
+    "ForecastWidget catches all errors and returns null on failure (no user-visible error UI); if /api/forecast fails users see nothing instead of a 'forecast unavailable' state - consider a small error placeholder.",
+    "WinLossPanel similarly returns null on fetch error or while loading - admins on a fresh workspace will see no loading indicator at all."
+  ],
+  "updated_files": ["/app/frontend/src/components/dark/Primitives.js"],
+  "success_rate": {"backend": "n/a (not tested)", "frontend": "100%"},
+  "test_credentials": "Demo View button on /login (demo@emergent.sh, admin). To bypass first-run product tour overlay during automation: localStorage.setItem('crm_tour_v2_done','1') before login, or click [data-testid='tour-skip'].",
+  "seed_data_creation": "None - used existing Demo workspace data (285 leads, 87 deals won, 477 decided deals, 5 reps).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Demo workspace via 'Demo View' button on /login lands on / (dashboard). Tour overlay (tour-overlay) auto-shows on first session and intercepts clicks - either skip via data-testid='tour-skip' or pre-set localStorage crm_tour_v2_done=1. Verified testids: forecast-widget, forecast-committed ($396k), forecast-weighted ($216k/316 open), forecast-total ($612.1k), forecast-attainment (98.7%), 7x forecast-stage-{stage}; winloss-section, winloss-winrate (94.1%), winloss-won (449), winloss-lost (28), 2x loss-reason-{reason}; team-row-{id} x5, team-card-{id} x5; ai-draft-email-btn, ai-summary-btn, ai-result, ai-copy-btn. AI email returned 743 chars starting 'Subject: Quick follow-up...'; summary returned 611 chars of bulleted account intel. Real Claude LLM call took ~10-20s.",
+  "rca of the issue": "TR component at /app/frontend/src/components/dark/Primitives.js destructured only {children, onClick, active, className} so any extra props (data-testid, aria-*, etc.) passed by callers were dropped. LeadsParts.LeadRow and Team.js leaderboard both rely on data-testid via TR. Mitigation: added ...rest and spread on <tr>. Verified 285 lead-row testids and 5 team-row testids now resolve."
+}

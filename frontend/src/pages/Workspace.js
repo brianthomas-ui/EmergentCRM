@@ -7,6 +7,7 @@ import {
   CalendarClock, Bell, CreditCard, AlertTriangle, MessageSquare,
   TrendingUp, Users, Trophy, ChevronRight, Inbox,
 } from "lucide-react";
+import ForecastWidget from "@/components/dashboard/ForecastWidget";
 
 const StatTile = ({ icon: Icon, label, value, accent, testid, onClick }) => (
   <button
@@ -97,6 +98,8 @@ export default function Workspace() {
         <StatTile testid="ws-stat-won" icon={Trophy} label="Won this month" value={s.won_this_month} accent="text-emerald-400" onClick={() => navigate("/leads?view=won")} />
         <StatTile testid="ws-stat-revenue" icon={TrendingUp} label="Revenue / mo" value={money(s.revenue_this_month)} accent="text-emerald-400" onClick={() => navigate("/payments")} />
       </div>
+
+      <ForecastWidget />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <Section testid="ws-followups" icon={Bell} title="Follow-ups due" count={data.followups_due.length}>

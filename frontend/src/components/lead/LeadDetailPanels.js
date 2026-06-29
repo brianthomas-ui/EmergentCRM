@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
-  CreditCard, CalendarPlus, CheckCircle2, RefreshCw, Lock, Mail, MessageCircle, Loader2, StickyNote,
+  CreditCard, CalendarPlus, CheckCircle2, RefreshCw, Lock, Mail, MessageCircle, Loader2, StickyNote, Sparkles, Copy,
 } from "lucide-react";
 import client, { apiError } from "@/api";
 import { stageClass, PRIORITIES, REGIONS, timeAgo, fmtDateTime, VISIBLE_STATUSES } from "@/components/helpers";
@@ -306,5 +306,70 @@ export function LeadProfileHeader({ lead, statusMeta, isClosedStage, onReopen, o
         </div>
       </div>
     </Card>
+  );
+}
+
+
+// AI Assist - draft a personalized follow-up email or summarize the account
+// from the lead's real CRM context (Claude Sonnet 4.6 via the Emergent key).
+export function AiAssistPanel({ leadId }) {
+  const [busy, setBusy] = useState(null); // "email" | "summary" | null
+  const [result, setResult] = useState(null); // { kind, text }
+
+  const run = async (kind) => {
+    setBusy(kind);
+    try {
+      const { data } = await client.post(`/leads/${leadId}/ai-assist`, { kind });
+      setResult(data);
+    } catch (e) {
+      toast.error(apiError(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const copy = () => {
+    if (!result?.text) return;
+    navigator.clipboard?.writeText(result.text)
+      .then(() => toast.success("Copied to clipboard"))
+      .catch(() => {});
+  };
+
+  return (
+    <Section
+      title="AI Assist"
+      icon={Sparkles}
+      action={
+        result && (
+          <button onClick={copy} className="inline-flex items-center gap-1 text-[11px] text-[var(--text-faint)] hover:text-emerald-300 transition-colors" data-testid="ai-copy-btn">
+            <Copy className="w-3 h-3" /> Copy
+          </button>
+        )
+      }
+    >
+      <div className="flex flex-wrap gap-2">
+        <button className={btnEmerald} onClick={() => run("email")} disabled={!!busy} data-testid="ai-draft-email-btn">
+          {busy === "email" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+          Draft follow-up email
+        </button>
+        <button className={btnGhost} onClick={() => run("summary")} disabled={!!busy} data-testid="ai-summary-btn">
+          {busy === "summary" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+          Summarize account
+        </button>
+      </div>
+
+      {result ? (
+        <pre
+          data-testid="ai-result"
+          className="mt-3 whitespace-pre-wrap break-words text-sm text-[var(--text)] font-sans rounded-lg bg-[var(--surface-2)] border border-[var(--border)] p-3 max-h-80 overflow-y-auto leading-relaxed"
+        >
+          {result.text}
+        </pre>
+      ) : (
+        <p className="mt-3 text-[11px] text-[var(--text-faint)]">
+          Generate a personalized email or a 15-second account brief from this lead's real activity, notes, and deal stage.
+        </p>
+      )}
+    </Section>
   );
 }

@@ -17,6 +17,7 @@ import {
   TasksPanel,
   OverviewPanel,
   LeadProfileHeader,
+  AiAssistPanel,
 } from "@/components/lead/LeadDetailPanels";
 
 const EMPTY_PAY_FORM = {
@@ -222,6 +223,7 @@ export default function LeadDetail() {
         </div>
 
         <div className="space-y-4">
+          <AiAssistPanel leadId={id} />
           <LeadActivityTimeline activities={activities} />
           <LeadPaymentsList payments={payments} onNewLink={() => setPayModal(true)} />
         </div>

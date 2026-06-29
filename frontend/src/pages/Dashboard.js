@@ -31,6 +31,7 @@ import {
   fmtDateTime,
   timeAgo,
 } from "@/components/helpers";
+import ForecastWidget from "@/components/dashboard/ForecastWidget";
 
 // ---------------------------------------------------------------------------
 // Donut chart - pure SVG, no dep.
@@ -665,6 +666,9 @@ export default function Dashboard() {
               onClick={() => openDrill("group:Won", "Won Deals", PIPELINE_COLUMNS)}
             />
           </div>
+
+          {/* ---- Forecast ---- */}
+          <ForecastWidget />
 
           {/* ---- Row 2: Donut + Pipeline by Stage ---- */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
