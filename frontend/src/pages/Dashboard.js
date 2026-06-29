@@ -303,24 +303,41 @@ function RecentActivity({ items }) {
       {empty ? (
         <div className="text-[11px] text-[var(--text-faint)] py-6 text-center">No recent activity.</div>
       ) : (
-        <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
-          {items.map((item, i) => (
-            <div key={item.id || `${item.created_at || "a"}-${i}`} className="flex items-start gap-2.5">
-              <Avatar name={item.actor || item.agent} size="sm" className="shrink-0 mt-0.5" />
-              <div className="min-w-0 flex-1">
-                <p className="text-[11px] text-[var(--text)] leading-snug truncate">
-                  <span className="font-medium text-emerald-300">{item.actor || item.agent}</span>{" "}
-                  {item.description || item.text}
-                </p>
-                {item.lead_name && (
-                  <p className="text-[10px] text-[var(--text-faint)] truncate mt-0.5">{item.lead_name}</p>
-                )}
+        <div className="space-y-1 max-h-52 overflow-y-auto pr-1">
+          {items.map((item, i) => {
+            const key = item.id || `${item.created_at || "a"}-${i}`;
+            const inner = (
+              <>
+                <Avatar name={item.actor || item.agent} size="sm" className="shrink-0 mt-0.5" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] text-[var(--text)] leading-snug truncate">
+                    <span className="font-medium text-emerald-300">{item.actor || item.agent}</span>{" "}
+                    {item.description || item.text}
+                  </p>
+                  {item.lead_name && (
+                    <p className="text-[10px] text-[var(--text-faint)] truncate mt-0.5 group-hover:text-[var(--text-muted)] transition-colors">{item.lead_name}</p>
+                  )}
+                </div>
+                <span className="text-[10px] text-[var(--text-faint)] font-mono shrink-0 mt-0.5 whitespace-nowrap">
+                  {timeAgo(item.created_at)}
+                </span>
+              </>
+            );
+            return item.lead_id ? (
+              <Link
+                key={key}
+                to={`/leads/${item.lead_id}`}
+                className="flex items-start gap-2.5 -mx-1 px-1 py-1.5 rounded-lg hover:bg-[var(--surface-2)] active:bg-[var(--surface-2)] transition-colors group"
+                data-testid={`activity-row-${key}`}
+              >
+                {inner}
+              </Link>
+            ) : (
+              <div key={key} className="flex items-start gap-2.5 py-1.5" data-testid={`activity-row-${key}`}>
+                {inner}
               </div>
-              <span className="text-[10px] text-[var(--text-faint)] font-mono shrink-0 mt-0.5 whitespace-nowrap">
-                {timeAgo(item.created_at)}
-              </span>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </Card>
