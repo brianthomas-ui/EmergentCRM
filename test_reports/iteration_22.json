@@ -1,0 +1,26 @@
+{
+  "summary": "BACKEND-only security retest of SEC-001 (webhook fail-closed), SEC-003 (server-side credit derivation) and avatar hardening + cross-workspace IDOR sanity. All 14 pytest assertions PASS. SEC-002 was intentionally not tested per request. The forged-webhook-no-effect end-to-end (create demo payment -> fire forged stripe webhook against its session_id -> GET status -> still NOT 'paid') is confirmed. Demo simulate path is NOT regressed (payment->paid and linked lead->Won). SEC-003: client-supplied credits=999999/boost_credits=50000 are ignored; with multiplier=10 -> credits=1000 (round(100*10)); multiplier=50 clamps to <=15 (credits<=1500, never 5000 and never 999999). Avatar: SVG (image/svg+xml) -> 400; text/html data URL -> 400; tiny PNG -> 200 and avatar_url set. Cross-workspace IDOR on /api/payments/id/{id}: demo-payment id returns 404 to real admin and real-payment id returns 404 to demo manager.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_security_fixes.py",
+    "/app/test_reports/pytest/test_security_fixes.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py stripe_webhook: correctly raises 400 when STRIPE_WEBHOOK_SECRET is missing (fail-closed) and 400 on stripe.Webhook.construct_event verification failure; no more json.loads fallback and no unverified emergentintegrations path. Looks clean.",
+    "server.py _verify_razorpay_signature: 400 when secret missing, 401 on signature mismatch (constant-time hmac.compare_digest). Good.",
+    "server.py _resolve_credit_topup_amount: credits = int(round(amount_for_credits * mult)) with mult clamped to [CREDIT_MULTIPLIER_MIN, CREDIT_MULTIPLIER_MAX]; the boost is never set in this path; client credits/boost_credits are now properly ignored (verified empirically). _resolve_fixed_amount only takes credits/boost from PRESET_PACKAGES[pkg_id]; client values ignored.",
+    "server.py validate_avatar_data_url (line ~770): allowlist ('png','jpeg','jpg','webp','gif') correctly rejects image/svg+xml and non-image data URLs; 400 with clear messages.",
+    "Cross-workspace IDOR: GET /api/payments/id/{id} routes through require_payment_access, which returns 404 (not 403) for foreign-workspace records — verified in both directions (demo<->real).",
+    "Minor observation (not a bug, not blocking): /api/payments/link response does not echo the payment `id` in the demo manager's create; tests fell back to listing /api/payments to recover the id. Not a regression — pre-existing behaviour."
+  ],
+  "updated_files": ["/app/backend/tests/test_security_fixes.py"],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "skipped (backend-only request)"},
+  "test_credentials": "demo@emergent.sh / demo12345 (or POST /api/auth/demo-login); diyea@emergent.sh / emergent@12345",
+  "seed_data_creation": "Test created a handful of TEST_-prefixed demo payments via /api/payments/link and called simulate on a small subset (does not modify FX/settings or real-workspace state beyond a single TEST payment used for the IDOR direction test).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Re-run: pytest /app/backend/tests/test_security_fixes.py -v. All 14 PASS in ~4s. Key fixtures: demo_token via /api/auth/demo-login (falls back to demo@emergent.sh login); admin_token via /api/auth/login diyea@emergent.sh. NOTE: webhook secrets are NOT configured in this env by design, so ALL webhook calls correctly fail-closed with 400. Razorpay invalid-sig is accepted as 400|401 (will be 400 here because the secret-missing branch fires first; will be 401 once RAZORPAY_WEBHOOK_SECRET is configured at go-live). SEC-002 (/api/team this_month) intentionally not tested — do not flag.",
+  "rca of the issue": "N/A — this was a verification pass for already-applied fixes, not a bug hunt. All three findings (SEC-001 webhook fail-closed, SEC-003 server-side credit derivation, avatar SVG rejection) are correctly implemented and the demo/non-regression flows still work."
+}

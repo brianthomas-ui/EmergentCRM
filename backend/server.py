@@ -89,6 +89,13 @@ def _assert_prod_config():
         problems.append("CORS_ORIGINS must be an explicit allowlist (not '*' or unset) in production")
     if not PUBLIC_BASE_URL:
         problems.append("PUBLIC_BASE_URL must be set in production")
+    # SEC-001 plug-and-play safety net: if a payment provider is configured via env
+    # in production, its webhook signing secret MUST be set (the webhook handlers
+    # also fail closed at runtime when the secret is missing).
+    if os.environ.get("STRIPE_API_KEY") and not os.environ.get("STRIPE_WEBHOOK_SECRET"):
+        problems.append("STRIPE_WEBHOOK_SECRET must be set when STRIPE_API_KEY is configured in production")
+    if (os.environ.get("RAZORPAY_KEY_ID") or os.environ.get("RAZORPAY_API_KEY")) and not os.environ.get("RAZORPAY_WEBHOOK_SECRET"):
+        problems.append("RAZORPAY_WEBHOOK_SECRET must be set when Razorpay is configured in production")
     if problems:
         raise RuntimeError("Invalid production configuration: " + "; ".join(problems))
 
@@ -755,6 +762,9 @@ async def enrich_from_emergent(email: str) -> dict:
 # size so a giant image can never bloat the user doc / response payloads.
 # ----------------------------------------------------------------------------
 AVATAR_MAX_BYTES = 420_000  # ~400KB of raw data-URL string
+# Hardening: only raster image types. Excludes image/svg+xml (SVG can carry
+# scripts -> stored-XSS risk when rendered) and other non-image data URLs.
+ALLOWED_AVATAR_TYPES = ("png", "jpeg", "jpg", "webp", "gif")
 
 
 def validate_avatar_data_url(data_url: str) -> str:
@@ -763,6 +773,9 @@ def validate_avatar_data_url(data_url: str) -> str:
         raise HTTPException(status_code=400, detail="Empty avatar data")
     if not s.startswith("data:image/"):
         raise HTTPException(status_code=400, detail="Avatar must be an image data URL (data:image/...)")
+    subtype = s[len("data:image/"):].split(";", 1)[0].split(",", 1)[0].strip().lower()
+    if subtype not in ALLOWED_AVATAR_TYPES:
+        raise HTTPException(status_code=400, detail="Avatar must be a PNG, JPEG, WEBP or GIF image")
     if ";base64," not in s:
         raise HTTPException(status_code=400, detail="Avatar must be a base64 data URL")
     if len(s) > AVATAR_MAX_BYTES:
@@ -2547,7 +2560,10 @@ def _resolve_credit_topup_amount(body: "PaymentIn", pkg: Optional[dict]):
             amount_for_credits = amount / float(PRODUCT_LINES["Credit Top-Up"].get("inr_per_credit", 1) or 1)
         except Exception:
             amount_for_credits = amount
-    credits = body.credits if body.credits is not None else int(round(amount_for_credits * mult))
+    # SEC-003: credits are ALWAYS derived server-side from (amount x clamped
+    # multiplier). Client-supplied `credits` is ignored so the multiplier clamp
+    # can't be bypassed to mint arbitrary credits.
+    credits = int(round(amount_for_credits * mult))
 
     if body.description:
         desc = body.description
@@ -2568,8 +2584,10 @@ def _resolve_fixed_amount(body: "PaymentIn", pkg: Optional[dict]):
     else:
         raise HTTPException(status_code=400, detail="A valid amount is required")
 
-    credits = body.credits if body.credits is not None else (pkg.get("credits") if pkg else None)
-    boost = body.boost_credits if body.boost_credits is not None else (pkg.get("boost_credits") if pkg else None)
+    # SEC-003: credits/boost come from the server-side package only; client-supplied
+    # `credits`/`boost_credits` are ignored so pricing can't be tampered with.
+    credits = pkg.get("credits") if pkg else None
+    boost = pkg.get("boost_credits") if pkg else None
 
     if body.description:
         desc = body.description
@@ -2956,24 +2974,26 @@ async def stripe_webhook(request: Request):
     if not api_key:
         return {"received": True}  # demo / no Stripe configured
     webhook_secret = await get_secret("stripe_webhook_secret", "STRIPE_WEBHOOK_SECRET")
+    if not webhook_secret:
+        # SEC-001: fail closed. An unverified webhook can be forged with a known
+        # session id to mark a payment paid. Plug in STRIPE_WEBHOOK_SECRET
+        # (Stripe Dashboard -> Developers -> Webhooks -> signing secret) to enable
+        # real webhooks at go-live. Demo marks paid via authenticated simulate /
+        # status-polling, never this endpoint.
+        logger.error("stripe webhook rejected: STRIPE_WEBHOOK_SECRET not configured (fail-closed)")
+        raise HTTPException(status_code=400, detail="Webhook signature verification not configured")
     body = await request.body()
     sig = request.headers.get("Stripe-Signature", "")
     session_id = payment_status = event_id = None
     try:
-        try:
-            import stripe
-            stripe.api_key = api_key
-            event = (stripe.Webhook.construct_event(body, sig, webhook_secret)
-                     if webhook_secret else json.loads(body.decode("utf-8") or "{}"))
-            event_id = event.get("id")
-            obj = (event.get("data") or {}).get("object") or {}
-            session_id = obj.get("id")
-            payment_status = "paid" if (event.get("type") == "checkout.session.completed"
-                                        or obj.get("payment_status") == "paid") else obj.get("payment_status")
-        except ImportError:
-            from emergentintegrations.payments.stripe.checkout import StripeCheckout
-            ev = await StripeCheckout(api_key=api_key, webhook_url="").handle_webhook(body, sig)
-            session_id, payment_status, event_id = ev.session_id, ev.payment_status, ev.session_id
+        import stripe
+        stripe.api_key = api_key
+        event = stripe.Webhook.construct_event(body, sig, webhook_secret)  # verifies signature; raises on tamper
+        event_id = event.get("id")
+        obj = (event.get("data") or {}).get("object") or {}
+        session_id = obj.get("id")
+        payment_status = "paid" if (event.get("type") == "checkout.session.completed"
+                                    or obj.get("payment_status") == "paid") else obj.get("payment_status")
     except Exception as e:
         # Signature/verification failure -> 400 (never swallow to 200 = looks valid).
         logger.error(f"stripe webhook rejected: {e}")
@@ -2990,10 +3010,12 @@ async def stripe_webhook(request: Request):
     return {"received": True}
 
 def _verify_razorpay_signature(raw: bytes, request: Request, secret: str):
-    """Verify X-Razorpay-Signature when a secret is configured (demo mode accepts
-    unsigned). Raises 401 on mismatch."""
+    """SEC-001: fail closed. Verifies X-Razorpay-Signature; rejects when no secret
+    is configured (an unverified webhook can be forged). Plug in
+    RAZORPAY_WEBHOOK_SECRET at go-live; demo marks paid via authenticated simulate."""
     if not secret:
-        return
+        logger.error("razorpay webhook rejected: RAZORPAY_WEBHOOK_SECRET not configured (fail-closed)")
+        raise HTTPException(status_code=400, detail="Webhook signature verification not configured")
     try:
         import hmac, hashlib
         sig = request.headers.get("X-Razorpay-Signature", "")
@@ -3009,9 +3031,9 @@ def _verify_razorpay_signature(raw: bytes, request: Request, secret: str):
 
 @api.post("/webhook/razorpay")
 async def razorpay_webhook(request: Request):
-    """Razorpay Payment Link webhook. Verifies the signature when
-    RAZORPAY_WEBHOOK_SECRET is set (demo mode accepts unsigned), then marks the
-    matching payment paid/failed. Never crashes."""
+    """Razorpay Payment Link webhook. Verifies the X-Razorpay-Signature and rejects
+    unsigned/forged events (fail-closed, SEC-001), then marks the matching payment
+    paid/failed. Never crashes."""
     raw = await request.body()
     secret = await get_secret("razorpay_webhook_secret", "RAZORPAY_WEBHOOK_SECRET")
     _verify_razorpay_signature(raw, request, secret)
