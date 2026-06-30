@@ -1,114 +1,132 @@
 {
-  "theme_and_archetype": "4 (Swiss & High-Contrast) - Adapted for 'Emergent Dark Sales Console'",
-  "domain": "Dashboard / SaaS App (CRM)",
-  "design_philosophy": "Mobile optimization of a dense desktop interface. Prioritize legibility, comfortable touch targets, and vertical rhythm while preserving the established dark console aesthetic. Functional parity is strictly maintained; changes are purely visual and spatial for <1024px screens.",
+  "theme_and_archetype": {
+    "domain": "Inside-Sales CRM",
+    "theme": "Dark",
+    "archetype": "Archetype 4: Swiss & High-Contrast (Modified for Dark Mode)",
+    "mood": "Serious, efficient, authoritative, data-dense, and clean.",
+    "core_principles": [
+      "Density & Clarity: Eliminate 'zoomed in' feel by using text-sm as base, tighter paddings (p-4 instead of p-6/8), and strict table column widths to prevent horizontal scrolling.",
+      "Tab-Driven Navigation: Shift from modal/popup drill-downs to a persistent browser-style tab system for data views.",
+      "Unified Aesthetic: Force the entire app into the dark 'Sales Console' theme. Convert any light pages (e.g., Payments) to dark mode immediately."
+    ]
+  },
+  "colors": {
+    "backgrounds": {
+      "app_bg": "#09090b",
+      "surface_1": "#18181b",
+      "surface_2": "#27272a",
+      "tab_active": "#09090b",
+      "tab_inactive": "#18181b",
+      "tab_hover": "#27272a"
+    },
+    "text": {
+      "primary": "#f4f4f5",
+      "muted": "#a1a1aa",
+      "faint": "#52525b",
+      "inverse": "#09090b"
+    },
+    "borders": {
+      "default": "#27272a",
+      "strong": "#3f3f46",
+      "active_tab_top": "#10b981"
+    },
+    "accents": {
+      "emerald": "#10b981",
+      "emerald_bg": "rgba(16, 185, 129, 0.1)",
+      "rose": "#f43f5e",
+      "rose_bg": "rgba(244, 63, 94, 0.1)",
+      "amber": "#f59e0b",
+      "amber_bg": "rgba(245, 158, 11, 0.1)"
+    }
+  },
   "typography": {
     "font_families": {
-      "primary": "General Sans",
-      "mono": "JetBrains Mono"
+      "headings": "Chivo, sans-serif",
+      "body": "IBM Plex Sans, sans-serif",
+      "mono": "IBM Plex Mono, monospace"
     },
-    "mobile_type_scale": {
-      "micro_labels": {
-        "desktop_reference": "9-11px, tight spacing",
-        "mobile_target": "12px (text-xs)",
-        "line_height": "16px (leading-none to leading-tight)",
-        "style": "font-mono uppercase tracking-[0.08em]",
-        "reasoning": "Tracking is reduced from 0.12em to 0.08em on mobile because larger text requires less letter-spacing. 12px is the minimum readable size on high-DPI phone screens.",
-        "usage": "Status pills, overlines, secondary table headers, chart legends."
+    "scale": {
+      "h1": "text-2xl font-semibold tracking-tight",
+      "h2": "text-xl font-medium tracking-tight",
+      "h3": "text-lg font-medium",
+      "body": "text-sm leading-relaxed",
+      "small": "text-xs text-zinc-400",
+      "overline": "text-[10px] uppercase tracking-widest font-mono text-zinc-500"
+    }
+  },
+  "badges_and_pills": {
+    "system_rules": "Eliminate scatter of font sizes. Use exactly these three variants based on context.",
+    "variants": {
+      "small": {
+        "usage": "Inside dense data tables or tight lists.",
+        "classes": "text-[10px] px-1.5 py-0.5 rounded-sm font-medium"
       },
-      "secondary_text": {
-        "desktop_reference": "11-12px",
-        "mobile_target": "14px (text-sm)",
-        "line_height": "20px (leading-snug)",
-        "style": "font-sans text-[#9AA4B2]",
-        "usage": "List subtitles, timestamps, muted descriptions, input hints."
+      "default": {
+        "usage": "Standard KPI headers, status indicators next to H2s.",
+        "classes": "text-xs px-2.5 py-1 rounded-md font-medium"
       },
-      "body_text": {
-        "desktop_reference": "13-14px",
-        "mobile_target": "16px (text-base)",
-        "line_height": "24px (leading-relaxed)",
-        "style": "font-sans text-[#F2F4F7]",
-        "reasoning": "16px is mandatory for standard text and form inputs to prevent iOS Safari auto-zooming on focus.",
-        "usage": "Main list item titles, standard body copy, form inputs."
-      },
-      "kpi_numbers": {
-        "desktop_reference": "20-24px",
-        "mobile_target": "28px to 32px (text-3xl)",
-        "line_height": "32px to 36px (leading-tight)",
-        "style": "font-mono tabular-nums tracking-tight text-[#F2F4F7]",
-        "reasoning": "Numbers need to pop on mobile where scanning is faster and less precise.",
-        "usage": "Primary dashboard metrics, deal amounts, leaderboard scores."
-      },
-      "section_headings": {
-        "desktop_reference": "16-18px",
-        "mobile_target": "20px (text-xl)",
-        "line_height": "28px (leading-snug)",
-        "style": "font-sans font-semibold tracking-tight text-[#F2F4F7]",
-        "usage": "Card headers, page section titles, drawer titles."
+      "large": {
+        "usage": "Hero sections, major profile statuses.",
+        "classes": "text-sm px-3 py-1.5 rounded-md font-medium"
       }
+    },
+    "colors": {
+      "success": "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20",
+      "warning": "bg-amber-500/10 text-amber-500 border border-amber-500/20",
+      "danger": "bg-rose-500/10 text-rose-500 border border-rose-500/20",
+      "neutral": "bg-zinc-800 text-zinc-300 border border-zinc-700"
     }
   },
-  "spacing_and_rhythm": {
-    "page_padding": {
-      "mobile": "px-4 py-5 (16px horizontal, 20px vertical)",
-      "usage": "Main container boundaries to give the UI breathing room. Replaces desktop tight padding."
-    },
-    "card_gap": {
-      "mobile": "gap-4 (16px) to gap-5 (20px)",
-      "usage": "Vertical gap between stacked cards/sections. Replaces desktop gap-3 to separate distinct logical blocks."
-    },
-    "card_internal_padding": {
-      "mobile": "p-5 (20px)",
-      "usage": "Increases internal breathing room inside bordered cards. Prevents text from colliding with the rounded-xl borders."
-    },
-    "list_row_padding": {
-      "mobile": "py-4 px-0",
-      "usage": "Ensures list items (leads, meetings, payments) are physically tall enough for comfortable touch targeting."
-    }
-  },
-  "touch_targets": {
-    "minimum_size": "44px by 44px",
-    "rules": {
-      "icon_buttons": "Must be min-h-[44px] min-w-[44px] (e.g., h-11 w-11), utilizing flex center. Keep internal SVG sizes at 20px but expand the tap area.",
-      "chips_and_filters": "Height must be h-10 or h-11 with px-4. Do not use desktop h-6 or h-8 micro-chips for filtering on mobile.",
-      "list_rows": "Entire row must be clickable (min-h-[64px]). Apply interaction states to the row, not just an arrow icon.",
-      "segmented_controls": "Each segment must be min-h-[44px], flex-1 (equal width) for easy thumb tapping without precision targeting."
+  "spacing_and_density": {
+    "global_padding": "p-4 md:p-5 (Reduced from typical p-6/p-8 to fix 'zoomed in' feel)",
+    "gap_system": "gap-4 for major structural blocks, gap-2 for internal widget elements.",
+    "tables": {
+      "layout": "w-full text-sm",
+      "cells": "px-3 py-2 border-b border-zinc-800 whitespace-nowrap",
+      "overflow": "Use text-ellipsis overflow-hidden max-w-[150px] to prevent horizontal scroll. Add native title tooltips for truncated data."
     }
   },
   "components": {
-    "kpi_cards": {
-      "layout": "Change from tight 2-col desktop grid to a spacious 2-col grid (grid-cols-2 gap-4) but strictly enforce taller minimum heights (min-h-[110px]). Alternatively, use a 1-col stack for primary revenue/pipeline metrics.",
-      "typography": "Increase numbers to text-3xl. Move the text-xs uppercase mono label ABOVE the number for better top-down mobile scanning.",
-      "visuals": "Maintain rounded-xl, 1px #232A35 border, and bg-[#11161D]."
+    "tab_system": {
+      "location": "Desktop/Tablet: Sits immediately below the top nav bar (or alongside it), above the main view. Mobile: Hidden, rely on stack navigation.",
+      "container": "flex items-end h-10 w-full bg-zinc-900 border-b border-zinc-800 overflow-x-auto no-scrollbar",
+      "tab_item": {
+        "active": "h-full flex items-center gap-2 px-4 bg-zinc-950 text-zinc-100 border-r border-zinc-800 border-t-2 border-t-emerald-500 min-w-[120px] max-w-[200px] cursor-default relative group",
+        "inactive": "h-full flex items-center gap-2 px-4 bg-zinc-900 text-zinc-400 border-r border-zinc-800 border-t border-t-transparent hover:bg-zinc-800 min-w-[120px] max-w-[200px] cursor-pointer relative group transition-colors"
+      },
+      "elements_inside_tab": "Favicon-sized Lucide icon (w-3.5 h-3.5), Tab Title (text-xs truncate), Close Button (w-3.5 h-3.5 opacity-0 group-hover:opacity-100 hover:text-rose-400 transition-opacity)",
+      "functionality": "Tabs must preserve state. Use a React state array of objects {id, type, title, data, isActive}. Clicking sidebar items adds to this array or sets existing to active."
     },
-    "charts": {
-      "donut_revenue": "Stack vertically. Donut chart centered (max-width 220px). Legend moves below the chart in a 2-col grid (grid-cols-2 gap-y-3) utilizing 14px text and 12px mono values.",
-      "pipeline_bars": "Increase horizontal bar thickness to h-3 (12px). Expand row container height to 44px minimum. Values flush right, labels flush left."
+    "metric_drill_view": {
+      "usage": "Replaces popups for Revenue Closed, Open Pipeline, etc.",
+      "layout": "flex flex-col h-full overflow-y-auto p-5 gap-6",
+      "header": "flex justify-between items-end. Left: H1 + Overline. Right: Date filters/actions.",
+      "kpi_ribbon": "grid grid-cols-4 gap-4. Cards use bg-zinc-900 border border-zinc-800 p-4 rounded-lg.",
+      "data_table": "Full-width Shadcn Table. Strict column widths. No horizontal scroll on desktop."
     },
-    "lists_and_leaderboards": {
-      "layout": "Use a clear horizontal stack: Avatar (w-10 h-10) + Vertical Text Flex (Title 16px, Subtitle 14px) + Right-aligned Metric/Action.",
-      "spacing": "Use gap-3 between avatar and text. py-4 per row. Add a subtle border-b border-[#232A35] between rows to guide the eye."
-    },
-    "segmented_filters": {
-      "layout": "Full width of container, sticky below the header. Container: bg-[#161C25] p-1 rounded-xl.",
-      "items": "flex-1 text-center h-10 text-sm font-medium flex items-center justify-center rounded-lg text-[#9AA4B2] aria-selected:bg-[#232A35] aria-selected:text-[#F2F4F7] aria-selected:shadow-sm"
-    },
-    "navigation_tabs": {
-      "layout": "Horizontal scroll with hidden scrollbar (overflow-x-auto snap-x scrollbar-hide).",
-      "items": "whitespace-nowrap px-4 h-12 flex items-center border-b-2 border-transparent aria-selected:border-emerald-400 aria-selected:text-emerald-400"
-    },
-    "forms_and_settings": {
-      "inputs": "Must use text-base (16px) to prevent iOS auto-zoom. Height must be h-11 or h-12 minimum. Use bg-[#0B0F14] with border-[#232A35].",
-      "actions": "Use full-width (w-full) buttons for primary actions at the bottom of the screen or form (h-12)."
+    "agent_detail_view": {
+      "usage": "Replaces popups when clicking an Agent's name.",
+      "layout": "grid grid-cols-12 gap-6 p-5",
+      "left_column": "col-span-4. Profile card, Won vs Target progress bar (emerald), Contact info.",
+      "right_column": "col-span-8. Pipeline by stage (Recharts), Recent Activity list, Assigned Leads table."
     }
   },
-  "micro_interactions_and_layout": {
-    "sticky_headers": "Utilize sticky top-0 z-50 bg-[#0B0F14]/85 backdrop-blur-md border-b border-[#232A35] pb-3 pt-safe. This keeps context visible without consuming excessive vertical space.",
-    "active_states": "Add active:bg-[#1B222D] or active:opacity-70 for list items, cards, and buttons to provide instant, tactile touch feedback (crucial for mobile CRM feel).",
-    "bottom_sheet": "For the Deal Drawer or 'More' actions, convert right-side desktop panels into fixed bottom sheets pulling up from the bottom (rounded-t-2xl, max-h-[85vh] overflow-y-auto) with a 4px high, 40px wide drag handle."
+  "motion_and_interactions": {
+    "tabs": "If possible, use @dnd-kit/core or framer-motion for drag-and-drop tab reordering. If complex, standard click-to-switch is MVP.",
+    "hover_states": "All buttons and list items must have explicit hover states (e.g., hover:bg-zinc-800 hover:text-zinc-100).",
+    "modals": "Only use standard Shadcn Dialogs for input/actions (New Payment Link, Add Agent). Data viewing is strictly Tabs."
   },
-  "testing": {
-    "requirements": "All interactive elements (buttons, list rows, tabs, filter chips, chart legends) MUST include a 'data-testid' attribute (e.g., data-testid='mobile-kpi-revenue', data-testid='lead-list-row')."
+  "testing_attributes": {
+    "rules": "All interactive elements MUST have data-testid attributes.",
+    "examples": "data-testid='tab-revenue-closed', data-testid='tab-close-btn', data-testid='agent-link-john-doe', data-testid='metric-card-pipeline'"
   },
-  "instructions_to_main_agent": "Implement this blueprint strictly using responsive Tailwind classes with the max-lg breakpoint (e.g., text-[10px] max-lg:text-xs). Keep the 'Emergent Dark Sales Console' color palette intact. Focus all changes on layout flow, expanding padding (p-4 to p-5), spacing gaps (gap-3 to gap-4), correcting typography scale jumps, and enforcing touch target minimums (44px) inside .js component files."
+  "instructions_to_main_agent": {
+    "1": "Review existing layout structure. Insert the new TabStrip component right above the main children render area.",
+    "2": "Create a TabContext or global state (Zustand/Redux) to manage open tabs: { tabs: [], activeTabId: null }.",
+    "3": "Intercept clicks on metrics ('Revenue Closed') and Agent names. Prevent modal opening. Instead, dispatch an action to add a new tab to the state and set it as active.",
+    "4": "Convert the existing 'Payments' page from Light mode to Dark mode by mapping white backgrounds to zinc-950 and dark text to zinc-100.",
+    "5": "Implement standard Badge variants. Search and replace all arbitrary text-[9px] and inline styled pills with the new Badge system.",
+    "6": "Adjust all container paddings to p-4/p-5 to fix the 'zoomed in' feeling, and set body font size to text-sm.",
+    "7": "IMPORTANT: Use .js files for React components, not .tsx."
+  }
 }
