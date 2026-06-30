@@ -67,7 +67,7 @@ function PaymentRowActions({ p, onRefresh, onSimulate, onLinkLead }) {
   return (
     <>
       {p.payment_link && (
-        <button onClick={() => { navigator.clipboard?.writeText(p.payment_link); toast.success("Copied"); }} className="tap-target text-[var(--text-faint)] hover:text-[var(--text)]" title="Copy link"><Copy className="w-4 h-4" /></button>
+        <button onClick={() => { Promise.resolve(navigator.clipboard?.writeText(p.payment_link)).then(() => toast.success("Copied")).catch(() => toast.message("Copy link", { description: p.payment_link })); }} className="tap-target text-[var(--text-faint)] hover:text-[var(--text)]" title="Copy link"><Copy className="w-4 h-4" /></button>
       )}
       {p.payment_status !== "paid" && p.provider === "stripe" && (
         <button onClick={() => onRefresh(p)} className="tap-target text-[var(--text-faint)] hover:text-[var(--text)]" title="Refresh status" data-testid={`refresh-${p.id}`}><RefreshCw className="w-4 h-4" /></button>
@@ -160,7 +160,7 @@ function PaymentsTableDesktop({ payments, onRefresh, onSimulate, onLinkLead, onR
               <td className="p-3">
                 <div className="flex items-center gap-2 justify-end" onClick={(e) => e.stopPropagation()}>
                   {p.payment_link && (
-                    <button onClick={() => { navigator.clipboard?.writeText(p.payment_link); toast.success("Copied"); }} className="text-[var(--text-faint)] hover:text-[var(--text)]" title="Copy link"><Copy className="w-3.5 h-3.5" /></button>
+                    <button onClick={() => { Promise.resolve(navigator.clipboard?.writeText(p.payment_link)).then(() => toast.success("Copied")).catch(() => toast.message("Copy link", { description: p.payment_link })); }} className="text-[var(--text-faint)] hover:text-[var(--text)]" title="Copy link"><Copy className="w-3.5 h-3.5" /></button>
                   )}
                   {p.payment_status !== "paid" && p.provider === "stripe" && (
                     <button onClick={() => onRefresh(p)} className="text-[var(--text-faint)] hover:text-[var(--text)]" title="Refresh status" data-testid={`refresh-${p.id}`}><RefreshCw className="w-3.5 h-3.5" /></button>

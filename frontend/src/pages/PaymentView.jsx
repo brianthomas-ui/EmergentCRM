@@ -73,7 +73,7 @@ export default function PaymentView({ payment, paymentId }) {
             <div className="flex items-center gap-2">
               <code className="flex-1 text-xs text-[var(--text-muted)] truncate">{p.payment_link}</code>
               <button
-                onClick={() => { navigator.clipboard?.writeText(p.payment_link); toast.success("Copied"); }}
+                onClick={() => { Promise.resolve(navigator.clipboard?.writeText(p.payment_link)).then(() => toast.success("Copied")).catch(() => toast.message("Copy link", { description: p.payment_link })); }}
                 data-testid="payment-copy-link"
                 className="text-[var(--text-faint)] hover:text-[var(--text)] shrink-0"
                 title="Copy link"

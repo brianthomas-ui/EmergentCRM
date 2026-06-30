@@ -15,12 +15,29 @@ export default function TabStrip({ launchPages = [], topPx = 0 }) {
 
   const copyLink = (tab) => {
     if (!tab) return;
+    const url = window.location.origin + tabToPath(tab);
+    const ok = () => toast.success("Tab link copied — share it with a teammate");
+    const fallback = () => {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = url;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        ok();
+      } catch (e) {
+        toast.message("Copy this link", { description: url });
+      }
+    };
     try {
-      const url = window.location.origin + tabToPath(tab);
-      navigator.clipboard?.writeText(url);
-      toast.success("Tab link copied — share it with a teammate");
+      const p = navigator.clipboard?.writeText?.(url);
+      if (p && typeof p.then === "function") p.then(ok).catch(fallback);
+      else fallback();
     } catch (e) {
-      toast.error("Couldn't copy link");
+      fallback();
     }
   };
 
