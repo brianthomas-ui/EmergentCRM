@@ -1,0 +1,43 @@
+{
+  "summary": "Frontend-only desktop tab system regression test for Emergent CRM. Validated tab strip, sidebar -> tabs, drill/agent/payment tabs (NOT modals), keep-alive, persistence across reload, modals for input dialogs, and admin login. All requested flows pass.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Payments -> New Payment Link modal",
+        "issues": [
+          "Modal container lacks role=\"dialog\" and a data-testid (e.g., new-payment-link-modal). Functionally renders correctly as an overlay (fixed inset-0 z-50). Pure a11y/testing nit; not a regression."
+        ]
+      },
+      {
+        "screen": "Tab strip overflow",
+        "issues": [
+          "With 10+ tabs the rightmost tab titles get truncated and the strip overflows beneath the '+' launcher area at 1920px. Horizontal scroll works (overflow-x-auto) but the launcher overlap area looks tight. Cosmetic only."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Optional: add role=\"dialog\" and data-testid=\"new-payment-link-modal\" to PaymentModal for a11y/automation parity.",
+    "Optional: add a small drop-shadow / gradient fade at the right edge of the tab strip when overflowed."
+  ],
+  "critical_code_review_comments": [
+    "TabsContext localStorage persistence (LS_KEY=crm_tabs_v1) does NOT scope by user/workspace. Switching between demo and real admin will inherit the previous account's open drill/agent/payment tabs. Recommend keying LS by user_id or wiping on auth change so a real-team admin doesn't see demo-only drill tabs after switching accounts.",
+    "TabsContext._seq is a module-level counter -> on multi-tab-in-browser usage the id collision risk is low but reset across HMR can cause stale id refs. Consider crypto.randomUUID().",
+    "useOpen.openLead/openDrill/openAgent/openPayment do not call navigate() on desktop, so the URL stays on the dashboard route even after opening a drill/agent tab. Functionally fine because Layout uses TabHost, but it breaks deep-linking (refresh on a drill tab will not land on that tab via URL; persistence rescues it via localStorage). Consider syncing tab.activeId -> URL for shareability."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "skipped", "frontend": "100% (all 15 review-request items pass)"},
+  "test_credentials": "demo@emergent.sh / demo12345 (via Demo View btn), diyea@emergent.sh / emergent@12345 (real admin)",
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Tab system passes end-to-end on desktop 1920x900. Verified: pinned Dashboard tab, sidebar->tabs (team/payments/leads/meetings/deals/settings/workspace/campaigns/audit), re-click sidebar does NOT duplicate tab, all 6 dashboard KPIs open drill-view tabs (no modal), top-agent rows open agent-view tab, all 4 team KPIs open drill-view tab, team-agent-link opens agent-view, payments dark theme confirmed, pay-summary cards open drill-view, pay-row opens payment-view, +/tab-new-btn opens tab-new-menu with 12 launchers, tab-close removes non-pinned tab, dashboard close button is absent (pinned), tab state (incl. drill/agent tabs) persists across reload via localStorage crm_tabs_v1, New Payment Link still opens as overlay modal (not as a tab), lead tab opens from drill view row click, admin (real workspace) login works and tab strip renders. PaymentModal uses a custom fixed-overlay, not Radix Dialog, so role=\"dialog\" selector returns 0 — be aware in future selector checks.",
+  "rca of the issue": "n/a — no bugs filed. Two minor cosmetic/a11y notes captured in design_issues."
+}

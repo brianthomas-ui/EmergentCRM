@@ -3,7 +3,12 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { motion, useReducedMotion } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
+import { useTabs } from "@/context/TabsContext";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useOpen } from "@/hooks/useOpen";
+import TabStrip from "@/components/tabs/TabStrip";
+import TabHost from "@/components/tabs/TabHost";
+import { PAGE_META, PATH_TO_PAGE } from "@/components/tabs/pages.config";
 import {
   LayoutDashboard,
   Briefcase,
@@ -52,10 +57,33 @@ export default function Layout({ children }) {
   const location = useLocation();
   const reduce = useReducedMotion();
   const isMobile = useIsMobile();
+  const tabsApi = useTabs();
+  const openTab = tabsApi?.openTab;
+  const { openPage } = useOpen();
   const [savingAvatar, setSavingAvatar] = useState(false);
   const [runTour, setRunTour] = useState(false);
   const [pwOpen, setPwOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+
+  // Desktop browser-style tabs: keep the open-tab set in sync with the URL so any
+  // <Link>/navigate (sidebar, search, in-page links) lands as a kept-alive tab.
+  // Depends ONLY on the stable openTab + pathname so switching tabs (which does
+  // NOT change the URL) never re-activates the URL's page over a drill/agent tab.
+  useEffect(() => {
+    if (isMobile || !openTab) return;
+    const path = location.pathname;
+    if (path === "/login" || path.startsWith("/payment-return")) return;
+    const leadMatch = path.match(/^\/leads\/([^/]+)$/);
+    if (leadMatch) {
+      openTab({ key: `lead:${leadMatch[1]}`, type: "lead", params: { id: leadMatch[1] }, title: "Lead", icon: "User" });
+      return;
+    }
+    const page = PATH_TO_PAGE[path];
+    if (page) {
+      const meta = PAGE_META[page];
+      openTab({ key: `page:${page}`, type: "page", params: { page }, title: meta.title, icon: meta.icon });
+    }
+  }, [location.pathname, isMobile, openTab]);
 
   const visibleNavItems = useMemo(
     () => navItems.filter((i) => i.divider || !i.admin || isAdmin),
@@ -63,6 +91,15 @@ export default function Layout({ children }) {
   );
 
   const tourSteps = useMemo(() => getTourSteps(isAdmin), [isAdmin]);
+
+  // Pages offered by the tab-strip "+" launcher (admin-aware).
+  const launchPages = useMemo(
+    () =>
+      Object.entries(PAGE_META)
+        .filter(([, m]) => !m.admin || isAdmin)
+        .map(([page, m]) => ({ page, title: m.title, icon: m.icon, open: () => openPage(page) })),
+    [isAdmin, openPage]
+  );
 
   useEffect(() => {
     if (!user) return;
@@ -227,7 +264,16 @@ export default function Layout({ children }) {
 
         <main className="lg:ml-[272px] min-h-screen relative z-10">
           {impersonating && <div aria-hidden className="h-11" />}
-          <div className="max-w-[1680px] mx-auto px-6 lg:px-8 py-6 lg:py-8">{page}</div>
+          {location.pathname.startsWith("/payment-return") ? (
+            <div className="max-w-[1680px] mx-auto px-5 lg:px-6 py-5 lg:py-6">{page}</div>
+          ) : (
+            <>
+              <TabStrip launchPages={launchPages} topPx={impersonating ? 44 : 0} />
+              <div className="max-w-[1680px] mx-auto px-5 lg:px-6 py-5 lg:py-6">
+                <TabHost />
+              </div>
+            </>
+          )}
         </main>
       </div>
       {overlays}

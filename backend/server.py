@@ -4172,7 +4172,7 @@ async def _seed_demo_meetings(now, owners_pool, leads_by_owner):
 
     today = now.date()
     start_day = date(2026, 4, 1)
-    end_day = today + timedelta(days=7)   # a booked-out upcoming week too
+    end_day = max(today + timedelta(days=7), date(2026, 7, 10))   # a booked-out upcoming window (through Jul 10)
     mt_buf = []
     next_meeting = {}   # lead_id -> earliest upcoming scheduled_at
 

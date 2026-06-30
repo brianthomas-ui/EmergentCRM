@@ -3,7 +3,8 @@ import { toast } from "sonner";
 import { Plus, Search, X } from "lucide-react";
 import client, { apiError } from "@/api";
 import { useAuth } from "@/context/AuthContext";
-import { FxRateCard, PaymentsSummary, PaymentsTable, PaymentDetailModal, PaymentsBreakdownModal } from "@/components/payments/PaymentsWidgets";
+import { useOpen } from "@/hooks/useOpen";
+import { FxRateCard, PaymentsSummary, PaymentsTable } from "@/components/payments/PaymentsWidgets";
 import { PaymentModal } from "@/components/lead/LeadModals";
 
 const EMPTY_PAY_FORM = {
@@ -41,37 +42,37 @@ function LeadPicker({ open, onClose, onPick }) {
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-md rounded-2xl bg-white border border-zinc-200 shadow-2xl flex flex-col max-h-[80vh]" data-testid="lead-picker-modal">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-100">
-          <h2 className="font-semibold text-zinc-900">Select a lead for the payment link</h2>
-          <button onClick={onClose} className="text-zinc-400 hover:text-zinc-700"><X className="w-4 h-4" /></button>
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-md rounded-2xl bg-[var(--surface-1)] border border-[var(--border)] shadow-2xl flex flex-col max-h-[80vh]" data-testid="lead-picker-modal">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)]">
+          <h2 className="font-semibold text-[var(--text)]">Select a lead for the payment link</h2>
+          <button onClick={onClose} className="text-[var(--text-faint)] hover:text-[var(--text)] transition-colors"><X className="w-4 h-4" /></button>
         </div>
         <div className="p-4">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-faint)]" />
             <input
               autoFocus
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Search lead by name, company, email…"
-              className="w-full pl-9 pr-3 py-2 rounded-lg border border-zinc-200 text-sm text-zinc-900 outline-none focus:border-emerald-400"
+              className="w-full pl-9 pr-3 py-2 rounded-lg bg-[var(--surface-3)] border border-[var(--border)] text-sm text-[var(--text)] placeholder-[var(--text-faint)] outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50"
               data-testid="lead-picker-search"
             />
           </div>
         </div>
         <div className="overflow-y-auto px-2 pb-3">
-          {loading && <p className="px-3 py-2 text-xs text-zinc-400">Searching…</p>}
-          {!loading && results.length === 0 && <p className="px-3 py-6 text-center text-xs text-zinc-400">No leads found.</p>}
+          {loading && <p className="px-3 py-2 text-xs text-[var(--text-faint)]">Searching…</p>}
+          {!loading && results.length === 0 && <p className="px-3 py-6 text-center text-xs text-[var(--text-faint)]">No leads found.</p>}
           {results.map((l) => (
             <button
               key={l.id}
               onClick={() => onPick(l)}
               data-testid={`lead-picker-option-${l.id}`}
-              className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-zinc-50 transition-colors"
+              className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-[var(--surface-2)] transition-colors"
             >
-              <div className="text-sm font-medium text-zinc-900">{l.name}</div>
-              <div className="text-xs text-zinc-400">{l.company || l.email}</div>
+              <div className="text-sm font-medium text-[var(--text)]">{l.name}</div>
+              <div className="text-xs text-[var(--text-faint)]">{l.company || l.email}</div>
             </button>
           ))}
         </div>
@@ -82,6 +83,7 @@ function LeadPicker({ open, onClose, onPick }) {
 
 export default function Payments() {
   const { isAdmin } = useAuth();
+  const open = useOpen();
   const [payments, setPayments] = useState([]);
   const [fxRate, setFxRate] = useState(85);
   const [rateInput, setRateInput] = useState("");
@@ -94,8 +96,6 @@ export default function Payments() {
   const [payOpen, setPayOpen] = useState(false);
   const [linkLead, setLinkLead] = useState(null);
   const [linkTarget, setLinkTarget] = useState(null); // a standalone payment to attach to a lead
-  const [detail, setDetail] = useState(null); // payment whose detail panel is open
-  const [breakdown, setBreakdown] = useState(null); // { title, list } for a summary drill-down
   const [payForm, setPayForm] = useState(EMPTY_PAY_FORM);
 
   const load = () => client.get("/payments").then((r) => setPayments(r.data));
@@ -213,28 +213,27 @@ export default function Payments() {
   const totalPending = payments.filter((p) => p.payment_status !== "paid").reduce((s, p) => s + (p.amount_usd ?? p.amount), 0);
 
   const openBreakdown = (kind) => {
-    if (kind === "collected") {
-      setBreakdown({ title: "Collected · paid payments", list: payments.filter((p) => p.payment_status === "paid") });
-    } else if (kind === "pending") {
-      setBreakdown({ title: "Pending · awaiting payment", list: payments.filter((p) => p.payment_status !== "paid") });
-    } else {
-      setBreakdown({ title: "Links sent · all payment links", list: payments });
-    }
+    const titles = {
+      collected: "Collected · paid payments",
+      pending: "Pending · awaiting payment",
+      links: "Links sent · all payment links",
+    };
+    open.openDrill({ kind: "payments", metric: kind, title: titles[kind] || "Payments" });
   };
 
   return (
     <div className="space-y-5">
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
-          <h1 className="font-heading text-3xl font-bold tracking-tighter text-zinc-900">Payments</h1>
-          <p className="text-sm text-zinc-500 mt-1">Stripe + Razorpay links · all revenue reported in USD</p>
+          <h1 className="font-heading text-2xl font-semibold tracking-tight text-[var(--text)]">Payments</h1>
+          <p className="text-sm text-[var(--text-faint)] mt-1">Stripe + Razorpay links · all revenue reported in USD</p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           <button
             onClick={newStandaloneLink}
             data-tour="new-payment-link"
             data-testid="new-payment-link-btn"
-            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 text-sm font-medium transition-colors shadow-sm"
+            className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-emerald-950 px-4 py-2 text-sm font-semibold transition-colors active:scale-[0.98]"
           >
             <Plus className="w-4 h-4" /> New Payment Link
           </button>
@@ -251,13 +250,9 @@ export default function Payments() {
 
       <PaymentsSummary totalPaid={totalPaid} totalPending={totalPending} count={payments.length} onDrill={openBreakdown} />
 
-      <PaymentsTable payments={payments} onRefresh={refresh} onSimulate={simulate} onLinkLead={startLinkToLead} onRowClick={setDetail} />
+      <PaymentsTable payments={payments} onRefresh={refresh} onSimulate={simulate} onLinkLead={startLinkToLead} onRowClick={(p) => open.openPayment(p)} />
 
-      <PaymentDetailModal payment={detail} onClose={() => setDetail(null)} />
-
-      <PaymentsBreakdownModal open={!!breakdown} onClose={() => setBreakdown(null)} title={breakdown?.title} payments={breakdown?.list} />
-
-      <p className="text-[11px] text-zinc-400">Create a standalone link (no lead needed), or enter a customer email to auto-attach it to a matching lead. Unlinked links can be attached to a lead later.</p>
+      <p className="text-[11px] text-[var(--text-faint)]">Create a standalone link (no lead needed), or enter a customer email to auto-attach it to a matching lead. Unlinked links can be attached to a lead later.</p>
 
       <LeadPicker open={pickerOpen} onClose={() => { setPickerOpen(false); setLinkTarget(null); }} onPick={onPickLead} />
       <PaymentModal

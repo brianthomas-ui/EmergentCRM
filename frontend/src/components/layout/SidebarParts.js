@@ -1,9 +1,18 @@
-import { NavLink } from "react-router-dom";
 import { LogOut, KeyRound, Compass, Sun, Moon, ArrowLeft } from "lucide-react";
 import { AvatarUpload } from "@/components/dark/Avatar";
+import { useOpen } from "@/hooks/useOpen";
+import { useTabs } from "@/context/TabsContext";
+import { PATH_TO_PAGE } from "@/components/tabs/pages.config";
 
-// Sidebar navigation list. `items` is already filtered/memoized by the parent.
+// Sidebar navigation list. On desktop each item drives the browser-style tab
+// system (opens/activates a kept-alive page tab); the active highlight follows
+// the active tab, not the URL. `items` is already filtered/memoized by the parent.
 export function SidebarNav({ items }) {
+  const { openPage } = useOpen();
+  const tabsApi = useTabs();
+  const activeTab = tabsApi?.tabs?.find((t) => t.id === tabsApi.activeId);
+  const activePage = activeTab?.type === "page" ? activeTab?.params?.page : null;
+
   return (
     <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
       {items.map((item, idx) => {
@@ -18,27 +27,23 @@ export function SidebarNav({ items }) {
           );
         }
         const Icon = item.icon;
+        const page = PATH_TO_PAGE[item.to];
+        const isActive = page && page === activePage;
         return (
-          <NavLink
+          <button
             key={item.to}
-            to={item.to}
-            end={item.to === "/"}
+            type="button"
+            onClick={() => openPage(page)}
             data-testid={item.testid}
-            className={({ isActive }) =>
-              `flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                isActive
-                  ? "bg-emerald-500/10 text-[var(--accent-text)] border border-emerald-500/20"
-                  : "text-[var(--text-muted)] border border-transparent hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
-              }`
-            }
+            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-colors text-left ${
+              isActive
+                ? "bg-emerald-500/10 text-[var(--accent-text)] border border-emerald-500/20"
+                : "text-[var(--text-muted)] border border-transparent hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
+            }`}
           >
-            {({ isActive }) => (
-              <>
-                <Icon className={`w-4 h-4 ${isActive ? "text-[var(--accent-text)]" : ""}`} strokeWidth={2} />
-                {item.label}
-              </>
-            )}
-          </NavLink>
+            <Icon className={`w-4 h-4 ${isActive ? "text-[var(--accent-text)]" : ""}`} strokeWidth={2} />
+            {item.label}
+          </button>
         );
       })}
     </nav>

@@ -32,8 +32,9 @@ const EMPTY_PAY_FORM = {
   boost_credits: "",
 };
 
-export default function LeadDetail() {
-  const { id } = useParams();
+export default function LeadDetail({ leadId }) {
+  const params = useParams();
+  const id = leadId || params.id;
   const [data, setData] = useState(null);
   const [meta, setMeta] = useState(null);
 

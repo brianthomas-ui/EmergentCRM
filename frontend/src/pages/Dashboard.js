@@ -19,10 +19,10 @@ import {
 import { Link } from "react-router-dom";
 import client from "@/api";
 import { useAuth } from "@/context/AuthContext";
+import { useOpen } from "@/hooks/useOpen";
 import PeriodFilter, { DEFAULT_PERIOD, toParams } from "@/components/dark/PeriodFilter";
 import { Card, StatusBadge } from "@/components/dark/Primitives";
 import Avatar from "@/components/dark/Avatar";
-import DrillDownModal from "@/components/DrillDownModal";
 import {
   money,
   moneyCompact,
@@ -401,7 +401,7 @@ function TodaysMeetings({ meetings, onDrill }) {
 // ---------------------------------------------------------------------------
 // Top Agents leaderboard
 // ---------------------------------------------------------------------------
-function TopAgents({ agents, onDrill }) {
+function TopAgents({ agents, onOpenAgent }) {
   const rows = (agents || []).slice(0, 8);
   if (!rows.length) return null;
   const maxRev = Math.max(1, ...rows.map((a) => a.revenue || 0));
@@ -421,7 +421,13 @@ function TopAgents({ agents, onDrill }) {
           const pct = a.target ? Math.min(100, Math.round((a.revenue / a.target) * 100)) : 0;
           const barPct = (a.revenue / maxRev) * 100;
           return (
-            <div key={a.id} className="flex items-center gap-2.5">
+            <button
+              key={a.id}
+              type="button"
+              onClick={() => onOpenAgent?.(a.id, a.name)}
+              data-testid={`top-agent-${a.id}`}
+              className="w-full flex items-center gap-2.5 text-left -mx-1 px-1 py-1 rounded-lg hover:bg-[var(--surface-2)] transition-colors group"
+            >
               {/* rank */}
               <span className="text-[10px] font-mono text-[var(--text-faint)] w-4 shrink-0 text-center">
                 {rank + 1}
@@ -433,7 +439,7 @@ function TopAgents({ agents, onDrill }) {
               {/* name + bar */}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between mb-0.5">
-                  <span className="text-[11px] font-medium text-[var(--text)] truncate">{a.name}</span>
+                  <span className="text-[11px] font-medium text-[var(--text)] truncate group-hover:text-emerald-300 transition-colors">{a.name}</span>
                   <span className="text-[11px] font-semibold tabular-nums text-emerald-300 shrink-0 ml-2">
                     {moneyCompact(a.revenue || 0)}
                   </span>
@@ -454,7 +460,7 @@ function TopAgents({ agents, onDrill }) {
               >
                 {pct}%
               </span>
-            </div>
+            </button>
           );
         })}
       </div>
@@ -463,15 +469,9 @@ function TopAgents({ agents, onDrill }) {
 }
 
 // ---------------------------------------------------------------------------
-// Drill-down columns
+// Drill-down columns (passed through to openDrill call sites for readability;
+// DrillView builds its own column sets per metric).
 // ---------------------------------------------------------------------------
-const KPI_COLUMNS = [
-  { key: "name", label: "Name" },
-  { key: "company", label: "Company" },
-  { key: "status", label: "Status" },
-  { key: "lifetime_value", label: "LTV", render: (v) => money(v) },
-];
-
 const PIPELINE_COLUMNS = [
   { key: "name", label: "Name" },
   { key: "company", label: "Company" },
@@ -505,11 +505,11 @@ const POLL_MS = 20_000;
 
 export default function Dashboard() {
   const { user, isAdmin } = useAuth();
+  const open = useOpen();
   const [period, setPeriod] = useState(DEFAULT_PERIOD);
   const [data, setData] = useState(null);
   const [statusMeta, setStatusMeta] = useState({});
   const [recentActivity, setRecentActivity] = useState([]);
-  const [drill, setDrill] = useState({ open: false, title: "", items: null, columns: null });
   const pollRef = useRef(null);
 
   // Load /meta once.
@@ -544,21 +544,14 @@ export default function Dashboard() {
       });
   }, [period]);
 
-  const closeDrill = () => setDrill((d) => ({ ...d, open: false }));
-
-  const openDrill = useCallback((metric, title, cols) => {
-    const params = { metric, ...toParams(period) };
-    setDrill({ open: true, title, items: null, columns: cols ?? KPI_COLUMNS });
-    client
-      .get("/dashboard/drilldown", { params })
-      .then((r) =>
-        setDrill((d) => ({
-          ...d,
-          items: Array.isArray(r.data) ? r.data : r.data?.items ?? [],
-        }))
-      )
-      .catch(() => setDrill((d) => ({ ...d, items: [] })));
-  }, [period]);
+  // Drill-downs now open as kept-alive browser tabs (desktop) / route (mobile),
+  // replacing the old modal. DrillView fetches /dashboard/drilldown itself.
+  const openDrill = useCallback(
+    (metric, title) => {
+      open.openDrill({ kind: "metric", metric, title });
+    },
+    [open]
+  );
 
   // ---------- derived ----------
   const revenueClosed = data?.revenue_won ?? 0;
@@ -703,19 +696,11 @@ export default function Dashboard() {
               onDrill={(metric, title) => openDrill(metric, title, MEETING_COLUMNS)}
             />
             {(isAdmin || agentLeaderboard.length > 0) && (
-              <TopAgents agents={agentLeaderboard} />
+              <TopAgents agents={agentLeaderboard} onOpenAgent={(id, name) => open.openAgent(id, name)} />
             )}
           </div>
         </>
       )}
-
-      <DrillDownModal
-        open={drill.open}
-        onClose={closeDrill}
-        title={drill.title}
-        items={drill.items}
-        columns={drill.columns}
-      />
     </div>
   );
 }

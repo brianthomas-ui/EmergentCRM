@@ -5,13 +5,13 @@ import { ICONS } from "@/components/tabs/icons";
 
 // Desktop/tablet browser-style tab strip. Reorder by drag, close per tab, and a
 // "+" launcher to open any page in a new tab.
-export default function TabStrip({ launchPages = [] }) {
+export default function TabStrip({ launchPages = [], topPx = 0 }) {
   const { tabs, activeId, setActive, closeTab, reorder } = useTabs();
   const dragId = useRef(null);
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
-    <div className="sticky top-0 z-30 flex items-stretch h-10 bg-[var(--surface-1)] border-b border-[var(--border)]">
+    <div className="sticky z-30 flex items-stretch h-10 bg-[var(--surface-1)] border-b border-[var(--border)]" style={{ top: topPx }}>
       <div className="flex items-stretch overflow-x-auto no-scrollbar">
         {tabs.map((t) => {
           const Icon = ICONS[t.icon] || ICONS.Square;

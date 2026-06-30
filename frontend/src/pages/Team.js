@@ -18,6 +18,7 @@ import {
   darkInput,
 } from "@/components/dark/Primitives";
 import { useAuth } from "@/context/AuthContext";
+import { useOpen } from "@/hooks/useOpen";
 import WinLossPanel from "@/components/team/WinLossPanel";
 
 // ---------------------------------------------------------------------------
@@ -65,44 +66,6 @@ function KpiCard({ icon: Icon, label, value, sub, delta, tone = "emerald", onCli
         </div>
       )}
     </Card>
-  );
-}
-
-// Per-rep breakdown of a team KPI - opened by clicking a KPI card.
-function TeamStatModal({ open, onClose, title, rows }) {
-  if (!open) return null;
-  const max = Math.max(1, ...rows.map((r) => r.value));
-  return (
-    <div className="fixed inset-0 z-50 flex justify-center items-end lg:items-center p-0 lg:p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <Card className="relative w-full lg:max-w-md p-5 lg:p-6 flex flex-col gap-4 rounded-t-2xl lg:rounded-xl max-h-[85vh] overflow-y-auto animate-sheet-up lg:animate-fade-up" data-testid="team-stat-modal">
-        <div className="lg:hidden flex justify-center -mt-1.5 -mb-1">
-          <span className="h-1.5 w-10 rounded-full bg-[var(--border-strong)]" />
-        </div>
-        <div className="flex items-center justify-between">
-          <h2 className="font-heading text-lg font-semibold text-[var(--text)] tracking-tight">{title}</h2>
-          <button onClick={onClose} className="tap-target text-[var(--text-faint)] hover:text-[var(--text)] transition-colors text-lg leading-none">✕</button>
-        </div>
-        <div className="space-y-3">
-          {rows.length === 0 && <div className="text-sm text-[var(--text-faint)] py-6 text-center">No data for this period.</div>}
-          {rows.map((r, i) => (
-            <div key={r.id} className="flex items-center gap-3" data-testid={`team-stat-row-${r.id}`}>
-              <span className="text-[10px] font-mono text-[var(--text-faint)] w-4 shrink-0 text-center">{i + 1}</span>
-              <Avatar src={r.avatar_url || ""} name={r.name} size="sm" className="shrink-0" />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-sm text-[var(--text)] truncate">{r.name}</span>
-                  <span className="text-sm font-semibold tabular-nums text-[var(--text)] shrink-0 ml-2">{r.display}</span>
-                </div>
-                <div className="h-1.5 rounded-full bg-[var(--surface-3)] overflow-hidden">
-                  <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${(r.value / max) * 100}%` }} />
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </Card>
-    </div>
   );
 }
 
@@ -290,12 +253,12 @@ function buildWorkload(team) {
 // ---------------------------------------------------------------------------
 export default function Team() {
   const { isAdmin } = useAuth();
+  const open = useOpen();
   const [team, setTeam] = useState([]);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState(DEFAULT_PERIOD);
   const [showAdd, setShowAdd] = useState(false);
   const [avatarEditId, setAvatarEditId] = useState(null); // which rep's avatar the admin is editing
-  const [statModal, setStatModal] = useState(null); // { title, rows } per-rep KPI breakdown
 
   const load = useCallback(() => {
     setLoading(true);
@@ -352,26 +315,15 @@ export default function Team() {
 
   const boardRows = leaderboard.length > 0 ? leaderboard : demoBoard;
 
-  // Per-rep breakdown for a clicked KPI card.
+  // Per-rep breakdown for a clicked KPI card — opens a kept-alive drill tab.
   const openStat = (metric) => {
-    const rows = boardRows
-      .map((m) => {
-        const s = m.stats || {};
-        const base = { id: m.id, name: m.name, avatar_url: m.avatar_url };
-        if (metric === "won") return { ...base, value: s.won || 0, display: String(s.won || 0) };
-        if (metric === "revenue") return { ...base, value: s.revenue || 0, display: money(s.revenue || 0) };
-        if (metric === "meetings") return { ...base, value: s.meetings || 0, display: String(s.meetings || 0) };
-        const conv = (s.leads || 0) > 0 ? ((s.won || 0) / s.leads) * 100 : 0;
-        return { ...base, value: conv, display: `${conv.toFixed(1)}%` };
-      })
-      .sort((a, b) => b.value - a.value);
     const titles = {
       won: "Deals Won · by rep",
       revenue: "Payment Links Paid · by rep",
       meetings: "Meetings Held · by rep",
       conv: "Avg Conversion · by rep",
     };
-    setStatModal({ title: titles[metric], rows });
+    open.openDrill({ kind: "teamstat", metric, title: titles[metric] });
   };
 
   return (
@@ -480,7 +432,13 @@ export default function Team() {
                       <span className="text-[10px] font-mono text-[var(--text-faint)] w-4 shrink-0">#{i + 1}</span>
                       <Avatar src={m.avatar_url || ""} name={m.name} size="sm" />
                       <div className="min-w-0">
-                        <div className="text-sm font-medium text-[var(--text)] leading-tight truncate">{m.name}</div>
+                        <button
+                          onClick={() => open.openAgent(m.id, m.name)}
+                          data-testid={`team-agent-link-${m.id}`}
+                          className="text-sm font-medium text-[var(--text)] leading-tight truncate hover:text-emerald-300 transition-colors text-left block max-w-full"
+                        >
+                          {m.name}
+                        </button>
                         <div className="text-[10px] text-[var(--text-faint)] truncate">{m.email}</div>
                       </div>
                     </div>
@@ -547,7 +505,13 @@ export default function Team() {
                   <span className="text-xs font-mono text-[var(--text-faint)] w-5 shrink-0 text-center">#{i + 1}</span>
                   <Avatar src={m.avatar_url || ""} name={m.name} size="md" className="shrink-0" />
                   <div className="min-w-0 flex-1">
-                    <div className="text-base font-semibold text-[var(--text)] truncate leading-tight">{m.name}</div>
+                    <button
+                      onClick={() => open.openAgent(m.id, m.name)}
+                      data-testid={`team-agent-link-m-${m.id}`}
+                      className="text-base font-semibold text-[var(--text)] truncate leading-tight hover:text-emerald-300 transition-colors text-left block max-w-full"
+                    >
+                      {m.name}
+                    </button>
                     <div className="text-xs text-[var(--text-faint)] truncate">{m.email}</div>
                   </div>
                   <div className="text-right shrink-0">
@@ -659,7 +623,6 @@ export default function Team() {
       </div>
 
       <AddAgentModal open={showAdd} onClose={() => setShowAdd(false)} onCreated={load} />
-      <TeamStatModal open={!!statModal} onClose={() => setStatModal(null)} title={statModal?.title} rows={statModal?.rows || []} />
     </div>
   );
 }

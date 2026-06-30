@@ -17,6 +17,7 @@ export function useOpen() {
       return;
     }
     tabs.openTab({ key: `page:${page}`, type: "page", params: { page }, title: meta?.title || page, icon: meta?.icon || "Square" });
+    navigate(meta?.path || "/");
   };
 
   const openLead = (id, title) => {
@@ -30,7 +31,8 @@ export function useOpen() {
   // spec: { kind?, metric, title }
   const openDrill = (spec) => {
     if (isMobile || !tabs) {
-      navigate("/leads");
+      const kind = spec.kind || "metric";
+      navigate(kind === "payments" ? "/payments" : kind === "teamstat" ? "/team" : "/leads");
       return;
     }
     tabs.openTab({
@@ -50,9 +52,9 @@ export function useOpen() {
     tabs.openTab({ key: `agent:${id}`, type: "agent", params: { id, name }, title: name || "Agent", icon: "UserCircle" });
   };
 
-  const openPayment = (p, fallback) => {
+  const openPayment = (p) => {
     if (isMobile || !tabs) {
-      fallback?.(p);
+      navigate(p?.lead_id ? `/leads/${p.lead_id}` : "/payments");
       return;
     }
     tabs.openTab({
