@@ -4,6 +4,15 @@
 > The sections below this changelog are LEGACY (pre-redesign, light theme) — defer to the handoff.
 
 ## Changelog
+### 2026-06-30 (sec) — Security audit + fixes (webhooks fail-closed, pricing integrity, avatar hardening)
+Ran security_audit_agent (verdict was FAIL). Fixed and verified by testing agent (iteration_22 = **14/14 backend assertions pass**).
+- **SEC-001 (HIGH) — payment webhooks now FAIL CLOSED & plug-and-play.** `/api/webhook/stripe` requires `STRIPE_WEBHOOK_SECRET` and verifies via `stripe.Webhook.construct_event` (removed the json.loads fail-open + unverified emergent fallback); `/api/webhook/razorpay` requires `RAZORPAY_WEBHOOK_SECRET` (400 if missing, 401 on bad sig). Forged events now return 400 and cannot flip a payment to Paid/Won. Demo still marks paid via the authenticated simulate + status-polling paths (unaffected). Added empty `STRIPE_WEBHOOK_SECRET`/`RAZORPAY_WEBHOOK_SECRET` to backend/.env and a prod-config assert that requires them when a provider is configured. **GO-LIVE: paste the signing secrets from the Stripe/Razorpay dashboards into those env vars.**
+- **SEC-003 (LOW) — pricing integrity.** Credit Top-Up credits are always derived server-side `round(amount × clamped multiplier)`; client-supplied `credits`/`boost_credits` are ignored (fixed-package path takes credits from the preset only). Multiplier clamp [MIN..15] still enforced.
+- **Hardening — avatar uploads** restricted to raster types (png/jpeg/jpg/webp/gif); `image/svg+xml` and non-image data URLs rejected (stored-XSS guard).
+- **SEC-002 (MEDIUM) — INTENTIONALLY NOT CHANGED** per user decision: `GET /api/team?period=` remains readable by agents so the Dashboard "Top Agents" + Agent-detail tabs keep working. (Revisit if agents shouldn't see teammates' revenue/quota.)
+- Audit confirmed SOUND: multi-tenant demo/real isolation, IDOR guards (incl. `/api/payments/id/{id}` → 404 cross-workspace), JWT (HS256, pinned alg, 7-day exp), bcrypt, CSRF double-submit, CORS allowlist, regex-escaped Mongo queries, httpOnly token (no localStorage token), no `dangerouslySetInnerHTML`.
+- New test: `/app/backend/tests/test_security_fixes.py` (`pytest -v`, 14 cases).
+
 ### 2026-06-30 (pm) — Shareable tab URLs + browser-style tab UX
 Frontend testing agent iteration_21 = **100% (12/12 checks), 0 open bugs** (cold-load deep-link oscillation found in iter_20 fully fixed; copy-link clipboard rejection fixed).
 - **Shareable tab links**: the active tab is two-way synced with the address bar, so every tab has a URL a teammate can open (subject to their own access). New canonical routes + mapping (`components/tabs/urls.js`: `tabToPath`/`specFromLocation`): `/drill?kind&metric&title`, `/agent/:id?name`, `/payment/:id`, `/leads/:id`, page paths. New backend `GET /api/payments/id/{id}` (RBAC + workspace enforced) lets a shared Payment link load by id. The 3 views (`DrillView`/`AgentView`/`PaymentView`) accept props (tab mode) OR read `useParams`/`useSearchParams` (route/shared-link/mobile mode).
