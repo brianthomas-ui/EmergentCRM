@@ -4,6 +4,15 @@
 > The sections below this changelog are LEGACY (pre-redesign, light theme) — defer to the handoff.
 
 ## Changelog
+### 2026-06-30 — Chrome-like browser TABS replace modal drill-downs + density/dark polish + meetings→Jul 10
+Frontend testing agent iteration_19 = **100% (all 15 review items pass), 0 functional bugs**. Verified across demo + real admin, incl. workspace isolation.
+- **Browser-style TAB system (desktop)**: replaced all data-drill-down MODALS with a persistent, kept-alive (state-preserving) tab strip rendered below the top of the content area; sidebar stays. New infra wired in: `TabsProvider` (App.js), `TabStrip` + keep-alive `TabHost` in desktop `Layout.js`, `useOpen` hook (openPage/openLead/openDrill/openAgent/openPayment), `registry.js` (type→view). Sidebar (`SidebarParts.js`) now drives tabs via `openPage`; active highlight follows the active tab. A URL→tab safety-net effect (depends only on stable `openTab`+pathname) lets any `<Link>`/navigate land as a tab. `/payment-return` stays a bare route. Mobile keeps route-based single-view (useOpen falls back to navigate).
+- **New tab views**: `pages/DrillView.jsx` (metric/teamstat/payments drill tables, sortable), `pages/AgentView.jsx` (profile, won-vs-target, KPI tiles, pipeline-by-stage, assigned-leads), `pages/PaymentView.jsx` (full payment detail). `LeadDetail.js` accepts a `leadId` prop so it renders inside a tab. Dashboard KPIs + Top Agents, Team KPIs + rep names, Payments summary + rows all open TABS now (input dialogs New Payment Link / Add Agent remain modals per `design_guidelines.json`).
+- **Per-user tab isolation**: tab set persisted in localStorage keyed `crm_tabs_v1:<userId>` and reset on identity change — demo/real workspaces never inherit each other's drill/agent/payment tabs.
+- **Density + dark polish**: reduced desktop container padding (px-6/8→px-5/6, py-6/8→py-5/6); standardized headings to text-2xl. **Payments page + `PaymentsWidgets.js` fully converted light→dark** (summary cards, table, FX card, lead-picker modal).
+- **Demo meetings extended through 2026-07-10**: `_seed_demo_meetings` `end_day = max(today+7, 2026-07-10)`; reseeded demo (840 leads / 638 payments / 13,644 meetings; 133 meetings/day on Jul 9 & 10).
+- Backlog (optional, from testing agent): a11y `role="dialog"`+testid on PaymentModal; tab-strip right-edge fade when 10+ tabs overflow; sync active tab → URL for shareable deep links.
+
 ### 2026-06-29 — Date refresh + free-input multiplier + clickable grouped numbers
 Testing agent iter_17/iter_18 = frontend 100% after fixing one missing useState. Backend curl + 5 multiplier pytest pass.
 - **Demo data refreshed to "today" (29 Jun 2026)**: reseeded the demo workspace (841 leads / 640 payments / 13,098 meetings); newest leads now dated 2026-06-29. June seed factor bumped 0.72→0.97 (month-end near-complete). `POST /api/demo/reset` re-anchors all relative dates to `now`.

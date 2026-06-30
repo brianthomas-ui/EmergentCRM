@@ -1,9 +1,12 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useAuth } from "@/context/AuthContext";
 
 // Browser-style multi-tab workspace state. Tabs are kept ALIVE (mounted) so
-// scroll/filters persist when switching. Persisted to localStorage so a refresh
-// restores the open set.
-const LS_KEY = "crm_tabs_v1";
+// scroll/filters persist when switching. Persisted to localStorage PER USER so a
+// refresh restores the open set AND demo/real workspaces never inherit each
+// other's drill/agent/payment tabs (strict tenant isolation).
+const LS_PREFIX = "crm_tabs_v1";
+const lsKey = (uid) => `${LS_PREFIX}:${uid || "anon"}`;
 
 const HOME = {
   id: "home",
@@ -18,9 +21,9 @@ const HOME = {
 let _seq = 1;
 const newId = () => `t${Date.now().toString(36)}${(_seq++).toString(36)}`;
 
-function load() {
+function load(uid) {
   try {
-    const raw = JSON.parse(localStorage.getItem(LS_KEY));
+    const raw = JSON.parse(localStorage.getItem(lsKey(uid)));
     if (raw && Array.isArray(raw.tabs) && raw.tabs.length) {
       const tabs = raw.tabs.some((t) => t.pinned) ? raw.tabs : [HOME, ...raw.tabs];
       const activeId = raw.activeId && tabs.find((t) => t.id === raw.activeId) ? raw.activeId : tabs[0].id;
@@ -35,16 +38,27 @@ function load() {
 const TabsContext = createContext(null);
 
 export function TabsProvider({ children }) {
-  const [state, setState] = useState(load);
+  const { user } = useAuth();
+  const uid = user?.id || null;
+  const [state, setState] = useState(() => load(null));
   const { tabs, activeId } = state;
+
+  // When the signed-in identity changes (login / logout / impersonate), swap to
+  // that user's persisted tab set so workspaces stay isolated.
+  const uidRef = useRef(undefined);
+  useEffect(() => {
+    if (uidRef.current === uid) return;
+    uidRef.current = uid;
+    setState(load(uid));
+  }, [uid]);
 
   useEffect(() => {
     try {
-      localStorage.setItem(LS_KEY, JSON.stringify(state));
+      localStorage.setItem(lsKey(uid), JSON.stringify(state));
     } catch (e) {
       console.warn("tabs persist failed:", e);
     }
-  }, [state]);
+  }, [state, uid]);
 
   // spec: { key, type, params, title, icon, activate? }
   const openTab = useCallback((spec) => {
