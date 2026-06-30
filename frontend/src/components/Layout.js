@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { motion, useReducedMotion } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
@@ -8,7 +8,8 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useOpen } from "@/hooks/useOpen";
 import TabStrip from "@/components/tabs/TabStrip";
 import TabHost from "@/components/tabs/TabHost";
-import { PAGE_META, PATH_TO_PAGE } from "@/components/tabs/pages.config";
+import { PAGE_META } from "@/components/tabs/pages.config";
+import { tabToPath, specFromLocation } from "@/components/tabs/urls";
 import {
   LayoutDashboard,
   Briefcase,
@@ -59,31 +60,79 @@ export default function Layout({ children }) {
   const isMobile = useIsMobile();
   const tabsApi = useTabs();
   const openTab = tabsApi?.openTab;
+  const setActive = tabsApi?.setActive;
+  const closeTab = tabsApi?.closeTab;
+  const reopenLast = tabsApi?.reopenLast;
   const { openPage } = useOpen();
   const [savingAvatar, setSavingAvatar] = useState(false);
   const [runTour, setRunTour] = useState(false);
   const [pwOpen, setPwOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
 
-  // Desktop browser-style tabs: keep the open-tab set in sync with the URL so any
-  // <Link>/navigate (sidebar, search, in-page links) lands as a kept-alive tab.
-  // Depends ONLY on the stable openTab + pathname so switching tabs (which does
-  // NOT change the URL) never re-activates the URL's page over a drill/agent tab.
+  // Live refs so the sync effects below can read current tabs without re-running
+  // on every tab change (which would create a URL<->tab feedback loop).
+  const tabsRef = useRef(tabsApi?.tabs);
+  const activeIdRef = useRef(tabsApi?.activeId);
+  const didTabUrlSync = useRef(false); // skip the first tab->URL run so a deep link wins on load
+  tabsRef.current = tabsApi?.tabs;
+  activeIdRef.current = tabsApi?.activeId;
+
+  const isBareRoute = location.pathname === "/login" || location.pathname.startsWith("/payment-return");
+
+  // (1) URL -> TAB. A shared/pasted link (or any <Link>/back-button) opens or
+  // activates the matching kept-alive tab. Runs only when the URL changes.
   useEffect(() => {
-    if (isMobile || !openTab) return;
-    const path = location.pathname;
-    if (path === "/login" || path.startsWith("/payment-return")) return;
-    const leadMatch = path.match(/^\/leads\/([^/]+)$/);
-    if (leadMatch) {
-      openTab({ key: `lead:${leadMatch[1]}`, type: "lead", params: { id: leadMatch[1] }, title: "Lead", icon: "User" });
+    if (isMobile || !openTab || !setActive) return;
+    const spec = specFromLocation(location.pathname, location.search);
+    if (!spec) return;
+    const existing = (tabsRef.current || []).find((t) => t.key === spec.key);
+    if (existing) {
+      if (activeIdRef.current !== existing.id) setActive(existing.id);
+    } else {
+      openTab(spec);
+    }
+  }, [location.pathname, location.search, isMobile, openTab, setActive]);
+
+  // (2) ACTIVE TAB -> URL. Keep the address bar pointing at the active tab so it
+  // is always shareable. Compares by tab KEY (not raw string) so query-param
+  // encoding never causes a navigate loop, and never fights effect (1)/bare routes.
+  useEffect(() => {
+    if (isMobile || isBareRoute) return;
+    // On the very first run the URL is authoritative (a shared/deep link must win
+    // over the persisted active tab); effect (1) handles it. Skip one tab->URL pass.
+    if (!didTabUrlSync.current) {
+      didTabUrlSync.current = true;
       return;
     }
-    const page = PATH_TO_PAGE[path];
-    if (page) {
-      const meta = PAGE_META[page];
-      openTab({ key: `page:${page}`, type: "page", params: { page }, title: meta.title, icon: meta.icon });
-    }
-  }, [location.pathname, isMobile, openTab]);
+    const active = (tabsRef.current || []).find((t) => t.id === tabsApi?.activeId);
+    if (!active) return;
+    const currentSpec = specFromLocation(location.pathname, location.search);
+    if (currentSpec && currentSpec.key === active.key) return; // URL already shows the active tab
+    navigate(tabToPath(active));
+  }, [tabsApi?.activeId, isMobile, isBareRoute, location.pathname, location.search, navigate]);
+
+  // Keyboard shortcuts (desktop): Ctrl/Cmd+W closes the active tab, Ctrl/Cmd+Shift+T
+  // reopens the last closed one. (Some browsers reserve Ctrl+W; best effort.)
+  useEffect(() => {
+    if (isMobile) return;
+    const onKey = (e) => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod) return;
+      const k = e.key.toLowerCase();
+      if (k === "w") {
+        const active = (tabsRef.current || []).find((t) => t.id === activeIdRef.current);
+        if (active && !active.pinned) {
+          e.preventDefault();
+          closeTab?.(active.id);
+        }
+      } else if (k === "t" && e.shiftKey) {
+        e.preventDefault();
+        reopenLast?.();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isMobile, closeTab, reopenLast]);
 
   const visibleNavItems = useMemo(
     () => navItems.filter((i) => i.divider || !i.admin || isAdmin),

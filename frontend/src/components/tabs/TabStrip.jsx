@@ -1,14 +1,28 @@
 import { useRef, useState } from "react";
-import { X, Plus } from "lucide-react";
+import { X, Plus, Link2 } from "lucide-react";
+import { toast } from "sonner";
 import { useTabs } from "@/context/TabsContext";
 import { ICONS } from "@/components/tabs/icons";
+import { tabToPath } from "@/components/tabs/urls";
 
-// Desktop/tablet browser-style tab strip. Reorder by drag, close per tab, and a
-// "+" launcher to open any page in a new tab.
+// Desktop/tablet browser-style tab strip. Reorder by drag, close per tab, a "+"
+// launcher to open any page in a new tab, and shareable per-tab links (right-click
+// a tab, or use the link button, to copy a URL a teammate can open).
 export default function TabStrip({ launchPages = [], topPx = 0 }) {
   const { tabs, activeId, setActive, closeTab, reorder } = useTabs();
   const dragId = useRef(null);
   const [menuOpen, setMenuOpen] = useState(false);
+
+  const copyLink = (tab) => {
+    if (!tab) return;
+    try {
+      const url = window.location.origin + tabToPath(tab);
+      navigator.clipboard?.writeText(url);
+      toast.success("Tab link copied — share it with a teammate");
+    } catch (e) {
+      toast.error("Couldn't copy link");
+    }
+  };
 
   return (
     <div className="sticky z-30 flex items-stretch h-10 bg-[var(--surface-1)] border-b border-[var(--border)]" style={{ top: topPx }}>
@@ -27,6 +41,10 @@ export default function TabStrip({ launchPages = [], topPx = 0 }) {
                 dragId.current = null;
               }}
               onClick={() => setActive(t.id)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                copyLink(t);
+              }}
               onAuxClick={(e) => {
                 // middle-click closes (browser convention)
                 if (e.button === 1 && !t.pinned) {
@@ -35,7 +53,7 @@ export default function TabStrip({ launchPages = [], topPx = 0 }) {
                 }
               }}
               data-testid={`tab-${t.key}`}
-              title={t.title}
+              title={`${t.title} — right-click to copy a shareable link`}
               className={`group flex items-center gap-2 pl-3 pr-2 min-w-[130px] max-w-[210px] border-r border-[var(--border)] cursor-pointer select-none transition-colors ${
                 active
                   ? "bg-[var(--bg)] text-[var(--text)] border-t-2 border-t-emerald-500"
@@ -44,6 +62,17 @@ export default function TabStrip({ launchPages = [], topPx = 0 }) {
             >
               <Icon className="w-3.5 h-3.5 shrink-0" />
               <span className="text-xs truncate flex-1">{t.title}</span>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  copyLink(t);
+                }}
+                data-testid={`tab-copylink-${t.key}`}
+                className="shrink-0 rounded p-0.5 text-[var(--text-faint)] opacity-0 group-hover:opacity-100 hover:text-emerald-400 hover:bg-[var(--surface-3)] transition-all"
+                title="Copy shareable link to this tab"
+              >
+                <Link2 className="w-3.5 h-3.5" />
+              </button>
               {!t.pinned && (
                 <button
                   onClick={(e) => {
@@ -52,7 +81,7 @@ export default function TabStrip({ launchPages = [], topPx = 0 }) {
                   }}
                   data-testid={`tab-close-${t.key}`}
                   className="shrink-0 rounded p-0.5 text-[var(--text-faint)] opacity-0 group-hover:opacity-100 hover:text-rose-400 hover:bg-[var(--surface-3)] transition-all"
-                  title="Close tab"
+                  title="Close tab (Ctrl/Cmd+W)"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -63,6 +92,14 @@ export default function TabStrip({ launchPages = [], topPx = 0 }) {
       </div>
 
       <div className="relative flex items-center">
+        <button
+          onClick={() => copyLink(tabs.find((t) => t.id === activeId))}
+          data-testid="tab-copy-active-link"
+          className="h-full px-2.5 text-[var(--text-faint)] hover:text-emerald-400 hover:bg-[var(--surface-2)] transition-colors border-l border-[var(--border)]"
+          title="Copy a shareable link to the current tab"
+        >
+          <Link2 className="w-4 h-4" />
+        </button>
         <button
           onClick={() => setMenuOpen((v) => !v)}
           data-testid="tab-new-btn"

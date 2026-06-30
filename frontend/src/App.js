@@ -21,6 +21,9 @@ const Campaigns = lazy(() => import("@/pages/Campaigns"));
 const Team = lazy(() => import("@/pages/Team"));
 const AuditLog = lazy(() => import("@/pages/AuditLog"));
 const PaymentReturn = lazy(() => import("@/pages/PaymentReturn"));
+const DrillView = lazy(() => import("@/pages/DrillView"));
+const AgentView = lazy(() => import("@/pages/AgentView"));
+const PaymentView = lazy(() => import("@/pages/PaymentView"));
 
 function Protected({ children, adminOnly }) {
   const { user, isAdmin } = useAuth();
@@ -48,6 +51,9 @@ function App() {
                 <Route path="/workspace" element={<Protected><Workspace /></Protected>} />
                 <Route path="/leads" element={<Protected><Leads /></Protected>} />
                 <Route path="/leads/:id" element={<Protected><LeadDetail /></Protected>} />
+                <Route path="/drill" element={<Protected><DrillView /></Protected>} />
+                <Route path="/agent/:id" element={<Protected><AgentView /></Protected>} />
+                <Route path="/payment/:id" element={<Protected><PaymentView /></Protected>} />
                 <Route path="/deals" element={<Protected><Deals /></Protected>} />
                 <Route path="/meetings" element={<Protected><Meetings /></Protected>} />
                 <Route path="/payments" element={<Protected><Payments /></Protected>} />

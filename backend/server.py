@@ -2506,6 +2506,16 @@ async def list_payments(request: Request, user: dict = Depends(get_current_user)
     payments = await db.payments.find(q).sort("created_at", -1).to_list(1000)
     return [clean(p) for p in payments]
 
+@api.get("/payments/id/{payment_id}", response_model=PaymentOut)
+async def get_payment(payment_id: str, user: dict = Depends(get_current_user)):
+    """Single payment by id (used by a shared Payment tab link). Workspace + RBAC
+    enforced via require_payment_access (404 across workspaces / for non-owners)."""
+    record = await db.payments.find_one({"id": payment_id})
+    if not record:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    await require_payment_access(user, record)
+    return clean(record)
+
 def _is_credit_topup(body: "PaymentIn", pkg: Optional[dict]) -> bool:
     """A payment is multiplier-priced Credit Top-Up when its package is a Credit Top-Up,
     a multiplier is supplied, or the package id is a credits_* preset."""

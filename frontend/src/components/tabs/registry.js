@@ -41,7 +41,7 @@ export function renderTab(tab) {
   if (tab.type === "lead") return <LeadDetail leadId={tab.params.id} />;
   if (tab.type === "drill") return <DrillView spec={tab.params} />;
   if (tab.type === "agent") return <AgentView agentId={tab.params.id} name={tab.params.name} />;
-  if (tab.type === "payment") return <PaymentView payment={tab.params.payment} />;
+  if (tab.type === "payment") return <PaymentView payment={tab.params.payment} paymentId={tab.params.id || tab.params.payment?.id} />;
   return <Missing />;
 }
 

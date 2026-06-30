@@ -46,9 +46,11 @@ export function TabsProvider({ children }) {
   // When the signed-in identity changes (login / logout / impersonate), swap to
   // that user's persisted tab set so workspaces stay isolated.
   const uidRef = useRef(undefined);
+  const closedRef = useRef([]); // stack of recently closed tab specs (for reopen)
   useEffect(() => {
     if (uidRef.current === uid) return;
     uidRef.current = uid;
+    closedRef.current = [];
     setState(load(uid));
   }, [uid]);
 
@@ -80,6 +82,9 @@ export function TabsProvider({ children }) {
     setState((s) => {
       const tab = s.tabs.find((t) => t.id === id);
       if (!tab || tab.pinned) return s;
+      // remember it so Ctrl/Cmd+Shift+T can reopen it
+      closedRef.current.push({ key: tab.key, type: tab.type, params: tab.params, title: tab.title, icon: tab.icon });
+      if (closedRef.current.length > 25) closedRef.current.shift();
       const idx = s.tabs.findIndex((t) => t.id === id);
       const tabs = s.tabs.filter((t) => t.id !== id);
       let activeId = s.activeId;
@@ -91,7 +96,12 @@ export function TabsProvider({ children }) {
     });
   }, []);
 
-  const setActive = useCallback((id) => setState((s) => ({ ...s, activeId: id })), []);
+  const setActive = useCallback((id) => setState((s) => (s.activeId === id ? s : { ...s, activeId: id })), []);
+
+  const reopenLast = useCallback(() => {
+    const spec = closedRef.current.pop();
+    if (spec) openTab(spec);
+  }, [openTab]);
 
   const reorder = useCallback((fromId, toId) => {
     setState((s) => {
@@ -106,8 +116,8 @@ export function TabsProvider({ children }) {
   }, []);
 
   const value = useMemo(
-    () => ({ tabs, activeId, openTab, closeTab, setActive, reorder }),
-    [tabs, activeId, openTab, closeTab, setActive, reorder]
+    () => ({ tabs, activeId, openTab, closeTab, setActive, reorder, reopenLast }),
+    [tabs, activeId, openTab, closeTab, setActive, reorder, reopenLast]
   );
   return <TabsContext.Provider value={value}>{children}</TabsContext.Provider>;
 }

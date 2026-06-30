@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Loader2, ArrowUpDown } from "lucide-react";
 import client from "@/api";
 import { Card } from "@/components/dark/Primitives";
@@ -134,14 +135,22 @@ function buildConfig(spec, openLead, openAgent) {
 }
 
 export default function DrillView({ spec }) {
+  const [sp] = useSearchParams();
+  const kindQ = sp.get("kind");
+  const metricQ = sp.get("metric");
+  const titleQ = sp.get("title");
+  const effSpec = useMemo(
+    () => spec || { kind: kindQ || "metric", metric: metricQ || "", title: titleQ || "Details" },
+    [spec, kindQ, metricQ, titleQ]
+  );
   const { openLead, openAgent } = useOpen();
   const [period, setPeriod] = useState(DEFAULT_PERIOD);
   const [rows, setRows] = useState(null);
   const [sortKey, setSortKey] = useState(null);
   const [sortDir, setSortDir] = useState("desc");
 
-  const config = useMemo(() => buildConfig(spec, openLead, openAgent), [spec, openLead, openAgent]);
-  const kind = spec.kind || "metric";
+  const config = useMemo(() => buildConfig(effSpec, openLead, openAgent), [effSpec, openLead, openAgent]);
+  const kind = effSpec.kind || "metric";
 
   useEffect(() => {
     let live = true;
@@ -151,14 +160,14 @@ export default function DrillView({ spec }) {
         if (kind === "payments") {
           const { data } = await client.get("/payments");
           let list = data || [];
-          if (spec.metric === "collected") list = list.filter((p) => p.payment_status === "paid");
-          else if (spec.metric === "pending") list = list.filter((p) => p.payment_status !== "paid");
+          if (effSpec.metric === "collected") list = list.filter((p) => p.payment_status === "paid");
+          else if (effSpec.metric === "pending") list = list.filter((p) => p.payment_status !== "paid");
           if (live) setRows(list);
         } else if (kind === "teamstat") {
           const { data } = await client.get("/team", { params: toParams(period) });
           if (live) setRows((data || []).filter((m) => m.stats));
         } else {
-          const { data } = await client.get("/dashboard/drilldown", { params: { metric: spec.metric, ...toParams(period) } });
+          const { data } = await client.get("/dashboard/drilldown", { params: { metric: effSpec.metric, ...toParams(period) } });
           if (live) setRows(Array.isArray(data) ? data : data?.items || []);
         }
       } catch (e) {
@@ -167,7 +176,7 @@ export default function DrillView({ spec }) {
     };
     run();
     return () => { live = false; };
-  }, [kind, spec.metric, period]);
+  }, [kind, effSpec.metric, period]);
 
   const sorted = useMemo(() => {
     if (!rows) return null;
@@ -194,7 +203,7 @@ export default function DrillView({ spec }) {
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <div className="text-[10px] font-mono uppercase tracking-[0.14em] text-emerald-400/80">Breakdown</div>
-          <h1 className="font-heading text-2xl font-semibold tracking-tight text-[var(--text)] mt-0.5">{spec.title || "Details"}</h1>
+          <h1 className="font-heading text-2xl font-semibold tracking-tight text-[var(--text)] mt-0.5">{effSpec.title || "Details"}</h1>
         </div>
         {config.needsPeriod && <PeriodFilter value={period} onChange={setPeriod} />}
       </div>

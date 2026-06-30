@@ -1,5 +1,8 @@
+import { useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
 import { toast } from "sonner";
-import { Copy, ExternalLink } from "lucide-react";
+import { Copy, ExternalLink, Loader2 } from "lucide-react";
+import client from "@/api";
 import { Card } from "@/components/dark/Primitives";
 import { money, Badge, paymentStatusClass, fmtDateTime } from "@/components/helpers";
 import { useOpen } from "@/hooks/useOpen";
@@ -13,11 +16,35 @@ function Row({ label, children }) {
   );
 }
 
-export default function PaymentView({ payment }) {
+export default function PaymentView({ payment, paymentId }) {
+  const params = useParams();
+  const id = paymentId || payment?.id || params.id;
   const { openLead } = useOpen();
-  const p = payment;
+  const [fetched, setFetched] = useState(null); // null=loading, false=not found, obj=loaded
+  const p = payment || fetched;
+
+  useEffect(() => {
+    if (payment || !id) return;
+    let live = true;
+    setFetched(null);
+    client
+      .get(`/payments/id/${id}`)
+      .then((r) => live && setFetched(r.data))
+      .catch(() => live && setFetched(false));
+    return () => {
+      live = false;
+    };
+  }, [id, payment]);
+
+  if (!payment && fetched === null) {
+    return (
+      <div className="flex items-center gap-2 text-[var(--text-faint)] text-sm py-16 justify-center" data-testid="payment-view">
+        <Loader2 className="w-4 h-4 animate-spin" /> Loading payment…
+      </div>
+    );
+  }
   if (!p) {
-    return <div className="p-8 text-sm text-[var(--text-faint)]">This payment is no longer available.</div>;
+    return <div className="p-8 text-sm text-[var(--text-faint)]" data-testid="payment-view">This payment is no longer available, or you don't have access to it.</div>;
   }
   const paid = p.payment_status === "paid";
   const paidAt = p.paid_at || (paid ? p.updated_at : null);

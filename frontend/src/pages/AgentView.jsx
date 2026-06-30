@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useParams, useSearchParams } from "react-router-dom";
 import { Loader2, Mail, Trophy, CalendarCheck, Users as UsersIcon, DollarSign } from "lucide-react";
 import client from "@/api";
 import { Card } from "@/components/dark/Primitives";
@@ -34,6 +35,10 @@ function KpiTile({ icon: Icon, label, value, accent = "text-[var(--text)]" }) {
 }
 
 export default function AgentView({ agentId, name }) {
+  const params = useParams();
+  const [sp] = useSearchParams();
+  const id = agentId || params.id;
+  const fallbackName = name || sp.get("name");
   const { openLead } = useOpen();
   const [agent, setAgent] = useState(null);
   const [leads, setLeads] = useState(null);
@@ -46,18 +51,18 @@ export default function AgentView({ agentId, name }) {
       .get("/team", { params: { period: "this_month" } })
       .then((r) => {
         if (!live) return;
-        const a = (r.data || []).find((m) => m.id === agentId) || null;
+        const a = (r.data || []).find((m) => m.id === id) || null;
         setAgent(a);
       })
       .catch(() => live && setAgent(false));
     client
-      .get("/leads", { params: { owner: agentId } })
+      .get("/leads", { params: { owner: id } })
       .then((r) => live && setLeads(r.data || []))
       .catch(() => live && setLeads([]));
     return () => {
       live = false;
     };
-  }, [agentId]);
+  }, [id]);
 
   const stats = agent?.stats || {};
   const target = num(agent?.monthly_target);
@@ -80,7 +85,7 @@ export default function AgentView({ agentId, name }) {
     [leads]
   );
 
-  const displayName = agent?.name || name || "Agent";
+  const displayName = agent?.name || fallbackName || "Agent";
 
   return (
     <div className="flex flex-col gap-5" data-testid="agent-view">
