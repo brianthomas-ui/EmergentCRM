@@ -41,10 +41,13 @@ export function TabsProvider({ children }) {
   const { user } = useAuth();
   const uid = user?.id || null;
   const [state, setState] = useState(() => load(null));
+  const [ready, setReady] = useState(false); // true once the authed user's tabs are loaded
   const { tabs, activeId } = state;
 
   // When the signed-in identity changes (login / logout / impersonate), swap to
-  // that user's persisted tab set so workspaces stay isolated.
+  // that user's persisted tab set so workspaces stay isolated. `ready` flips true
+  // only after a REAL user's set is loaded, so the URL<->tab sync never runs
+  // against (and gets clobbered by) the anon/previous state.
   const uidRef = useRef(undefined);
   const closedRef = useRef([]); // stack of recently closed tab specs (for reopen)
   useEffect(() => {
@@ -52,6 +55,7 @@ export function TabsProvider({ children }) {
     uidRef.current = uid;
     closedRef.current = [];
     setState(load(uid));
+    setReady(!!uid);
   }, [uid]);
 
   useEffect(() => {
@@ -116,8 +120,8 @@ export function TabsProvider({ children }) {
   }, []);
 
   const value = useMemo(
-    () => ({ tabs, activeId, openTab, closeTab, setActive, reorder, reopenLast }),
-    [tabs, activeId, openTab, closeTab, setActive, reorder, reopenLast]
+    () => ({ tabs, activeId, ready, openTab, closeTab, setActive, reorder, reopenLast }),
+    [tabs, activeId, ready, openTab, closeTab, setActive, reorder, reopenLast]
   );
   return <TabsContext.Provider value={value}>{children}</TabsContext.Provider>;
 }

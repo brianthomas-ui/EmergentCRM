@@ -5,6 +5,7 @@ import { ThemeProvider } from "@/context/ThemeContext";
 import { TabsProvider } from "@/context/TabsContext";
 import { Toaster } from "@/components/ui/sonner";
 import Layout from "@/components/Layout";
+import TabUrlSync from "@/components/tabs/TabUrlSync";
 import Login from "@/pages/Login";
 
 // Route pages are code-split so the first mobile paint ships only the shell + the
@@ -45,6 +46,7 @@ function App() {
         <BrowserRouter>
           <AuthProvider>
             <TabsProvider>
+              <TabUrlSync />
               <Routes>
                 <Route path="/login" element={<Login />} />
                 <Route path="/" element={<Protected><Dashboard /></Protected>} />

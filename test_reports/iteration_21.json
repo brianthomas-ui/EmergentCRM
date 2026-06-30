@@ -1,0 +1,36 @@
+{
+  "summary": "Round 21 RETEST after the TabUrlSync refactor + ready gate. ALL deep-link cold-load oscillations are FIXED and all deferred tab-UX checks pass. The only new finding is a minor uncaught-promise-rejection on the copy-link button when navigator.clipboard.writeText fails (headless / no permission); the success toast still fires but the rejection bubbles to window.onunhandledrejection and triggers the CRA dev runtime error overlay, which then blocks subsequent UI interactions. Wrapping the writeText in try/await with .catch will fully resolve it.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "TabStrip copy-link buttons ([data-testid=tab-copy-active-link] and [data-testid^=tab-copylink-])",
+        "issue": "navigator.clipboard.writeText() is called without a catch. When clipboard write is denied (headless browsers, http contexts, missing permission), the success toast still shows but the rejected promise propagates as an uncaught promise rejection. In CRA dev mode this opens the red 'Uncaught runtime errors' overlay, which fully covers the page and blocks every subsequent click (close X, middle-click, modal open, etc). In production no overlay appears but the rejection is still logged. Fix: wrap navigator.clipboard?.writeText(url) in a try/catch (or .catch(() => {})) and only then show the toast (or show a different toast on failure).",
+        "selector": "[data-testid=tab-copy-active-link], [data-testid^=tab-copylink-]",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Wrap copy-link clipboard write in try/catch so headless / permission-denied environments don't surface an uncaught rejection (and the CRA dev error overlay) — minor but blocks any tab interactions after the first copy click.",
+    "Optional: if running e2e in headless, also gate the toast wording on actual write success (else say 'Couldn't copy — link in URL bar' fallback)."
+  ],
+  "critical_code_review_comments": [
+    "TabUrlSync.jsx is clean: single never-remounting effect, prevLoc null sentinel + ready gate properly stop the previous oscillation; verified empirically.",
+    "TabsContext.ready flips true only after the authed user's tab set is loaded — correct, prevents anon-state from clobbering deep links.",
+    "Pinned-dashboard close button is correctly omitted (no [data-testid=tab-close-page:dashboard] in DOM).",
+    "Per-user LS key crm_tabs_v1:<uid> works (admin sees only [tab-page:dashboard] after demo had 5 tabs).",
+    "Copy-link UX should not depend on a side effect that can throw — add .catch."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "skipped", "frontend": "100% (all 12 checks PASS; the clipboard rejection is a side-issue, not a regression of the tab system)"},
+  "test_credentials": "demo@emergent.sh / demo12345 ; diyea@emergent.sh / emergent@12345 ; pre-set localStorage crm_tour_v2_done=1 to suppress the auto-tour which navigates pages and breaks deep-link probes.",
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Verified results (all PASS): (1) /drill?kind=metric&metric=open_pipeline&title=Open+Pipeline cold-load stable 5.6s, drill-view rendered, final URL unchanged. (2) /agent/<id>?name=X cold-load stable 5.6s, agent-view rendered. (3) /payment/<id> cold-load stable 5.6s, payment-view rendered. (4) In-session: kpi-revenue->/drill, nav-team->/team, team-agent-link->/agent/:id, pay-row->/payment/:id (all URL updates correct). (5) Copy-link buttons present and fire toast 'Tab link copied — share it with a teammate' (active + per-tab). (6) Close X decreases tab count by 1, pinned dashboard has no close btn. (7) Middle-click on a tab body closes it. (8) Ctrl+Shift+T reopens the last closed tab (verified: agent tab gone after middle-click, returned to strip after Ctrl+Shift+T). (9) new-payment-link-btn does NOT create a new tab (regression intact). (10) /payment-return is bare (no Dashboard tab strip). (11) Persistence across normal F5 reload: 5 tabs survived identical. (12) Per-user isolation: after demo->logout->admin login, admin sees ONLY ['tab-page:dashboard'] (none of demo's 4 extra tabs). IMPORTANT GOTCHA for next agent: the auto-tour (localStorage flag crm_tour_v2_done) is what caused iteration_20's apparent oscillation false-positive — the tour itself navigates pages. Always pre-set localStorage.setItem('crm_tour_v2_done','1') before logging in, otherwise the tour will navigate the URL and look like a sync bug. Also: page.goto must use wait_until='domcontentloaded' (the dashboard polls keep networkidle from ever settling). The copy-link clipboard rejection (writeText denied in headless) surfaces the CRA dev runtime overlay; stub navigator.clipboard.writeText in add_init_script during automated runs, or simply avoid clicking the copy buttons before other UI assertions.",
+  "rca of the issue": "The round 20 oscillation is fully resolved by the TabUrlSync refactor: (a) a single never-remounting component eliminates the Suspense/lazy-route remount race that reset the one-shot guard, (b) the new 'what changed' detector (prev URL vs current URL, prev active vs current active) chooses direction without ever fighting itself, (c) the `ready` flag from TabsContext defers the very first run until the authed user's persisted tab set is loaded so it can no longer clobber a deep-link tab. Empirically: 5.6s of url sampling every 700ms across all three deep-link routes shows zero deviation. The previously-reported 'flip back to /' is no longer reproducible."
+}
